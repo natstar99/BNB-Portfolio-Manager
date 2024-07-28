@@ -14,7 +14,7 @@ import pandas as pd
 import os
 import shutil
 import threading
-import process_data
+import stock_info_collector
 from tkcalendar import DateEntry
 from datetime import datetime
 import numpy as np
@@ -72,7 +72,7 @@ def plot_selected(mode):
                     ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'], label=f'{ticker} Market Value (With Dividends)')
                     ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithoutDiv'], label=f'{ticker} Market Value (Without Dividends)')
                 elif selected_plot_type.get() == "Dividend Performance":
-                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'] - portfolio_df[f'{ticker}_Market_Value_WithoutDiv'], label=f'{ticker}')
+                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Dividends_Earned']*portfolio_df[f'{ticker}_Price'], label=f'{ticker}')
                 elif selected_plot_type.get() == "Profit/Loss":
                     ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'] + portfolio_df[f'{ticker}_Cumulative_Transaction_Value'], label=ticker)
             
@@ -168,7 +168,7 @@ def load_new_portfolio_data(initial_window=None):
         ticker_dfs = []
 
         def process_data():
-            ticker_dfs.append(process_data.main(file_path))
+            ticker_dfs.append(stock_info_collector.main(file_path))
             event.set()
 
         # Run the data processing in a separate thread
@@ -305,8 +305,11 @@ def load_selected_portfolio(selected_portfolio):
 
     for ticker, df in ticker_dfs.items():
         if 'Trade Date' in df.columns:
-            ticker_data = df[['Trade Date', 'Market Value (With Dividends)', 'Market Value (Without Dividends)', 'Cumulative Transaction Value', 'Cumulative Quantity']]
-            ticker_data.columns = ['Trade Date', f'{ticker}_Market_Value_WithDiv', f'{ticker}_Market_Value_WithoutDiv', f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Cumulative_Quantity']
+            ticker_data = df[['Trade Date', 'Price', 'Market Value (With Dividends)', 'Market Value (Without Dividends)', 
+                              'Cumulative Transaction Value', 'Cumulative Quantity', 'Dividends Earned']]
+            
+            ticker_data.columns = ['Trade Date', f'{ticker}_Price', f'{ticker}_Market_Value_WithDiv', f'{ticker}_Market_Value_WithoutDiv', 
+                                   f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Cumulative_Quantity', f'{ticker}_Dividends_Earned']
 
             if portfolio_df.empty:
                 portfolio_df = ticker_data

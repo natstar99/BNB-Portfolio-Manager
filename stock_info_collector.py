@@ -149,6 +149,7 @@ def process_tickers(df, tickers):
             combined_df['Market Value (Without Dividends)'] = combined_df['Cumulative Quantity'] * combined_df['Price']
             combined_df['Cumulative Quantity With Dividends'] = combined_df['Cumulative Quantity']
             combined_df['Dividend Units Remainder'] = 0.0
+            combined_df['Dividends Earned'] = 0.0
 
             for index in range(len(combined_df)):
                 row = combined_df.iloc[index]
@@ -160,8 +161,10 @@ def process_tickers(df, tickers):
 
                     for row_idx in range(index + 1, len(combined_df)):
                         if fractional_shares:
-                            combined_df.at[row_idx, 'Cumulative Quantity With Dividends'] += dividend_units
+                            combined_df.at[row_idx, 'Dividends Earned'] += dividend_units 
+                            #combined_df.at[row_idx, 'Cumulative Quantity With Dividends'] += dividend_units ##(This line calculates fractional shares as being reinvested, Raiz already does this)
                         else:
+                            combined_df.at[row_idx, 'Dividends Earned'] += dividend_units 
                             combined_df.at[row_idx, 'Dividend Units Remainder'] += dividend_units % 1
                             combined_df.at[row_idx, 'Cumulative Quantity With Dividends'] += dividend_units // 1
                             if combined_df.at[row_idx, 'Dividend Units Remainder'] >= 1:
