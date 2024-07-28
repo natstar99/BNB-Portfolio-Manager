@@ -23,8 +23,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=UserWarning)
 import squarify
 
-
-
 # Function to find the earliest trade date with non-zero portfolio performance
 def find_earliest_non_zero_date(selected_tickers):
     min_date = None
@@ -617,21 +615,6 @@ def plot_portfolio_distribution():
     
     # Refresh the selection frame
     refresh_selection_frame()
-
-
-
-
-
-
-import matplotlib.colors as mcolors
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
-import squarify
-import pandas as pd
-from matplotlib.widgets import RangeSlider
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import tkinter as tk
-from tkinter import messagebox, ttk
 
 # Global variable to store the color bar axis
 colorbar_ax = None
