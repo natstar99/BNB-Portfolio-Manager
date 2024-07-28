@@ -1,11 +1,5 @@
-import yfinance as yf
-import openpyxl
 import pandas as pd
-import matplotlib.pyplot as plt
-import pickle
-import tkinter as tk
-from tkinter import simpledialog, ttk
-import os
+import yfinance as yf
 
 stock_splits = [('IVV', '2022-12-09', 15),  # IVV 15 for 1 split on December 9, 2022 
                 ]
@@ -57,13 +51,13 @@ def calculate_adjusted_values(df):
 
 def calculate_cumulative_values(df):
     df['Cumulative Transaction Value'] = df.groupby('Instrument Code')['Adjusted Transaction Value'].cumsum() * -1
-    df['Cumulative Quantity'] = df.groupby('Instrument Code')['Adjusted Quantity'].cumsum()
+    df['Units Purchased'] = df.groupby('Instrument Code')['Adjusted Quantity'].cumsum()
     return df
 
 def get_most_recent_values(df):
     max_trade_dates = df.groupby('Instrument Code')['Trade Date'].max()
     most_recent_values_df = df[df.apply(lambda row: row['Trade Date'] == max_trade_dates[row['Instrument Code']], axis=1)]
-    return most_recent_values_df[['Instrument Code', 'Cumulative Transaction Value', 'Cumulative Quantity']]
+    return most_recent_values_df[['Instrument Code', 'Cumulative Transaction Value', 'Units Purchased']]
 
 def replace_small_values_with_zero(df, column, threshold):
     df[column] = df[column].apply(lambda x: 0 if x < threshold else x)
@@ -85,7 +79,7 @@ def calculate_market_value(row):
         return row['Cumulative Transaction Value'] * -1.07
     else:
         try:
-            return row['Cumulative Quantity'] * row['Last Sale Price']
+            return row['Units Purchased'] * row['Last Sale Price']
         except:
             return 0
 
@@ -103,14 +97,14 @@ def interpolate_trading_days(data):
     interpolated_values_transaction_value = {}
 
     for date in date_range:
-        last_known_quantity = data.loc[data['Trade Date'] <= date, 'Cumulative Quantity'].iloc[-1]
+        last_known_quantity = data.loc[data['Trade Date'] <= date, 'Units Purchased'].iloc[-1]
         last_known_transaction_value = data.loc[data['Trade Date'] <= date, 'Cumulative Transaction Value'].iloc[-1]
         interpolated_values_quantity[date] = last_known_quantity
         interpolated_values_transaction_value[date] = last_known_transaction_value
 
     interpolated_df = pd.DataFrame({
         'Trade Date': list(interpolated_values_quantity.keys()),
-        'Cumulative Quantity': list(interpolated_values_quantity.values()),
+        'Units Purchased': list(interpolated_values_quantity.values()),
         'Cumulative Transaction Value': list(interpolated_values_transaction_value.values())
     })
     return interpolated_df
@@ -145,9 +139,9 @@ def process_tickers(df, tickers):
             combined_df['Price'] = combined_df['Price'].fillna(method='ffill')
             combined_df['Dividends'] = combined_df['Dividends'].fillna(0)
 
-            fractional_shares = combined_df['Cumulative Quantity'].max() % 1 > 0
-            combined_df['Market Value (Without Dividends)'] = combined_df['Cumulative Quantity'] * combined_df['Price']
-            combined_df['Cumulative Quantity With Dividends'] = combined_df['Cumulative Quantity']
+            fractional_shares = combined_df['Units Purchased'].max() % 1 > 0
+            combined_df['Market Value (Without Dividends)'] = combined_df['Units Purchased'] * combined_df['Price']
+            combined_df['Cumulative Quantity With Dividends'] = combined_df['Units Purchased']
             combined_df['Dividend Units Remainder'] = 0.0
             combined_df['Dividends Earned'] = 0.0
 
@@ -162,7 +156,7 @@ def process_tickers(df, tickers):
                     for row_idx in range(index + 1, len(combined_df)):
                         if fractional_shares:
                             combined_df.at[row_idx, 'Dividends Earned'] += dividend_units 
-                            #combined_df.at[row_idx, 'Cumulative Quantity With Dividends'] += dividend_units ##(This line calculates fractional shares as being reinvested, Raiz already does this)
+                            combined_df.at[row_idx, 'Cumulative Quantity With Dividends'] += dividend_units ##This line calculates fractional shares as being immediately reinvested
                         else:
                             combined_df.at[row_idx, 'Dividends Earned'] += dividend_units 
                             combined_df.at[row_idx, 'Dividend Units Remainder'] += dividend_units % 1
@@ -171,6 +165,7 @@ def process_tickers(df, tickers):
                                 combined_df.at[row_idx, 'Dividend Units Remainder'] -= 1
 
             combined_df['Market Value (With Dividends)'] = combined_df['Cumulative Quantity With Dividends'] * combined_df['Price']
+            combined_df['Value of Dividends Earned'] = (combined_df['Dividends']*combined_df['Cumulative Quantity With Dividends']).cumsum()
 
             # Define the threshold
             threshold = 1e-6
@@ -181,7 +176,7 @@ def process_tickers(df, tickers):
 
             # Iterate through the DataFrame
             for index, row in combined_df.iterrows():
-                if row['Cumulative Quantity'] < threshold:
+                if row['Units Purchased'] < threshold:
                     if not in_fixed_mode:
                         fixed_value = row['Market Value (With Dividends)']
                         in_fixed_mode = True
@@ -218,7 +213,7 @@ def main(file_path):
     
     most_recent_values_df = get_most_recent_values(df)
     most_recent_values_df = set_index(most_recent_values_df, 'Instrument Code')
-    most_recent_values_df = replace_small_values_with_zero(most_recent_values_df, 'Cumulative Quantity', 1e-6)
+    most_recent_values_df = replace_small_values_with_zero(most_recent_values_df, 'Units Purchased', 1e-6)
     
     most_recent_values_df['Weighted Average Purchase Price'] = weighted_average_purchase_price["Weighted Average Purchase Price"]
     most_recent_values_df['Weighted Average Sale Price'] = weighted_average_sale_price['Weighted Average Sale Price']

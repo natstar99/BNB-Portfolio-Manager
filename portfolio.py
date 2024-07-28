@@ -22,6 +22,10 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=UserWarning)
 import squarify
+import yaml
+
+global config
+config = {}
 
 # Function to find the earliest trade date with non-zero portfolio performance
 def find_earliest_non_zero_date(selected_tickers):
@@ -69,10 +73,10 @@ def plot_selected(mode):
             # Plot selected tickers individually
             for ticker in selected_tickers:
                 if selected_plot_type.get() == "Value of Portfolio":
-                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'], label=f'{ticker} Market Value (With Dividends)')
-                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithoutDiv'], label=f'{ticker} Market Value (Without Dividends)')
+                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'], label=f'{ticker} Market Value')
+                    #ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithoutDiv'], label=f'{ticker} Market Value (Without Dividends)')
                 elif selected_plot_type.get() == "Dividend Performance":
-                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Dividends_Earned']*portfolio_df[f'{ticker}_Price'], label=f'{ticker}')
+                    ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Value_of_Dividends_Earned'], label=f'{ticker}')
                 elif selected_plot_type.get() == "Profit/Loss":
                     ax.plot(portfolio_df['Trade Date'], portfolio_df[f'{ticker}_Market_Value_WithDiv'] + portfolio_df[f'{ticker}_Cumulative_Transaction_Value'], label=ticker)
             
@@ -81,7 +85,7 @@ def plot_selected(mode):
         elif mode == 'aggregate':
             # Initialize aggregate columns
             portfolio_df['Portfolio_Market_Value'] = sum(portfolio_df[f'{ticker}_Market_Value_WithDiv'] for ticker in selected_tickers)
-            portfolio_df['Dividend_Performance'] = sum(portfolio_df[f'{ticker}_Market_Value_WithDiv'] - portfolio_df[f'{ticker}_Market_Value_WithoutDiv'] for ticker in selected_tickers)
+            portfolio_df['Dividend_Performance'] = sum(portfolio_df[f'{ticker}_Value_of_Dividends_Earned'] for ticker in selected_tickers)
             portfolio_df['Portfolio_Cumulative_Transaction_Value'] = sum(portfolio_df[f'{ticker}_Cumulative_Transaction_Value'] for ticker in selected_tickers)
             
             # Plot the aggregated portfolio performance
@@ -181,6 +185,66 @@ def load_new_portfolio_data(initial_window=None):
                 loading_window.after(100, check_event)
 
         loading_window.after(100, check_event)
+
+def dividend_reinvestments():
+    global config
+    # Clear existing widgets
+    for widget in plot_frame.winfo_children():
+        widget.destroy()
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Read config.yaml
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Create new frame
+    reinvestment_frame = ttk.Frame(root, padding="10")
+    reinvestment_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+
+    # Title
+    title_label = ttk.Label(reinvestment_frame, text="Select stocks with dividend reinvestment plan", font=("Arial", 16))
+    title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
+
+    # Create a dict to store the checkbox variables
+    checkbox_vars = {}
+
+    # Create checkboxes for each ticker
+    for i, (ticker, ticker_config) in enumerate(config.items(), start=1):
+        var = tk.BooleanVar(value=ticker_config.get('Dividends Reinvested', False))
+        checkbox_vars[ticker] = var
+        cb = ttk.Checkbutton(reinvestment_frame, text=ticker, variable=var)
+        cb.grid(row=i, column=0, sticky=tk.W, padx=5, pady=2)
+
+    def save_preferences():
+        global config
+        for ticker, var in checkbox_vars.items():
+            config[ticker]['Dividends Reinvested'] = var.get()
+        
+        with open('config.yaml', 'w') as f:
+            yaml.dump(config, f)
+        
+        print("Preferences saved successfully!")
+        return_to_main_screen()
+
+    def return_to_main_screen():
+        # Clear the current screen
+        for widget in root.winfo_children():
+            widget.destroy()
+        
+        # Recreate the main screen
+        create_main_screen()  # You'll need to define this function
+
+    # Save button
+    save_button = ttk.Button(reinvestment_frame, text="Save", command=save_preferences)
+    save_button.grid(row=len(config)+1, column=0, pady=(20, 0), padx=(0, 5))
+
+    # Back button
+    back_button = ttk.Button(reinvestment_frame, text="Back", command=return_to_main_screen)
+    back_button.grid(row=len(config)+1, column=1, pady=(20, 0), padx=(5, 0))
+
 
 def on_data_processed(ticker_dfs, loading_window):
     # Stop the progress bar
@@ -295,31 +359,55 @@ def new_user():
     return initial_window
 
 def load_selected_portfolio(selected_portfolio):
+    global config, ticker_dfs
+    config_file = 'config.yaml'
+    
+    # Load or create config file
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+    else:
+        config = {}
     
     with open(os.path.join("portfolios", selected_portfolio), 'rb') as f:
-        global ticker_dfs
         ticker_dfs = pickle.load(f)
 
-    global portfolio_df
     portfolio_df = pd.DataFrame()
 
     for ticker, df in ticker_dfs.items():
         if 'Trade Date' in df.columns:
+            # Create a copy of the relevant columns to avoid SettingWithCopyWarning
             ticker_data = df[['Trade Date', 'Price', 'Market Value (With Dividends)', 'Market Value (Without Dividends)', 
-                              'Cumulative Transaction Value', 'Cumulative Quantity', 'Dividends Earned']]
+                              'Cumulative Transaction Value', 'Units Purchased', 'Cumulative Quantity With Dividends',
+                              'Dividends Earned', 'Value of Dividends Earned']].copy()
             
+            # Check if ticker is in config, if not, add it
+            if ticker not in config:
+                config[ticker] = {'Dividends Reinvested': False}
+
+            # Calculate Total Units Held based on the dividend reinvestment flag
+            if config[ticker]['Dividends Reinvested']:
+                ticker_data['Total Units Held'] = ticker_data['Cumulative Quantity With Dividends']
+            else:
+                ticker_data['Total Units Held'] = ticker_data['Units Purchased']
+
+            # Rename columns
             ticker_data.columns = ['Trade Date', f'{ticker}_Price', f'{ticker}_Market_Value_WithDiv', f'{ticker}_Market_Value_WithoutDiv', 
-                                   f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Cumulative_Quantity', f'{ticker}_Dividends_Earned']
+                                   f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Units_Purchased', f'{ticker}_Cumulative_Quantity_With_Dividends', 
+                                   f'{ticker}_Dividends_Earned', f'{ticker}_Value_of_Dividends_Earned', f'{ticker}_Total_Units_Held']
 
             if portfolio_df.empty:
                 portfolio_df = ticker_data
             else:
                 portfolio_df = pd.merge(portfolio_df, ticker_data, on='Trade Date', how='outer')
 
+    # Save updated config
+    with open(config_file, 'w') as f:
+        yaml.dump(config, f)
+
     # Fill missing values with 0
     portfolio_df = portfolio_df.fillna(0)
 
-    #portfolio_window.destroy()
     return portfolio_df, ticker_dfs
 
 def show_statistics_panel():
@@ -510,7 +598,7 @@ def plot_stacked_area():
     canvas_widget.pack(fill=tk.BOTH, expand=True)
 
 def plot_portfolio_distribution():
-    global ticker_vars  # We'll need to modify this global variable
+    global ticker_vars
 
     selected_tickers = [ticker for ticker, var in ticker_vars.items() if var.get() == 1]
     
@@ -646,7 +734,7 @@ def plot_portfolio_treemap():
     data = portfolio_df[['Trade Date'] + 
                         [f'{ticker}_Market_Value_WithDiv' for ticker in selected_tickers] +
                         [f'{ticker}_Cumulative_Transaction_Value' for ticker in selected_tickers] +
-                        [f'{ticker}_Cumulative_Quantity' for ticker in selected_tickers]
+                        [f'{ticker}_Units_Purchased' for ticker in selected_tickers]
                         ]
 
     data = data.set_index('Trade Date')
@@ -687,7 +775,7 @@ def plot_portfolio_treemap():
         for ticker in selected_tickers:
             start_market_value = start_values[f'{ticker}_Market_Value_WithDiv']
             end_market_value = end_values[f'{ticker}_Market_Value_WithDiv']
-            number_of_shares = end_values[f'{ticker}_Cumulative_Quantity']
+            number_of_shares = end_values[f'{ticker}_Units_Purchased']
             start_transaction_value = start_values[f'{ticker}_Cumulative_Transaction_Value']
             end_transaction_value = end_values[f'{ticker}_Cumulative_Transaction_Value']
             
@@ -766,6 +854,7 @@ def plot_portfolio_treemap():
 
 def show_daily_details_table():
 
+    global config
     # Clear the plot frame
     for widget in plot_frame.winfo_children():
         widget.destroy()
@@ -837,7 +926,8 @@ def show_daily_details_table():
     update_table(date_entry.get())
 
 def show_daily_details_table():
-
+    global config
+    
     # Clear the plot frame
     for widget in plot_frame.winfo_children():
         widget.destroy()
@@ -869,6 +959,7 @@ def show_daily_details_table():
     total_value_label.pack(pady=10)
 
     def update_table(selected_date):
+        global config
         selected_date = pd.to_datetime(selected_date).strftime('%Y-%m-%d')
         decimal_places = int(decimal_places_entry.get())
 
@@ -884,35 +975,42 @@ def show_daily_details_table():
                 for _, row in filtered_df.iterrows():
                     row_data = row.to_dict()
                     row_data['Ticker'] = ticker
+                    
+                    # Determine which Market Value to use based on config
+                    if config[ticker]['Dividends Reinvested']:
+                        row_data['Market Value of Position'] = row_data['Market Value (With Dividends)']
+                    else:
+                        row_data['Market Value of Position'] = row_data['Market Value (Without Dividends)']
+                    
                     table_data.append(row_data)
-                    total_value += row_data.get('Market Value (With Dividends)', 0)
+                    total_value += row_data['Market Value of Position']
 
         if not table_data:
             ttk.Label(table_frame, text="No data available for the selected date.").pack()
             return
 
-        # Exclude dividends and dividend units remainder columns
-        actual_columns = [col for col in table_data[0].keys() if col not in ['Ticker', 'Trade Date', 'Dividends', 'Dividend Units Remainder']]
-        columns = ['Ticker'] + actual_columns
+        columns = [
+            'Ticker', 'Price', 'Cumulative Transaction Value', 'Units Purchased', 
+            'Total Units Held', 'Dividends Earned', 'Value of Dividends Earned', 'Market Value of Position'
+        ]
 
-        # Define a mapping of actual column names to display names
         column_names = {
             'Ticker': 'Stock Ticker',
-            'Price' : 'Last Close Price',
+            'Price': 'Last Close Price',
             'Cumulative Transaction Value': 'Total Investment Spend',
-            'Cumulative Quantity': 'Units Owned (Purchased)',
-            'Cumulative Quantity (With Dividends)': 'Units Owned (Dividends Reinvested)',
-            'Market Value (Without Dividends)': 'Market Value of Units Purchased',
-            'Market Value (With Dividends)': 'Market Value of Position (Dividends Reinvested)'
+            'Units Purchased': 'Units Purchased',
+            'Total Units Held': 'Total Units Held',
+            'Dividends Earned': 'Dividend Units Earned',
+            'Value of Dividends Earned': 'Value of Dividends Earned',
+            'Market Value of Position': 'Market Value of Position'
         }
 
         tree = ttk.Treeview(table_frame, columns=columns, show='headings')
 
-        # Create a dictionary to hold max length for each column
-        max_lengths = {col: len(column_names.get(col, col)) for col in columns}
+        max_lengths = {col: len(column_names[col]) for col in columns}
 
         for col in columns:
-            tree.heading(col, text=column_names.get(col, col))  # Use the display name from the mapping
+            tree.heading(col, text=column_names[col])
             tree.column(col, anchor='center')
 
         for row in table_data:
@@ -922,43 +1020,26 @@ def show_daily_details_table():
                 if isinstance(value, (int, float)):
                     value = f"{value:.{decimal_places}f}"
                 row_values.append(value)
-                # Update max length if current value is longer
                 max_lengths[col] = max(max_lengths[col], len(str(value)))
 
             tree.insert('', tk.END, values=row_values)
 
-        # Set the column width based on the maximum length of the content
         for col in columns:
-            tree.column(col, width=max_lengths[col] * 10)  # Multiply by a factor to give some padding
+            tree.column(col, width=max_lengths[col] * 10)
 
         tree.pack(expand=tk.YES, fill=tk.BOTH)
 
         total_value_label.config(text=f"Total Portfolio Value: ${total_value:,.{decimal_places}f}")
 
-
     update_table(date_entry.get())
 
 
-# Initialize tkinter GUI
-root = tk.Tk()
-root.title("Portfolio Performance")
-sv_ttk.set_theme("dark")  # Apply the theme to the root window
-root.withdraw()  # Hide the main window initially
+def create_main_screen():
+    global root, plot_frame, selection_frame, ticker_vars
 
-portfolios = [f for f in os.listdir("portfolios") if f.endswith(".pkl")]
-
-if portfolios:
-    # Prompt to select portfolio at startup
-    selected_portfolio = select_portfolio()
-else:
-    initial_window = new_user()
-    root.wait_window(initial_window)  # Wait for the initial window to be closed
-    selected_portfolio = select_portfolio()
-
-if selected_portfolio:
-    sv_ttk.set_theme("dark")
-    portfolio_df, ticker_dfs = load_selected_portfolio(selected_portfolio)
-    root.deiconify()  # Show the main window once the portfolio is selected
+    # Clear existing widgets if any
+    for widget in root.winfo_children():
+        widget.destroy()
 
     # Main grid layout for the GUI
     root.grid_rowconfigure(0, weight=1)
@@ -1008,8 +1089,11 @@ if selected_portfolio:
     plot_aggregate_button = ttk.Button(root, text="Show Aggregate", style="Accent.TButton", command=lambda: plot_selected('aggregate'))
     plot_aggregate_button.grid(row=1, column=1, pady=10, padx=10, sticky='e')
 
-    plot_individual_button.config(command=lambda: plot_selected('individual'))
-    plot_aggregate_button.config(command=lambda: plot_selected('aggregate'))
+    # Create menu bar
+    create_menu_bar()
+
+def create_menu_bar():
+    global menu_bar, selected_plot_type
 
     # Create a menu bar
     menu_bar = tk.Menu(root)
@@ -1026,8 +1110,8 @@ if selected_portfolio:
     data_menu = tk.Menu(menu_bar, tearoff=0)
     menu_bar.add_cascade(label="Data", menu=data_menu)
     data_menu.add_command(label="Get Template", command=get_template)
-    data_menu.add_command(label="Load New Portfolio Data", command = load_new_portfolio_data)
-    data_menu.add_command(label="Select Portfolio", command= select_portfolio)
+    data_menu.add_command(label="Load New Portfolio Data", command=load_new_portfolio_data)
+    data_menu.add_command(label="Select Portfolio", command=select_portfolio)
 
     # Add menu items to the 'Plot' menu
     plot_menu.add_radiobutton(label="Value of Portfolio", variable=selected_plot_type, value="Value of Portfolio")
@@ -1037,12 +1121,47 @@ if selected_portfolio:
     plot_menu.add_radiobutton(label="Portfolio Distribution (Pie Chart)", variable=selected_plot_type, value="Portfolio Distribution")
     plot_menu.add_radiobutton(label="Portfolio Treemap", variable=selected_plot_type, value="Portfolio Treemap")
 
-
     # Create the "Statistics" menu
     stats_menu = tk.Menu(menu_bar, tearoff=0)
     menu_bar.add_cascade(label="Statistics", menu=stats_menu)
     stats_menu.add_command(label="Show Statistics", command=show_statistics_panel)
     stats_menu.add_command(label="Daily Details Table", command=show_daily_details_table)
+
+    # Create Preferences Menu
+    preferences_menu = tk.Menu(menu_bar, tearoff=0)
+    menu_bar.add_cascade(label="Preferences", menu=preferences_menu)
+    preferences_menu.add_command(label="Dividend Reinvestments", command=dividend_reinvestments)
+
+
+
+# Initialize tkinter GUI
+root = tk.Tk()
+root.title("Portfolio Performance")
+sv_ttk.set_theme("dark")  # Apply the theme to the root window
+root.withdraw()  # Hide the main window initially
+
+# Check if the directory exists
+if not os.path.exists("portfolios"):
+    # Create the directory
+    os.makedirs("portfolios")
+
+# List the .pkl files in the directory
+portfolios = [f for f in os.listdir("portfolios") if f.endswith(".pkl")]
+
+if portfolios:
+    # Prompt to select portfolio at startup
+    selected_portfolio = select_portfolio()
+else:
+    initial_window = new_user()
+    root.wait_window(initial_window)  # Wait for the initial window to be closed
+    selected_portfolio = select_portfolio()
+
+if selected_portfolio:
+    sv_ttk.set_theme("dark")
+    portfolio_df, ticker_dfs = load_selected_portfolio(selected_portfolio)
+    root.deiconify()  # Show the main window once the portfolio is selected
+
+    create_main_screen()  # Call the function to create the main screen
 
     # Run the tkinter main loop
     root.mainloop()

@@ -29,4 +29,4 @@
 2. **Import Your Portfolio**: Easily import existing investment data through a .xlsx template.
 3. **Start Tracking**: Use the tools and features to monitor and analyse your portfolio performance.
 
-It is hoped that you find this application useful.
+I hope you find this application useful.
