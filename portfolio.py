@@ -41,6 +41,287 @@ def find_earliest_non_zero_date(selected_tickers):
 def dollar_format(x, pos):
     return f"${x:,.0f}"
 
+
+def new_user():
+
+    # Initialise tkinter window
+    new_user_window = tk.Toplevel(root)
+    new_user_window.title("Welcome to IPM")
+    new_user_window.geometry("400x300")
+    sv_ttk.set_theme("dark")
+    
+    # Display welcome message and instructions
+    message = (
+        "Welcome to Insider Portfolio Manager!\n\n"
+        "No portfolios have been added yet.\n\n"
+        "Please load in transaction data using the Excel template.\n\n"
+        "If you don't have the template, you can get it below.\n\n"
+    )
+    label = ttk.Label(new_user_window, text=message, padding=(10, 10))
+    label.pack()
+
+    get_template_button = ttk.Button(new_user_window, text="Get Template", command=get_template)
+    get_template_button.pack(pady=20)
+
+    import_data_button = ttk.Button(new_user_window, text="Import Data", command=lambda: import_new_portolio_data(new_user_window))
+    import_data_button.pack(pady=0)
+
+    return new_user_window
+
+# Function to get template
+def get_template():
+    save_path = filedialog.askdirectory(title="Where would you like to save the template?")
+    if save_path:
+        template_path = os.path.join(save_path, "Transaction_Data_Template.xlsx")
+        # Assuming 'Transaction_Data_Template.xlsx' is in the root folder
+        shutil.copy("Transaction_Data_Template.xlsx", template_path)
+        messagebox.showinfo("Success", f"Template saved to {template_path}")
+
+def import_new_portolio_data(new_user_window=None):
+    file_path = filedialog.askopenfilename(title="Which transaction data do you wish to load?", filetypes=[("Excel files", "*.xlsx")])
+    if file_path:
+        # Load the transaction data
+        new_df = pd.read_excel(file_path, sheet_name='Transaction Data')
+
+        # Check if the columns match the template
+        template_df = pd.read_excel("Transaction_Data_Template.xlsx")
+        if not all(col in new_df.columns for col in template_df.columns):
+            messagebox.showerror("Error", "The columns of the selected file do not match the template. Please double check that the correct template is used.")
+            return
+
+        # Create loading screen
+        loading_window = tk.Toplevel(root)
+        loading_window.title("Loading")
+        loading_window.geometry("300x150")
+        loading_window.transient()
+        loading_window.grab_set()
+
+        # Close the initial window if it exists
+        if new_user_window and new_user_window.winfo_exists():
+            new_user_window.destroy()
+
+        loading_label = ttk.Label(loading_window, text="Processing data... Please wait.")
+        loading_label.pack(pady=10)
+
+        progress_bar = ttk.Progressbar(loading_window, mode="indeterminate")
+        progress_bar.pack(pady=10)
+        progress_bar.start()
+
+        # Event to synchronize threads
+        event = threading.Event()
+        ticker_dfs = []
+
+        def process_data():
+            ticker_dfs.append(stock_info_collector.main(file_path))
+            event.set()
+
+        # Run the data processing in a separate thread
+        threading.Thread(target=process_data, daemon=True).start()
+
+        def check_event():
+            if event.is_set():
+                loading_window.after(0, lambda: on_data_processed(ticker_dfs, loading_window))
+            else:
+                loading_window.after(100, check_event)
+
+        loading_window.after(100, check_event)
+
+def on_data_processed(ticker_dfs, loading_window):
+    # Stop the progress bar
+    for widget in loading_window.winfo_children():
+        widget.destroy()
+
+    save_ticker_dfs(ticker_dfs[0], loading_window)
+
+def save_ticker_dfs(ticker_dfs, loading_window):
+    loading_window.title("Save Portfolio")
+    
+    ttk.Label(loading_window, text="Enter the portfolio name:").pack(pady=10)
+    
+    portfolio_name_var = tk.StringVar()
+    portfolio_name_entry = ttk.Entry(loading_window, textvariable=portfolio_name_var)
+    portfolio_name_entry.pack(pady=10)
+    
+    def save_portfolio():
+        portfolio_name = portfolio_name_var.get()
+        if portfolio_name:
+            # Save the new portfolio data as a pickle file
+            new_portfolio_path = os.path.join("portfolios", f"{portfolio_name}.pkl")
+            with open(new_portfolio_path, 'wb') as f:
+                pickle.dump(ticker_dfs, f)
+            loading_window.destroy()
+    
+    ttk.Button(loading_window, text="Save", command=save_portfolio).pack(pady=10)
+
+def dividend_reinvestments():
+    global config
+    # Clear existing widgets
+    for widget in plot_frame.winfo_children():
+        widget.destroy()
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Read config.yaml
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Create new frame
+    reinvestment_frame = ttk.Frame(root, padding="10")
+    reinvestment_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+
+    # Title
+    title_label = ttk.Label(reinvestment_frame, text="Select stocks with dividend reinvestment plan", font=("Arial", 16))
+    title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
+
+    # Create a dict to store the checkbox variables
+    checkbox_vars = {}
+
+    # Create checkboxes for each ticker
+    for i, (ticker, ticker_config) in enumerate(config.items(), start=1):
+        var = tk.BooleanVar(value=ticker_config.get('Dividends Reinvested', False))
+        checkbox_vars[ticker] = var
+        cb = ttk.Checkbutton(reinvestment_frame, text=ticker, variable=var)
+        cb.grid(row=i, column=0, sticky=tk.W, padx=5, pady=2)
+
+    def save_preferences():
+        global config
+        for ticker, var in checkbox_vars.items():
+            config[ticker]['Dividends Reinvested'] = var.get()
+        
+        with open('config.yaml', 'w') as f:
+            yaml.dump(config, f)
+        
+        print("Preferences saved successfully!")
+        return_to_main_screen()
+
+    def return_to_main_screen():
+        # Clear the current screen
+        for widget in root.winfo_children():
+            widget.destroy()
+        
+        # Recreate the main screen
+        create_main_screen()  # You'll need to define this function
+
+    # Save button
+    save_button = ttk.Button(reinvestment_frame, text="Save", command=save_preferences)
+    save_button.grid(row=len(config)+1, column=0, pady=(20, 0), padx=(0, 5))
+
+    # Back button
+    back_button = ttk.Button(reinvestment_frame, text="Back", command=return_to_main_screen)
+    back_button.grid(row=len(config)+1, column=1, pady=(20, 0), padx=(5, 0))
+
+
+def refresh_ui():
+    global ticker_vars, portfolio_df, ticker_dfs
+
+    # Refresh the ticker selection frame
+    for widget in selection_frame.winfo_children():
+        widget.destroy()
+
+    ticker_vars = {}
+    for i, ticker in enumerate(ticker_dfs.keys()):
+        ticker_vars[ticker] = tk.IntVar()
+        ttk.Checkbutton(selection_frame, text=ticker, variable=ticker_vars[ticker]).grid(row=i, column=0, sticky='w')
+
+    select_all_button = ttk.Button(selection_frame, text="Select All", command=select_all)
+    select_all_button.grid(row=len(ticker_dfs), column=0, pady=5, sticky='w')
+
+    select_none_button = ttk.Button(selection_frame, text="Select None", command=select_none)
+    select_none_button.grid(row=len(ticker_dfs) + 1, column=0, pady=5, sticky='w')
+
+def select_portfolio():
+
+    portfolio_window = tk.Toplevel(root)
+    portfolio_window.title("Select Portfolio")
+    portfolio_window.geometry("300x300")
+    sv_ttk.set_theme("dark")
+
+    listbox = tk.Listbox(portfolio_window, selectmode=tk.SINGLE)
+    listbox.pack(fill=tk.BOTH, expand=True)
+
+    portfolios = [f for f in os.listdir("portfolios") if f.endswith(".pkl")]
+    for portfolio in portfolios:
+        listbox.insert(tk.END, portfolio)
+
+    selected_portfolio = tk.StringVar()
+
+    def on_select():
+        if listbox.curselection():
+            selected = listbox.get(listbox.curselection())
+            selected_portfolio.set(selected)
+            portfolio_window.destroy()
+        else:
+            messagebox.showwarning("Warning", "Please select a portfolio.")
+
+    select_button = ttk.Button(portfolio_window, text="Load Portfolio", command=on_select)
+    select_button.pack(pady=10)
+
+    portfolio_window.wait_window()
+    try:
+        if selection_frame:
+            global portfolio_df, ticker_dfs
+            portfolio_df, ticker_dfs = load_selected_portfolio(selected_portfolio.get())
+            refresh_ui()
+    except:
+        # Handle the exception here (e.g., log an error message or display a user-friendly message)
+        print(f"selection_frame does not yet exist. Skipping refresh_ui")
+
+    return selected_portfolio.get()
+
+def load_selected_portfolio(selected_portfolio):
+    global config, ticker_dfs
+    config_file = 'config.yaml'
+    
+    # Load or create config file
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+    else:
+        config = {}
+    
+    with open(os.path.join("portfolios", selected_portfolio), 'rb') as f:
+        ticker_dfs = pickle.load(f)
+
+    portfolio_df = pd.DataFrame()
+
+    for ticker, df in ticker_dfs.items():
+        if 'Trade Date' in df.columns:
+            # Create a copy of the relevant columns to avoid SettingWithCopyWarning
+            ticker_data = df[['Trade Date', 'Price', 'Market Value (With Dividends)', 'Market Value (Without Dividends)', 
+                              'Cumulative Transaction Value', 'Units Purchased', 'Cumulative Quantity With Dividends',
+                              'Dividends Earned', 'Value of Dividends Earned']].copy()
+            
+            # Check if ticker is in config, if not, add it
+            if ticker not in config:
+                config[ticker] = {'Dividends Reinvested': False}
+
+            # Calculate Total Units Held based on the dividend reinvestment flag
+            if config[ticker]['Dividends Reinvested']:
+                ticker_data['Total Units Held'] = ticker_data['Cumulative Quantity With Dividends']
+            else:
+                ticker_data['Total Units Held'] = ticker_data['Units Purchased']
+
+            # Rename columns
+            ticker_data.columns = ['Trade Date', f'{ticker}_Price', f'{ticker}_Market_Value_WithDiv', f'{ticker}_Market_Value_WithoutDiv', 
+                                   f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Units_Purchased', f'{ticker}_Cumulative_Quantity_With_Dividends', 
+                                   f'{ticker}_Dividends_Earned', f'{ticker}_Value_of_Dividends_Earned', f'{ticker}_Total_Units_Held']
+
+            if portfolio_df.empty:
+                portfolio_df = ticker_data
+            else:
+                portfolio_df = pd.merge(portfolio_df, ticker_data, on='Trade Date', how='outer')
+
+    # Save updated config
+    with open(config_file, 'w') as f:
+        yaml.dump(config, f)
+
+    # Fill missing values with 0
+    portfolio_df = portfolio_df.fillna(0)
+
+    return portfolio_df, ticker_dfs
+
 # Function to plot based on the selected plot type and mode (individual/aggregate)
 def plot_selected(mode):
     if selected_plot_type.get() == "Portfolio Distribution":
@@ -127,288 +408,6 @@ def select_all():
 def select_none():
     for var in ticker_vars.values():
         var.set(0)
-
-# Function to get template
-def get_template():
-    save_path = filedialog.askdirectory(title="Where would you like to save the template?")
-    if save_path:
-        template_path = os.path.join(save_path, "Transaction_Data_Template.xlsx")
-        # Assuming 'Transaction_Data_Template.xlsx' is in the root folder
-        shutil.copy("Transaction_Data_Template.xlsx", template_path)
-        messagebox.showinfo("Success", f"Template saved to {template_path}")
-
-def load_new_portfolio_data(initial_window=None):
-    file_path = filedialog.askopenfilename(title="Which transaction data do you wish to load?", filetypes=[("Excel files", "*.xlsx")])
-    if file_path:
-        # Load the transaction data
-        new_df = pd.read_excel(file_path, sheet_name='Transaction Data')
-
-        # Check if the columns match the template
-        template_df = pd.read_excel("Transaction_Data_Template.xlsx")
-        if not all(col in new_df.columns for col in template_df.columns):
-            messagebox.showerror("Error", "The columns of the selected file do not match the template.")
-            return
-
-        # Create loading screen
-        loading_window = tk.Toplevel(root)
-        loading_window.title("Loading")
-        loading_window.geometry("300x150")
-        loading_window.transient()
-        loading_window.grab_set()
-
-        # Close the initial window if it exists
-        if initial_window and initial_window.winfo_exists():
-            initial_window.destroy()
-
-        loading_label = ttk.Label(loading_window, text="Processing data... Please wait.")
-        loading_label.pack(pady=10)
-
-        progress_bar = ttk.Progressbar(loading_window, mode="indeterminate")
-        progress_bar.pack(pady=10)
-        progress_bar.start()
-
-        # Event to synchronize threads
-        event = threading.Event()
-        ticker_dfs = []
-
-        def process_data():
-            ticker_dfs.append(stock_info_collector.main(file_path))
-            event.set()
-
-        # Run the data processing in a separate thread
-        threading.Thread(target=process_data, daemon=True).start()
-
-        def check_event():
-            if event.is_set():
-                loading_window.after(0, lambda: on_data_processed(ticker_dfs, loading_window))
-            else:
-                loading_window.after(100, check_event)
-
-        loading_window.after(100, check_event)
-
-def dividend_reinvestments():
-    global config
-    # Clear existing widgets
-    for widget in plot_frame.winfo_children():
-        widget.destroy()
-    for widget in root.winfo_children():
-        widget.destroy()
-
-    # Read config.yaml
-    with open('config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-
-    # Create new frame
-    reinvestment_frame = ttk.Frame(root, padding="10")
-    reinvestment_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-    root.columnconfigure(0, weight=1)
-    root.rowconfigure(0, weight=1)
-
-    # Title
-    title_label = ttk.Label(reinvestment_frame, text="Select stocks with dividend reinvestment plan", font=("Arial", 16))
-    title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
-
-    # Create a dict to store the checkbox variables
-    checkbox_vars = {}
-
-    # Create checkboxes for each ticker
-    for i, (ticker, ticker_config) in enumerate(config.items(), start=1):
-        var = tk.BooleanVar(value=ticker_config.get('Dividends Reinvested', False))
-        checkbox_vars[ticker] = var
-        cb = ttk.Checkbutton(reinvestment_frame, text=ticker, variable=var)
-        cb.grid(row=i, column=0, sticky=tk.W, padx=5, pady=2)
-
-    def save_preferences():
-        global config
-        for ticker, var in checkbox_vars.items():
-            config[ticker]['Dividends Reinvested'] = var.get()
-        
-        with open('config.yaml', 'w') as f:
-            yaml.dump(config, f)
-        
-        print("Preferences saved successfully!")
-        return_to_main_screen()
-
-    def return_to_main_screen():
-        # Clear the current screen
-        for widget in root.winfo_children():
-            widget.destroy()
-        
-        # Recreate the main screen
-        create_main_screen()  # You'll need to define this function
-
-    # Save button
-    save_button = ttk.Button(reinvestment_frame, text="Save", command=save_preferences)
-    save_button.grid(row=len(config)+1, column=0, pady=(20, 0), padx=(0, 5))
-
-    # Back button
-    back_button = ttk.Button(reinvestment_frame, text="Back", command=return_to_main_screen)
-    back_button.grid(row=len(config)+1, column=1, pady=(20, 0), padx=(5, 0))
-
-
-def on_data_processed(ticker_dfs, loading_window):
-    # Stop the progress bar
-    for widget in loading_window.winfo_children():
-        widget.destroy()
-
-    save_ticker_dfs(ticker_dfs[0], loading_window)
-
-def save_ticker_dfs(ticker_dfs, loading_window):
-    loading_window.title("Save Portfolio")
-    
-    ttk.Label(loading_window, text="Enter the portfolio name:").pack(pady=10)
-    
-    portfolio_name_var = tk.StringVar()
-    portfolio_name_entry = ttk.Entry(loading_window, textvariable=portfolio_name_var)
-    portfolio_name_entry.pack(pady=10)
-    
-    def save_portfolio():
-        portfolio_name = portfolio_name_var.get()
-        if portfolio_name:
-            # Save the new portfolio data as a pickle file
-            new_portfolio_path = os.path.join("portfolios", f"{portfolio_name}.pkl")
-            with open(new_portfolio_path, 'wb') as f:
-                pickle.dump(ticker_dfs, f)
-            loading_window.destroy()
-    
-    ttk.Button(loading_window, text="Save", command=save_portfolio).pack(pady=10)
-
-def refresh_ui():
-    global ticker_vars, portfolio_df, ticker_dfs
-
-    # Refresh the ticker selection frame
-    for widget in selection_frame.winfo_children():
-        widget.destroy()
-
-    ticker_vars = {}
-    for i, ticker in enumerate(ticker_dfs.keys()):
-        ticker_vars[ticker] = tk.IntVar()
-        ttk.Checkbutton(selection_frame, text=ticker, variable=ticker_vars[ticker]).grid(row=i, column=0, sticky='w')
-
-    select_all_button = ttk.Button(selection_frame, text="Select All", command=select_all)
-    select_all_button.grid(row=len(ticker_dfs), column=0, pady=5, sticky='w')
-
-    select_none_button = ttk.Button(selection_frame, text="Select None", command=select_none)
-    select_none_button.grid(row=len(ticker_dfs) + 1, column=0, pady=5, sticky='w')
-
-
-def select_portfolio():
-
-    portfolio_window = tk.Toplevel(root)
-    portfolio_window.title("Select Portfolio")
-    portfolio_window.geometry("300x300")
-    sv_ttk.set_theme("dark")
-
-    listbox = tk.Listbox(portfolio_window, selectmode=tk.SINGLE)
-    listbox.pack(fill=tk.BOTH, expand=True)
-
-    portfolios = [f for f in os.listdir("portfolios") if f.endswith(".pkl")]
-    for portfolio in portfolios:
-        listbox.insert(tk.END, portfolio)
-
-    selected_portfolio = tk.StringVar()
-
-    def on_select():
-        if listbox.curselection():
-            selected = listbox.get(listbox.curselection())
-            selected_portfolio.set(selected)
-            portfolio_window.destroy()
-        else:
-            messagebox.showwarning("Warning", "Please select a portfolio.")
-
-    select_button = ttk.Button(portfolio_window, text="Load Portfolio", command=on_select)
-    select_button.pack(pady=10)
-
-    portfolio_window.wait_window()
-    try:
-        if selection_frame:
-            global portfolio_df, ticker_dfs
-            portfolio_df, ticker_dfs = load_selected_portfolio(selected_portfolio.get())
-            refresh_ui()
-    except:
-        # Handle the exception here (e.g., log an error message or display a user-friendly message)
-        print(f"selection_frame does not yet exist. Skipping refresh_ui")
-
-    return selected_portfolio.get()
-
-
-def new_user():
-
-    # Initialize tkinter window
-    initial_window = tk.Toplevel(root)
-    initial_window.title("Welcome to Portfolio Manager")
-    initial_window.geometry("400x300")
-    sv_ttk.set_theme("dark")
-    
-    # Display welcome message and instructions
-    message = (
-        "Welcome to Portfolio Manager!\n\n"
-        "No portfolios added yet.\n\n"
-        "Please load in transaction data using the Excel template.\n\n"
-        "If you don't have the template, you can get it below.\n\n"
-    )
-    label = ttk.Label(initial_window, text=message, padding=(10, 10))
-    label.pack()
-
-    get_template_button = ttk.Button(initial_window, text="Get Template", command=get_template)
-    get_template_button.pack(pady=5)
-
-    load_data_button = ttk.Button(initial_window, text="Load Data", command=lambda: load_new_portfolio_data(initial_window))
-    load_data_button.pack(pady=5)
-
-    return initial_window
-
-def load_selected_portfolio(selected_portfolio):
-    global config, ticker_dfs
-    config_file = 'config.yaml'
-    
-    # Load or create config file
-    if os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            config = yaml.safe_load(f)
-    else:
-        config = {}
-    
-    with open(os.path.join("portfolios", selected_portfolio), 'rb') as f:
-        ticker_dfs = pickle.load(f)
-
-    portfolio_df = pd.DataFrame()
-
-    for ticker, df in ticker_dfs.items():
-        if 'Trade Date' in df.columns:
-            # Create a copy of the relevant columns to avoid SettingWithCopyWarning
-            ticker_data = df[['Trade Date', 'Price', 'Market Value (With Dividends)', 'Market Value (Without Dividends)', 
-                              'Cumulative Transaction Value', 'Units Purchased', 'Cumulative Quantity With Dividends',
-                              'Dividends Earned', 'Value of Dividends Earned']].copy()
-            
-            # Check if ticker is in config, if not, add it
-            if ticker not in config:
-                config[ticker] = {'Dividends Reinvested': False}
-
-            # Calculate Total Units Held based on the dividend reinvestment flag
-            if config[ticker]['Dividends Reinvested']:
-                ticker_data['Total Units Held'] = ticker_data['Cumulative Quantity With Dividends']
-            else:
-                ticker_data['Total Units Held'] = ticker_data['Units Purchased']
-
-            # Rename columns
-            ticker_data.columns = ['Trade Date', f'{ticker}_Price', f'{ticker}_Market_Value_WithDiv', f'{ticker}_Market_Value_WithoutDiv', 
-                                   f'{ticker}_Cumulative_Transaction_Value', f'{ticker}_Units_Purchased', f'{ticker}_Cumulative_Quantity_With_Dividends', 
-                                   f'{ticker}_Dividends_Earned', f'{ticker}_Value_of_Dividends_Earned', f'{ticker}_Total_Units_Held']
-
-            if portfolio_df.empty:
-                portfolio_df = ticker_data
-            else:
-                portfolio_df = pd.merge(portfolio_df, ticker_data, on='Trade Date', how='outer')
-
-    # Save updated config
-    with open(config_file, 'w') as f:
-        yaml.dump(config, f)
-
-    # Fill missing values with 0
-    portfolio_df = portfolio_df.fillna(0)
-
-    return portfolio_df, ticker_dfs
 
 def show_statistics_panel():
     # Clear the plot frame
@@ -1110,7 +1109,7 @@ def create_menu_bar():
     data_menu = tk.Menu(menu_bar, tearoff=0)
     menu_bar.add_cascade(label="Data", menu=data_menu)
     data_menu.add_command(label="Get Template", command=get_template)
-    data_menu.add_command(label="Load New Portfolio Data", command=load_new_portfolio_data)
+    data_menu.add_command(label="Load New Portfolio Data", command=import_new_portolio_data)
     data_menu.add_command(label="Select Portfolio", command=select_portfolio)
 
     # Add menu items to the 'Plot' menu
@@ -1152,8 +1151,8 @@ if portfolios:
     # Prompt to select portfolio at startup
     selected_portfolio = select_portfolio()
 else:
-    initial_window = new_user()
-    root.wait_window(initial_window)  # Wait for the initial window to be closed
+    # Request to import new portfolio data for new users
+    root.wait_window(new_user())
     selected_portfolio = select_portfolio()
 
 if selected_portfolio:
