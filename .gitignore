@@ -7,6 +7,12 @@ test/
 # Hide virtual environment
 venv/
 
+# Hide virtual environmen
+*.db
+
+# Hide generated files
+stock_symbols.json
+
 # Hide config files
 *.yaml
 
