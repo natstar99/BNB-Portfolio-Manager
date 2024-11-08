@@ -25,6 +25,7 @@ class ImportTransactionsController(QObject):
         self.portfolio = portfolio
         self.db_manager = db_manager
         self.view = ImportTransactionsView()
+        self.market_mappings = {}
 
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
@@ -63,9 +64,10 @@ class ImportTransactionsController(QObject):
 
     def on_verification_completed(self, verification_results):
         try:
-            market_mappings = verification_results['market_mappings']
+            # Store the mappings from verification results
+            self.market_mappings = verification_results['market_mappings']
             stock_data = verification_results['stock_data']
-            df = verification_results['transactions_df']  # Get back the verified DataFrame
+            df = verification_results['transactions_df']
 
             # Ask about historical data
             response = QMessageBox.question(
@@ -80,7 +82,7 @@ class ImportTransactionsController(QObject):
             # Group transactions by instrument_code for efficiency
             for instrument_code, group in df.groupby('Instrument Code'):
                 # Get market suffix and create yahoo symbol
-                market_suffix = market_mappings.get(instrument_code, '')
+                market_suffix = self.market_mappings.get(instrument_code, '')
                 yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
 
                 # Create or get stock
@@ -133,27 +135,57 @@ class ImportTransactionsController(QObject):
             QMessageBox.warning(self.view, "Import Failed", error_msg)
 
     def collect_historical_data(self, df):
+        """
+        Collect and store historical price data for verified stocks.
+        
+        Args:
+            df (pandas.DataFrame): DataFrame containing transaction data
+        """
+        logger.info("Starting historical data collection")
+        
         # Group by instrument code and get date ranges
         date_ranges = df.groupby('Instrument Code').agg({
             'Trade Date': ['min', 'max']
         }).reset_index()
         date_ranges.columns = ['instrument_code', 'start_date', 'end_date']
-
+        
+        total_stocks = len(date_ranges)
+        logger.info(f"Found {total_stocks} stocks to collect historical data for")
+        
         # Collect and store historical data for each stock
         for _, row in date_ranges.iterrows():
             try:
-                stock = self.portfolio.get_stock(row['instrument_code'])
+                instrument_code = row['instrument_code']
+                # Construct yahoo symbol using the verified mapping
+                market_suffix = self.market_mappings.get(instrument_code, '')
+                yahoo_symbol = f"{instrument_code}{market_suffix}"
+                
+                stock = self.portfolio.get_stock(yahoo_symbol)
+                
                 if stock:
-                    ticker = yf.Ticker(stock.yahoo_symbol)
+                    logger.info(f"Collecting data for {yahoo_symbol} from {row['start_date']} to {row['end_date']}")
+                    
+                    # Add buffer days to ensure we capture all relevant data
+                    start_date = row['start_date'] - pd.Timedelta(days=5)
+                    end_date = row['end_date'] + pd.Timedelta(days=5)
+                    
+                    ticker = yf.Ticker(yahoo_symbol)
                     history = ticker.history(
-                        start=row['start_date'],
-                        end=row['end_date'],
+                        start=start_date,
+                        end=end_date,
                         interval='1d'
                     )
                     
+                    if history.empty:
+                        logger.warning(f"No historical data found for {yahoo_symbol}")
+                        continue
+                    
+                    logger.info(f"Retrieved {len(history)} data points for {yahoo_symbol}")
+                    
                     # Prepare bulk insert data
-                    historical_prices = [
-                        (
+                    historical_prices = []
+                    for index, row_data in history.iterrows():
+                        historical_prices.append((
                             stock.id,
                             index.strftime('%Y-%m-%d'),
                             row_data['Open'],
@@ -164,14 +196,24 @@ class ImportTransactionsController(QObject):
                             row_data['Close'],  # adjusted_close
                             row_data['Close'],  # original_close
                             False               # split_adjusted
-                        )
-                        for index, row_data in history.iterrows()
-                    ]
+                        ))
                     
+                    # Clear any existing historical data for this stock
+                    self.db_manager.execute(
+                        "DELETE FROM historical_prices WHERE stock_id = ?",
+                        (stock.id,)
+                    )
+                    
+                    # Insert new historical data
                     self.db_manager.bulk_insert_historical_prices(historical_prices)
+                    logger.info(f"Successfully stored historical data for {yahoo_symbol}")
+                    
+                else:
+                    logger.warning(f"Stock not found for symbol: {yahoo_symbol}")
                     
             except Exception as e:
                 logger.error(f"Failed to collect historical data for {row['instrument_code']}: {str(e)}")
+                logger.exception("Detailed error:")  # This will log the full stack trace
 
     def provide_template(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))

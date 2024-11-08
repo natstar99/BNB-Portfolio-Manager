@@ -5,9 +5,12 @@ from views.my_portfolio_view import MyPortfolioView
 from models.portfolio import Portfolio
 from models.stock import Stock
 from models.transaction import Transaction
-from datetime import datetime
+from datetime import datetime, timedelta
 import yfinance as yf
+import logging
 from views.historical_data_view import HistoricalDataDialog
+
+logger = logging.getLogger(__name__)
 
 class PortfolioViewController:
     def __init__(self, db_manager):
@@ -79,14 +82,93 @@ class PortfolioViewController:
         if not self.current_portfolio:
             return
 
+        # Ask if user wants to update historical data
+        response = QMessageBox.question(
+            self.view,
+            "Update Historical Data",
+            "Would you like to update historical price data for all stocks?\n"
+            "This process might take several minutes.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        collect_history = response == QMessageBox.Yes
+
         for stock in self.current_portfolio.stocks.values():
             try:
-                # In a real application, you would fetch the current price from an API
-                # For now, we'll just update the last_updated timestamp
+                # Update current price
+                ticker = yf.Ticker(stock.yahoo_symbol)
+                info = ticker.info
+                stock.current_price = info.get('currentPrice', stock.current_price)
                 stock.update_price()
+
+                if collect_history:
+                    logger.info(f"Collecting historical data for {stock.yahoo_symbol}")
+                    
+                    # Get data for the last year or since the earliest transaction
+                    earliest_transaction = min(t.date for t in stock.transactions) if stock.transactions else None
+                    start_date = earliest_transaction if earliest_transaction else (datetime.now() - timedelta(days=365))
+                    end_date = datetime.now()
+                    
+                    history = ticker.history(
+                        start=start_date,
+                        end=end_date,
+                        interval='1d'
+                    )
+                    
+                    if not history.empty:
+                        logger.info(f"Retrieved {len(history)} data points for {stock.yahoo_symbol}")
+                        
+                        # Prepare bulk insert data
+                        historical_prices = [
+                            (
+                                stock.id,
+                                index.strftime('%Y-%m-%d'),
+                                row_data['Open'],
+                                row_data['High'],
+                                row_data['Low'],
+                                row_data['Close'],
+                                row_data['Volume'],
+                                row_data['Close'],  # adjusted_close
+                                row_data['Close'],  # original_close
+                                False               # split_adjusted
+                            )
+                            for index, row_data in history.iterrows()
+                        ]
+                        
+                        # Clear existing historical data for this stock
+                        self.db_manager.execute(
+                            "DELETE FROM historical_prices WHERE stock_id = ? AND date >= ?",
+                            (stock.id, start_date.strftime('%Y-%m-%d'))
+                        )
+                        
+                        # Insert new historical data
+                        self.db_manager.bulk_insert_historical_prices(historical_prices)
+                        logger.info(f"Successfully updated historical data for {stock.yahoo_symbol}")
+                    else:
+                        logger.warning(f"No historical data found for {stock.yahoo_symbol}")
+                        
             except Exception as e:
-                print(f"Failed to update price for {stock.yahoo_symbol}: {str(e)}")
+                logger.error(f"Failed to update data for {stock.yahoo_symbol}: {str(e)}")
+                QMessageBox.warning(
+                    self.view,
+                    "Update Failed",
+                    f"Failed to update data for {stock.yahoo_symbol}: {str(e)}"
+                )
+
         self.update_view()
+        
+        if collect_history:
+            QMessageBox.information(
+                self.view,
+                "Update Complete",
+                "Portfolio data and historical prices have been updated."
+            )
+        else:
+            QMessageBox.information(
+                self.view,
+                "Update Complete",
+                "Portfolio data has been updated."
+            )
 
     def get_view(self):
         return self.view

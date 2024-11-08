@@ -3,6 +3,11 @@
 import sqlite3
 from datetime import datetime
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self, db_file):
@@ -118,16 +123,22 @@ class DatabaseManager:
     def bulk_insert_historical_prices(self, prices):
         """
         Bulk insert historical prices.
-        prices: list of tuples (stock_id, date, open, high, low, close, volume, adjusted_close, 
-                            original_close, split_adjusted)
+        
+        Args:
+            prices: list of tuples (stock_id, date, open, high, low, close, volume, 
+                                adjusted_close, original_close, split_adjusted)
         """
-        self.cursor.executemany("""
-            INSERT INTO historical_prices 
-            (stock_id, date, open_price, high_price, low_price, close_price, volume, 
-            adjusted_close, original_close, split_adjusted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, prices)
-        self.conn.commit()
+        try:
+            self.cursor.executemany("""
+                INSERT OR REPLACE INTO historical_prices 
+                (stock_id, date, open_price, high_price, low_price, close_price, volume, 
+                adjusted_close, original_close, split_adjusted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, prices)
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in bulk_insert_historical_prices: {str(e)}")
+            raise
 
     # Portfolio-Stock relationship methods
     def add_stock_to_portfolio(self, portfolio_id, stock_id):

@@ -2,9 +2,14 @@
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
                               QHeaderView, QComboBox, QHBoxLayout, QPushButton,
-                              QLabel, QDateEdit)
+                              QLabel, QDateEdit, QMessageBox)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class HistoricalDataDialog(QDialog):
     def __init__(self, stock, db_manager, parent=None):
@@ -88,38 +93,55 @@ class HistoricalDataDialog(QDialog):
         layout.addWidget(self.close_btn)
 
     def load_data(self):
-        # Get the earliest date from historical prices
-        earliest_date = self.db_manager.fetch_one("""
-            SELECT MIN(date) FROM historical_prices WHERE stock_id = ?
-        """, (self.stock.id,))[0]
-        
-        if earliest_date:
-            self.date_from.setDate(QDate.fromString(earliest_date, "yyyy-MM-dd"))
-
-        # Fetch all relevant data
-        data = self.db_manager.fetch_all("""
-            SELECT 
-                hp.date,
-                hp.open_price,
-                hp.high_price,
-                hp.low_price,
-                hp.close_price,
-                hp.adjusted_close,
-                hp.volume,
-                t.transaction_type,
-                t.quantity,
-                ss.ratio as split_ratio,
-                0.0 as dividend  -- Placeholder for future dividend implementation
-            FROM historical_prices hp
-            LEFT JOIN transactions t ON hp.stock_id = t.stock_id 
-                AND hp.date = date(t.date)
-            LEFT JOIN stock_splits ss ON hp.stock_id = ss.stock_id 
-                AND hp.date = date(ss.date)
-            WHERE hp.stock_id = ?
-            ORDER BY hp.date DESC
-        """, (self.stock.id,))
-
-        self.populate_table(data)
+        try:
+            # Get the earliest date from historical prices
+            earliest_date = self.db_manager.fetch_one("""
+                SELECT MIN(date) FROM historical_prices WHERE stock_id = ?
+            """, (self.stock.id,))
+            
+            if earliest_date and earliest_date[0]:
+                self.date_from.setDate(QDate.fromString(earliest_date[0], "yyyy-MM-dd"))
+                
+                # Fetch all relevant data
+                data = self.db_manager.fetch_all("""
+                    SELECT 
+                        hp.date,
+                        hp.open_price,
+                        hp.high_price,
+                        hp.low_price,
+                        hp.close_price,
+                        hp.adjusted_close,
+                        hp.volume,
+                        t.transaction_type,
+                        t.quantity,
+                        ss.ratio as split_ratio,
+                        0.0 as dividend  -- Placeholder for future dividend implementation
+                    FROM historical_prices hp
+                    LEFT JOIN transactions t ON hp.stock_id = t.stock_id 
+                        AND hp.date = date(t.date)
+                    LEFT JOIN stock_splits ss ON hp.stock_id = ss.stock_id 
+                        AND hp.date = date(ss.date)
+                    WHERE hp.stock_id = ?
+                    ORDER BY hp.date DESC
+                """, (self.stock.id,))
+                
+                self.populate_table(data)
+            else:
+                # No historical data found
+                self.table.setRowCount(0)
+                QMessageBox.information(
+                    self,
+                    "No Historical Data",
+                    "No historical data found for this stock. Try importing historical data first."
+                )
+                
+        except Exception as e:
+            logger.error(f"Error loading historical data: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error Loading Data",
+                f"Failed to load historical data: {str(e)}"
+            )
 
     def populate_table(self, data):
         self.table.setRowCount(len(data))
