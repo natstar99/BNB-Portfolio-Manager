@@ -180,7 +180,15 @@ class DatabaseManager:
 
     # Market code methods
     def get_all_market_codes(self):
-        return self.fetch_all("SELECT market_or_index, market_suffix FROM market_codes")
+        """
+        Returns all market codes with their suffixes.
+        Returns tuples of (market_or_index, market_suffix)
+        """
+        return self.fetch_all("""
+            SELECT market_or_index, market_suffix 
+            FROM market_codes 
+            ORDER BY market_or_index
+        """)
 
     def get_market_code_suffix(self, market_or_index):
         result = self.fetch_one("SELECT market_suffix FROM market_codes WHERE market_or_index = ?", (market_or_index,))

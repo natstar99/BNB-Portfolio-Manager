@@ -3,6 +3,8 @@ portfolios/
 
 # Hide test code
 test/
+collect_code*
+code_collection_*
 
 # Hide virtual environment
 venv/

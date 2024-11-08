@@ -7,12 +7,14 @@ from models.stock import Stock
 from models.transaction import Transaction
 from datetime import datetime
 import yfinance as yf
+from views.historical_data_view import HistoricalDataDialog
 
 class PortfolioViewController:
     def __init__(self, db_manager):
         self.db_manager = db_manager
         self.view = MyPortfolioView()
         self.current_portfolio = None
+        self.view.view_history.connect(self.show_history)
 
         # Connect view signals to controller methods
         self.view.add_stock.connect(self.add_stock)
@@ -27,6 +29,13 @@ class PortfolioViewController:
     def update_view(self):
         if self.current_portfolio:
             self.view.update_portfolio(self.current_portfolio)
+
+    def show_history(self, yahoo_symbol):
+        if self.current_portfolio:
+            stock = self.current_portfolio.get_stock(yahoo_symbol)
+            if stock:
+                dialog = HistoricalDataDialog(stock, self.db_manager, self.view)
+                dialog.exec_()
 
     def add_stock(self):
         if not self.current_portfolio:

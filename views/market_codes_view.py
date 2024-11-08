@@ -69,10 +69,14 @@ class MarketCodesView(QWidget):
 
             self.table.setItem(row, 0, QTableWidgetItem(instrument_code))
             
+            # Create market combo box with clearer data handling
             market_combo = QComboBox()
             market_combo.addItem("", "")  # Empty option
-            for code in market_codes:
-                market_combo.addItem(f"{code[1]} ({code[2]})", code[2])  # market_or_index (market_suffix), data is market_suffix
+            
+            for market_name, suffix in market_codes:
+                # Display format: "Market Name (.XX)"
+                display_text = f"{market_name} ({suffix})" if suffix else market_name
+                market_combo.addItem(display_text, suffix)  # suffix as the data
             
             if market_suffix:
                 index = market_combo.findData(market_suffix)
