@@ -1,3 +1,5 @@
+# File: utils/stock_symbol_manager.py
+
 import json
 import os
 import yfinance as yf

@@ -90,6 +90,44 @@ class DatabaseManager:
             WHERE stock_id = ?
             ORDER BY date
         """, (stock_id,))
+    
+    def bulk_insert_transactions(self, transactions):
+        """
+        Bulk insert transactions.
+        transactions: list of tuples (stock_id, date, quantity, price, type, original_quantity, original_price)
+        """
+        self.cursor.executemany("""
+            INSERT INTO transactions 
+            (stock_id, date, quantity, price, transaction_type, original_quantity, original_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, transactions)
+        self.conn.commit()
+
+    def bulk_insert_stock_splits(self, splits):
+        """
+        Bulk insert stock splits.
+        splits: list of tuples (stock_id, date, ratio, verified_source, verification_date)
+        """
+        self.cursor.executemany("""
+            INSERT INTO stock_splits 
+            (stock_id, date, ratio, verified_source, verification_date)
+            VALUES (?, ?, ?, ?, ?)
+        """, splits)
+        self.conn.commit()
+
+    def bulk_insert_historical_prices(self, prices):
+        """
+        Bulk insert historical prices.
+        prices: list of tuples (stock_id, date, open, high, low, close, volume, adjusted_close, 
+                            original_close, split_adjusted)
+        """
+        self.cursor.executemany("""
+            INSERT INTO historical_prices 
+            (stock_id, date, open_price, high_price, low_price, close_price, volume, 
+            adjusted_close, original_close, split_adjusted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, prices)
+        self.conn.commit()
 
     # Portfolio-Stock relationship methods
     def add_stock_to_portfolio(self, portfolio_id, stock_id):
@@ -141,8 +179,11 @@ class DatabaseManager:
         print(f"Database updated: Stock ID {stock_id} DRP status set to {drp_status}") 
 
     # Market code methods
-    def get_market_code_suffix(self, market_name):
-        result = self.fetch_one("SELECT market_suffix FROM market_codes WHERE market_or_index = ?", (market_name,))
+    def get_all_market_codes(self):
+        return self.fetch_all("SELECT market_or_index, market_suffix FROM market_codes")
+
+    def get_market_code_suffix(self, market_or_index):
+        result = self.fetch_one("SELECT market_suffix FROM market_codes WHERE market_or_index = ?", (market_or_index,))
         return result[0] if result else None
 
     def update_stock_yahoo_symbol(self, instrument_code, yahoo_symbol):
@@ -167,6 +208,3 @@ class DatabaseManager:
             FROM stocks
             WHERE instrument_code = ?
         """, (instrument_code,))
-
-    def get_all_market_codes(self):
-        return self.fetch_all("SELECT id, market_or_index, market_suffix FROM market_codes")

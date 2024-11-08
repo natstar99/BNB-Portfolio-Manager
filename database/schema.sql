@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS stocks (
     current_price REAL,
     last_updated DATETIME,
     market_suffix TEXT,
+    verification_status TEXT DEFAULT 'pending', -- New: tracks verification status (pending, verified, failed)
+    last_verified DATETIME,                    -- New: when the stock was last verified with Yahoo
     drp INTEGER DEFAULT 0,
     UNIQUE(yahoo_symbol, instrument_code)
 );
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     quantity REAL NOT NULL,
     price REAL NOT NULL,
     transaction_type TEXT NOT NULL,
+    original_quantity REAL,    -- New: stores pre-split quantity
+    original_price REAL,       -- New: stores pre-split price
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
@@ -45,14 +49,44 @@ CREATE TABLE IF NOT EXISTS stock_splits (
     stock_id INTEGER,
     date DATE NOT NULL,
     ratio REAL NOT NULL,
+    verified_source TEXT,      -- New: indicates if split came from Yahoo or manual entry
+    verification_date DATETIME, -- New: when the split was verified
+    FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
+);
+
+-- Historical_Prices table (new)
+CREATE TABLE IF NOT EXISTS historical_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_id INTEGER NOT NULL,
+    date DATE NOT NULL,
+    open_price REAL,
+    high_price REAL,
+    low_price REAL,
+    close_price REAL,
+    volume INTEGER,
+    adjusted_close REAL,
+    original_close REAL,      -- Stores pre-split price
+    split_adjusted BOOLEAN,   -- Indicates if price has been adjusted for splits
+    FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE,
+    UNIQUE(stock_id, date)
+);
+
+-- Import_Verification table (new)
+CREATE TABLE IF NOT EXISTS import_verification (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_date DATETIME NOT NULL,
+    portfolio_id INTEGER,
+    stock_id INTEGER,
+    verification_status TEXT,
+    verification_notes TEXT,
+    FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
 -- Market_Codes table
 CREATE TABLE IF NOT EXISTS market_codes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    suffix TEXT NOT NULL
+    market_or_index TEXT NOT NULL PRIMARY KEY,
+    market_suffix TEXT NOT NULL UNIQUE
 );
 
 -- Yahoo market codes
