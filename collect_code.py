@@ -1,3 +1,11 @@
+'''
+Run this script to generate a single .txt file with all of the IPM code concatenated
+Script only looks inside the "APPROVED_FOLDERS"
+
+Script also only looks directly in the IPM parent folder, but no deeper if its
+not on the approved list ie; it wont look in .venv etc.
+'''
+
 import os
 from datetime import datetime
 
