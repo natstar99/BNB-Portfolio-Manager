@@ -58,6 +58,8 @@ class VerifyTransactionsDialog(QDialog):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.table)
         self.table.sortByColumn(0, Qt.AscendingOrder)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers) # Make table uneditable by default
+        self.table.cellChanged.connect(self.on_cell_changed) # Connect table item changes (used for manual yahoo code declaration)
         
         # Buttons bar
         button_layout = QHBoxLayout()
@@ -70,12 +72,17 @@ class VerifyTransactionsDialog(QDialog):
         button_layout.addStretch()
         
         # Right side buttons
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.Cancel | QDialogButtonBox.Ok,
-            parent=self
-        )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = QDialogButtonBox(parent=self)
+        update_btn = QPushButton("Save and Update Data")
+        exit_btn = QPushButton("Save and Exit")
+        
+        self.buttons.addButton(update_btn, QDialogButtonBox.AcceptRole)
+        self.buttons.addButton(exit_btn, QDialogButtonBox.RejectRole)
+        
+        # Connect the buttons to their respective slots
+        update_btn.clicked.connect(self.save_and_update)
+        exit_btn.clicked.connect(self.save_and_exit)
+        
         button_layout.addWidget(self.buttons)
         
         layout.addLayout(button_layout)
@@ -129,7 +136,17 @@ class VerifyTransactionsDialog(QDialog):
                     self.table.item(row, 2).setText(yahoo_symbol)
                     self.market_mappings[instrument_code] = market_suffix
                 else:
-                    self.table.item(row, 2).setText(instrument_code)
+                    # Handle manual override case
+                    if yahoo_symbol and yahoo_symbol != instrument_code:
+                        # Find and select "Manually Declare Market Code"
+                        for i in range(market_combo.count()):
+                            if market_combo.itemText(i).startswith("Manually Declare Market Code"):
+                                market_combo.setCurrentIndex(i)
+                                break
+                        self.table.item(row, 2).setText(yahoo_symbol)
+                        self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() | Qt.ItemIsEditable)
+                    else:
+                        self.table.item(row, 2).setText(instrument_code)
                 
                 # Set Stock Name (Column 3)
                 self.table.item(row, 3).setText(name or "")
@@ -158,7 +175,7 @@ class VerifyTransactionsDialog(QDialog):
                         self.update_status(row, "Verified", Qt.green)
                 else:
                     self.update_status(row, "Pending", Qt.gray)
-                    
+                        
             else:
                 # Handle new stock
                 # Set empty Yahoo Symbol (will be updated when market is selected)
@@ -199,18 +216,53 @@ class VerifyTransactionsDialog(QDialog):
             instrument_code = self.table.item(row, 0).text()
             market_combo = self.table.cellWidget(row, 1)
             market_suffix = market_combo.currentData()
+            yahoo_symbol_item = self.table.item(row, 2)
             
-            # Update Yahoo Symbol
-            yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
-            self.table.item(row, 2).setText(yahoo_symbol)
+            # Handle manual market code declaration
+            if market_combo.currentText().startswith("Manually Declare Market Code"):
+                # Enable editing only for the Yahoo Symbol cell in this row
+                yahoo_symbol_item.setFlags(yahoo_symbol_item.flags() | Qt.ItemIsEditable)
+                # Keep the current symbol if it exists, otherwise use instrument code
+                if not yahoo_symbol_item.text():
+                    yahoo_symbol_item.setText(instrument_code)
+            else:
+                # Disable editing and use standard market suffix
+                yahoo_symbol_item.setFlags(yahoo_symbol_item.flags() & ~Qt.ItemIsEditable)
+                yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
+                yahoo_symbol_item.setText(yahoo_symbol)
+                self.market_mappings[instrument_code] = market_suffix
             
             # Reset verification status
             self.update_status(row, "Pending", Qt.gray)
             
-            # Store mapping
-            self.market_mappings[instrument_code] = market_suffix
         except Exception as e:
             print(f"Error in on_market_changed: {str(e)}")
+
+    def on_cell_changed(self, row, column):
+        """Handle changes to cells in the table."""
+        if column == 2:  # Yahoo Symbol column
+            instrument_code = self.table.item(row, 0).text()
+            yahoo_symbol = self.table.item(row, 2).text()
+            
+            # Save the manual override to the database
+            self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
+            
+            # Update the verification status
+            self.update_status(row, "Pending", Qt.gray)
+
+    def on_yahoo_symbol_changed(self, row):
+        try:
+            instrument_code = self.table.item(row, 0).text()
+            yahoo_symbol = self.table.item(row, 2).text()
+            
+            # Update the database with the manual override
+            self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
+            
+            # Reset verification status
+            self.update_status(row, "Pending", Qt.gray)
+            
+        except Exception as e:
+            print(f"Error in on_yahoo_symbol_changed: {str(e)}")
 
     def verify_all_stocks(self):
         progress = QProgressDialog("Verifying stocks with Yahoo Finance...", "Cancel", 0, self.table.rowCount(), self)
@@ -259,10 +311,27 @@ class VerifyTransactionsDialog(QDialog):
                 self.update_status(row, "Not Found", Qt.red)
             
             # Update latest price
-            price = info.get('currentPrice', 0.0)
+            price = (
+                info.get('currentPrice', 0.0) or           # Try currentPrice first
+                info.get('regularMarketPrice', 0.0) or     # Then regularMarketPrice
+                info.get('previousClose', 0.0) or          # Then previousClose
+                info.get('lastPrice', 0.0) or              # Then lastPrice
+                info.get('regularMarketPreviousClose', 0.0) # Finally try regularMarketPreviousClose
 
+            )
+            # If we still don't have a price, try getting it from history
             if price == 0:
-                price = info.get('regularMarketPrice', 0.0) # Sometimes currentPrice isn't specified
+                try:
+                    # Get the most recent day's data
+                    hist = ticker.history(period="1d")
+                    if not hist.empty:
+                        price = hist['Close'].iloc[-1]  # Get the last closing price
+                except Exception as e:
+                    print(f"Error getting historical price for {yahoo_symbol}: {str(e)}")
+
+            # If we still don't have a price, log it
+            if price == 0:
+                print(f"Warning: Could not get price for {yahoo_symbol}")
 
             self.table.item(row, 4).setText(str(price))
             
@@ -287,7 +356,13 @@ class VerifyTransactionsDialog(QDialog):
             print(f"Error verifying {yahoo_symbol}: {str(e)}")
 
     def update_status(self, row, status, color):
-        status_item = self.table.item(row, 7)
+        """Update the verification status for a given row."""
+        # Ensure the status cell exists, create it if it doesn't
+        status_item = self.table.item(row, 7)  # Status is column 7
+        if status_item is None:
+            status_item = QTableWidgetItem("")
+            self.table.setItem(row, 7, status_item)
+        
         status_item.setText(status)
         status_item.setForeground(color)
         self.verification_status[row] = status
@@ -360,6 +435,49 @@ class VerifyTransactionsDialog(QDialog):
         }
         self.verification_completed.emit(results)
         super().accept()
+
+    def save_and_update(self):
+        """Save all changes and update stock data"""
+        self.save_changes()  # Save current state
+        self.accept()  # Close dialog with accept (will trigger verification)
+
+    def save_and_exit(self):
+        """Save all changes without updating stock data"""
+        self.save_changes()  # Save current state
+        self.reject()  # Close dialog with reject (won't trigger verification)
+
+    def save_changes(self):
+        """Save the current state of all stocks"""
+        for row in range(self.table.rowCount()):
+            instrument_code = self.table.item(row, 0).text()
+            market_combo = self.table.cellWidget(row, 1)
+            yahoo_symbol = self.table.item(row, 2).text()
+            
+            # Get the market suffix from the combo box
+            market_suffix = market_combo.currentData()
+            
+            # Update the database with current settings
+            if market_combo.currentText().startswith("Manually Declare Market Code"):
+                # Save as manual override
+                self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
+            else:
+                # Save with market suffix
+                self.db_manager.update_stock_market(instrument_code, market_suffix)
+            
+            # Save DRP setting
+            drp_checkbox = self.table.cellWidget(row, 6)
+            if drp_checkbox:
+                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if stock:
+                    self.db_manager.update_stock_drp(stock[0], drp_checkbox.isChecked())
+        
+        # Commit all changes
+        self.db_manager.conn.commit()
+
+    def closeEvent(self, event):
+        """Handle the window close event (X button)"""
+        self.save_changes()
+        event.accept()  # Allow the window to close
 
 class StockSplitsDialog(QDialog):
     def __init__(self, db_manager, instrument_code, initial_splits=None, parent=None):

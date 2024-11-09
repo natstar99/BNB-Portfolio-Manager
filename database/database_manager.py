@@ -99,24 +99,32 @@ class DatabaseManager:
         ))
         self.conn.commit()
 
+    def update_stock_yahoo_override(self, instrument_code, yahoo_symbol):
+        """
+        Update the yahoo_symbol directly for manual market declarations.
+        """
+        current_time = datetime.now().replace(microsecond=0)
+        self.execute("""
+            UPDATE stocks 
+            SET yahoo_symbol = ?,
+                last_updated = ?,
+                market_suffix = NULL  -- Clear market suffix to indicate manual override
+            WHERE instrument_code = ?
+        """, (yahoo_symbol, current_time, instrument_code))
+        self.conn.commit()
+
     def get_stock_by_instrument_code(self, instrument_code):
         """
         Get stock information by instrument code.
-        
-        Args:
-            instrument_code (str): The instrument code to look up
-            
-        Returns:
-            tuple: Stock information including id, yahoo_symbol, instrument_code, name, 
-                current_price, last_updated, market_suffix, drp
+        Returns the stock with its proper yahoo symbol, whether manual or market-based.
         """
         return self.fetch_one("""
-            SELECT id, yahoo_symbol, instrument_code, name, current_price, last_updated, 
-                market_suffix, drp
+            SELECT id, yahoo_symbol, instrument_code, name, current_price, 
+                last_updated, market_suffix, drp
             FROM stocks
             WHERE instrument_code = ?
         """, (instrument_code,))
-
+        
     # Transaction methods
     def add_transaction(self, stock_id, date, quantity, price, transaction_type):
         self.execute("""

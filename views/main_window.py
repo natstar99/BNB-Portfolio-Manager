@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt
 
 from controllers.portfolio_controller import PortfolioController
 from controllers.portfolio_view_controller import PortfolioViewController
-from views.market_codes_view import MarketCodesView
 
 class MainWindow(QMainWindow):
     def __init__(self, db_manager):
@@ -41,7 +40,7 @@ class MainWindow(QMainWindow):
 
         # Add navigation buttons
         self.nav_buttons = []
-        for button_text in ["Manage Portfolios", "My Portfolio", "Analyze Portfolio", "Market Codes", "Settings"]:
+        for button_text in ["Manage Portfolios", "My Portfolio", "Analyze Portfolio", "Settings"]:
             button = QPushButton(button_text)
             button.clicked.connect(lambda checked, text=button_text: self.on_nav_button_clicked(text))
             sidebar_layout.addWidget(button)
@@ -55,18 +54,14 @@ class MainWindow(QMainWindow):
         # Create controllers
         self.portfolio_controller = PortfolioController(self.db_manager)
         self.portfolio_view_controller = PortfolioViewController(self.db_manager)
-        self.market_codes_view = MarketCodesView(self.db_manager)
 
         # Connect signals
         self.portfolio_controller.view.select_portfolio.connect(self.on_portfolio_selected)
-        self.market_codes_view.refresh_symbol.connect(self.refresh_stock_info)
-        self.market_codes_view.update_symbol.connect(self.update_symbol)
 
         # Add pages to stacked widget
         self.content_widget.addWidget(self.portfolio_controller.get_view())
         self.content_widget.addWidget(self.portfolio_view_controller.get_view())
         self.content_widget.addWidget(QLabel("Analyze Portfolio Page"))
-        self.content_widget.addWidget(self.market_codes_view)
         self.content_widget.addWidget(QLabel("Settings Page"))
 
         # Add sidebar and content to main layout
@@ -77,7 +72,7 @@ class MainWindow(QMainWindow):
         self.portfolio_controller.load_portfolios()
 
     def on_nav_button_clicked(self, button_text):
-        index = ["Manage Portfolios", "My Portfolio", "Analyze Portfolio", "Market Codes", "Settings"].index(button_text)
+        index = ["Manage Portfolios", "My Portfolio", "Analyse Portfolio", "Market Codes", "Settings"].index(button_text)
         self.content_widget.setCurrentIndex(index)
         for button in self.nav_buttons:
             button.setStyleSheet("")
@@ -89,15 +84,3 @@ class MainWindow(QMainWindow):
             self.portfolio_view_controller.set_portfolio(portfolio)
             self.content_widget.setCurrentIndex(1)  # Switch to "My Portfolio" view
             self.nav_buttons[1].setStyleSheet("background-color: #ddd;")
-
-    def refresh_stock_info(self, instrument_code):
-        # Implement this method to refresh stock info using db_manager
-        # This might involve fetching updated data from an external API
-        # and then updating the database
-        pass
-
-    def update_symbol(self, instrument_code, market_or_index):
-        # Implement this method to update symbol using db_manager
-        self.db_manager.update_stock_market(instrument_code, market_or_index)
-        # You might want to refresh the view after updating
-        self.market_codes_view.update_symbol_data(instrument_code)
