@@ -67,6 +67,7 @@ class ImportTransactionsController(QObject):
             # Store the mappings from verification results
             self.market_mappings = verification_results['market_mappings']
             stock_data = verification_results['stock_data']
+            drp_settings = verification_results.get('drp_settings', {})
             df = verification_results['transactions_df']
 
             # Ask about historical data
@@ -97,6 +98,10 @@ class ImportTransactionsController(QObject):
                         db_manager=self.db_manager
                     )
                     self.portfolio.add_stock(stock)
+
+                # Update DRP setting
+                drp_status = drp_settings.get(instrument_code, False)
+                self.db_manager.update_stock_drp(stock.id, drp_status)
 
                 # Bulk insert transactions for this stock
                 transactions = []

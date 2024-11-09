@@ -100,9 +100,19 @@ class DatabaseManager:
         self.conn.commit()
 
     def get_stock_by_instrument_code(self, instrument_code):
-        """Get stock information by instrument code"""
+        """
+        Get stock information by instrument code.
+        
+        Args:
+            instrument_code (str): The instrument code to look up
+            
+        Returns:
+            tuple: Stock information including id, yahoo_symbol, instrument_code, name, 
+                current_price, last_updated, market_suffix, drp
+        """
         return self.fetch_one("""
-            SELECT id, yahoo_symbol, instrument_code, name, current_price, last_updated, market_suffix
+            SELECT id, yahoo_symbol, instrument_code, name, current_price, last_updated, 
+                market_suffix, drp
             FROM stocks
             WHERE instrument_code = ?
         """, (instrument_code,))

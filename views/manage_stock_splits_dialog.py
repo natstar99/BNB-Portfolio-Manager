@@ -55,6 +55,7 @@ class ManageStockSplitsDialog(QDialog):
         self.load_splits()
 
     def load_splits(self):
+        """Load splits from database"""
         stock = self.db_manager.get_stock(self.instrument_code)
         splits = self.db_manager.get_stock_splits(stock['id'])
         self.splits_table.setRowCount(len(splits))

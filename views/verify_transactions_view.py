@@ -2,17 +2,12 @@
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QTableWidget, QTableWidgetItem, QHeaderView,
-                              QComboBox, QMessageBox, QLabel)
-from PySide6.QtCore import Qt, Signal
-
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                              QTableWidget, QTableWidgetItem, QHeaderView,
                               QComboBox, QMessageBox, QLabel, QProgressDialog,
-                              QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox)
+                              QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox,
+                              QCheckBox)
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
-import concurrent.futures
 
 class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
@@ -24,6 +19,7 @@ class VerifyTransactionsDialog(QDialog):
         self.market_mappings = {}
         self.stock_data = {}
         self.verification_status = {}
+        self.drp_settings = {}
         self.init_ui()
         
     def init_ui(self):
@@ -38,14 +34,14 @@ class VerifyTransactionsDialog(QDialog):
             "Please verify the imported stocks. You can:\n"
             "• Assign market codes to each instrument\n"
             "• Verify stock information with Yahoo Finance\n"
-            "• Manage stock splits\n"
+            "• Manage stock splits and dividend reinvestment settings\n"
             "• Re-verify stocks after making changes"
         )
         layout.addWidget(instructions)
         
         # Main table
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
             "Instrument Code",
             "Market",
@@ -53,6 +49,7 @@ class VerifyTransactionsDialog(QDialog):
             "Stock Name",
             "Latest Price",
             "Splits",
+            "DRP",
             "Status",
             "Actions"
         ])
@@ -60,6 +57,7 @@ class VerifyTransactionsDialog(QDialog):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.table)
+        self.table.sortByColumn(0, Qt.AscendingOrder)
         
         # Buttons bar
         button_layout = QHBoxLayout()
@@ -86,71 +84,115 @@ class VerifyTransactionsDialog(QDialog):
         self.populate_table()
 
     def populate_table(self):
+        """
+        Populate the verification table with stock data from the transactions.
+        This method initialises the table and handles existing stock data and verification status.
+        """
         # Get unique instrument codes from transactions
         instrument_codes = self.transactions_data['Instrument Code'].unique()
         self.table.setRowCount(len(instrument_codes))
         
+        # Get market codes for the dropdown
         market_codes = self.db_manager.get_all_market_codes()
         
         for row, instrument_code in enumerate(instrument_codes):
-            # Initialize ALL table items first
+            # Initialise all table items first to prevent NoneType errors
             for col in range(self.table.columnCount()):
                 self.table.setItem(row, col, QTableWidgetItem(""))
                 
-            # Now set specific values and widgets
-            # Instrument Code
+            # Set Instrument Code (Column 0)
             self.table.item(row, 0).setText(instrument_code)
             
-            # Market Combo Box
+            # Get existing stock data from database if it exists
+            existing_stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+            
+            # Create and setup Market Combo Box (Column 1)
             market_combo = QComboBox()
             market_combo.addItem("")  # Empty option
             for market_or_index, suffix in market_codes:
-                market_combo.addItem(f"{market_or_index} ({suffix})", suffix)
-            
-            # Important: Only connect the signal after setting the initial value
-            existing_stock = self.db_manager.get_stock(instrument_code)
+                display_text = f"{market_or_index} ({suffix})" if suffix else market_or_index
+                market_combo.addItem(display_text, suffix)
             self.table.setCellWidget(row, 1, market_combo)
             
-            if existing_stock and existing_stock[6]:  # market_suffix
-                market_suffix = existing_stock[6]
-                index = market_combo.findData(market_suffix)
-                if index >= 0:
-                    market_combo.setCurrentIndex(index)
-                    
-                    # Set initial Yahoo symbol
-                    yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
+            if existing_stock:
+                # Handle existing stock data
+                stock_id, yahoo_symbol, _, name, current_price, _, market_suffix, drp = existing_stock
+                
+                # Set market suffix in combo box if it exists
+                if market_suffix:
+                    index = market_combo.findData(market_suffix)
+                    if index >= 0:
+                        market_combo.setCurrentIndex(index)
+                        
+                    # Set Yahoo Symbol (Column 2)
+                    yahoo_symbol = f"{instrument_code}{market_suffix}"
                     self.table.item(row, 2).setText(yahoo_symbol)
-                    
-                    # Store the mapping
                     self.market_mappings[instrument_code] = market_suffix
+                else:
+                    self.table.item(row, 2).setText(instrument_code)
+                
+                # Set Stock Name (Column 3)
+                self.table.item(row, 3).setText(name or "")
+                
+                # Set Current Price (Column 4)
+                if current_price:
+                    self.table.item(row, 4).setText(f"{current_price:.2f}")
+                
+                # Check for splits and set indicator (Column 5)
+                splits = self.db_manager.get_stock_splits(stock_id)
+                split_indicator = "✓" if splits else ""
+                self.table.item(row, 5).setText(split_indicator)
+                
+                # Set DRP checkbox (Column 6)
+                drp_checkbox = QCheckBox()
+                drp_checkbox.setChecked(bool(drp))
+                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                self.table.setCellWidget(row, 6, drp_checkbox)
+                self.drp_settings[instrument_code] = bool(drp)
+                
+                # Set verification status (Column 7)
+                if name:
+                    if name == "N/A":
+                        self.update_status(row, "Not Found", Qt.red)
+                    else:
+                        self.update_status(row, "Verified", Qt.green)
+                else:
+                    self.update_status(row, "Pending", Qt.gray)
+                    
+            else:
+                # Handle new stock
+                # Set empty Yahoo Symbol (will be updated when market is selected)
+                self.table.item(row, 2).setText(instrument_code)
+                
+                # Initialise other columns as empty
+                self.table.item(row, 3).setText("")  # Name
+                self.table.item(row, 4).setText("")  # Price
+                self.table.item(row, 5).setText("")  # Splits
+                
+                # Add DRP checkbox for new stock (Column 6)
+                drp_checkbox = QCheckBox()
+                drp_checkbox.setChecked(False)
+                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                self.table.setCellWidget(row, 6, drp_checkbox)
+                self.drp_settings[instrument_code] = False
+                
+                # Set initial verification status as Pending (Column 7)
+                self.update_status(row, "Pending", Qt.gray)
             
-            # Now connect the signal
+            # Connect market combo box signal
+            # Important: Connect after setting initial value to avoid triggering updates
             market_combo.currentIndexChanged.connect(
                 lambda idx, r=row: self.on_market_changed(r)
             )
             
-            # Set initial values for other columns
-            if existing_stock:
-                self.table.item(row, 3).setText(existing_stock[3] or "")  # name
-                self.table.item(row, 4).setText(str(existing_stock[4] or ""))  # price
-                
-                # Get and format splits
-                splits = self.db_manager.get_stock_splits(existing_stock[0])  # stock_id
-                if splits:
-                    splits_text = ", ".join(f"{split[0]}: {split[1]}" for split in splits)
-                    self.table.item(row, 5).setText(splits_text)
-            
-            # Status (initialized as Pending)
-            self.table.item(row, 6).setText("Pending")
-            self.table.item(row, 6).setForeground(Qt.gray)
-            
-            # Actions Button
+            # Create Actions Button (Column 8)
             actions_btn = QPushButton("Actions ▼")
             actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
-            self.table.setCellWidget(row, 7, actions_btn)
-            
-            # Store status
-            self.verification_status[row] = "Pending"
+            self.table.setCellWidget(row, 8, actions_btn)
+
+            # Store the initial verification status
+            if row not in self.verification_status:
+                self.verification_status[row] = "Pending"
 
     def on_market_changed(self, row):
         try:
@@ -183,6 +225,17 @@ class VerifyTransactionsDialog(QDialog):
         
         progress.close()
 
+    def on_drp_changed(self, row):
+        """Handle changes to the DRP checkbox."""
+        drp_checkbox = self.table.cellWidget(row, 6)  # Column 6 is DRP
+        instrument_code = self.table.item(row, 0).text()
+        stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+        if stock:
+            stock_id = stock[0]
+            is_checked = drp_checkbox.isChecked()
+            self.db_manager.update_stock_drp(stock_id, is_checked)
+            self.drp_settings[instrument_code] = is_checked
+
     def verify_stock(self, row):
         instrument_code = self.table.item(row, 0).text()
         yahoo_symbol = self.table.item(row, 2).text()
@@ -199,35 +252,42 @@ class VerifyTransactionsDialog(QDialog):
             name = info.get('longName', 'N/A')
             self.table.item(row, 3).setText(name)
             
+            # Update verification status based on name
+            if name and name != "N/A":
+                self.update_status(row, "Verified", Qt.green)
+            else:
+                self.update_status(row, "Not Found", Qt.red)
+            
             # Update latest price
-            price = info.get('currentPrice', 0.0)  # Changed from 'N/A' to 0.0 for numeric consistency
+            price = info.get('currentPrice', 0.0)
+
+            if price == 0:
+                price = info.get('regularMarketPrice', 0.0) # Sometimes currentPrice isn't specified
+
             self.table.item(row, 4).setText(str(price))
             
             # Store the verified data
             self.stock_data[instrument_code] = {
                 'name': name,
                 'price': price,
-                'symbol': yahoo_symbol
+                'symbol': yahoo_symbol,
+                'drp': self.drp_settings.get(instrument_code, False)
             }
             
-            # Get splits
+            # Get splits and update indicator
             splits = ticker.splits
             if not splits.empty:
-                splits_text = [f"{date.strftime('%Y-%m-%d')}: {ratio}" 
-                            for date, ratio in splits.items()]
-                self.table.item(row, 5).setText(", ".join(splits_text))
-                
-                # Add splits to stock data
+                self.table.item(row, 5).setText("✓")
                 self.stock_data[instrument_code]['splits'] = splits
-            
-            self.update_status(row, "Verified", Qt.green)
-            
+            else:
+                self.table.item(row, 5).setText("")
+                
         except Exception as e:
             self.update_status(row, "Failed", Qt.red)
             print(f"Error verifying {yahoo_symbol}: {str(e)}")
 
     def update_status(self, row, status, color):
-        status_item = self.table.item(row, 6)
+        status_item = self.table.item(row, 7)
         status_item.setText(status)
         status_item.setForeground(color)
         self.verification_status[row] = status
@@ -242,22 +302,25 @@ class VerifyTransactionsDialog(QDialog):
         manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
         
         # Show menu at button
-        button = self.table.cellWidget(row, 7)
+        button = self.table.cellWidget(row, 8)
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
 
     def manage_splits(self, row):
+        """Show the splits management dialog for the stock at the specified row."""
         instrument_code = self.table.item(row, 0).text()
+        yahoo_splits = self.stock_data.get(instrument_code, {}).get('splits', {})
+        
         dialog = StockSplitsDialog(
             self.db_manager,
             instrument_code,
-            initial_splits=self.stock_data.get(instrument_code, {}).get('splits', []),
+            initial_splits=yahoo_splits,
             parent=self
         )
+        
         if dialog.exec_():
-            # Update splits display in table
-            splits = dialog.get_splits()
-            splits_text = [f"{date}: {ratio}" for date, ratio in splits]
-            self.table.item(row, 5).setText(", ".join(splits_text))
+            # Refresh the splits indicator in the table
+            has_splits = bool(dialog.get_splits())
+            self.table.item(row, 5).setText("✓" if has_splits else "")
 
     def show_context_menu(self, position):
         menu = QMenu(self)
@@ -292,37 +355,51 @@ class VerifyTransactionsDialog(QDialog):
             'market_mappings': self.market_mappings,
             'stock_data': self.stock_data,
             'verification_status': self.verification_status,
-            'transactions_df': self.transactions_data
+            'transactions_df': self.transactions_data,
+            'drp_settings': self.drp_settings
         }
         self.verification_completed.emit(results)
         super().accept()
 
 class StockSplitsDialog(QDialog):
     def __init__(self, db_manager, instrument_code, initial_splits=None, parent=None):
+        """
+        Dialog for managing stock splits.
+        
+        Args:
+            db_manager: Database manager instance
+            instrument_code: The stock's instrument code
+            initial_splits: Dictionary of splits from Yahoo Finance (optional)
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.db_manager = db_manager
         self.instrument_code = instrument_code
         self.initial_splits = initial_splits or {}
-        self.splits = {}  # Will store current splits
+        self.splits = {}  # Will store all splits (both manual and from Yahoo)
         self.init_ui()
         self.load_splits()
 
     def init_ui(self):
+        """Initialize the user interface components."""
         self.setWindowTitle(f"Manage Stock Splits - {self.instrument_code}")
-        self.setMinimumWidth(400)
         layout = QVBoxLayout(self)
 
-        # Add explanation
-        layout.addWidget(QLabel(
-            "Manage stock splits for this instrument. "
-            "A split ratio of 2 means 2-for-1 split (quantity doubles, price halves)."
-        ))
+        # Add explanation with different coloured text for manual/yahoo splits
+        explanation = QLabel(
+            "Manage stock splits for this instrument.\n"
+            "• Yahoo Finance splits are shown in blue\n"
+            "• Manual splits are shown in black\n"
+            "Note: Manual splits will be preserved during Yahoo updates."
+        )
+        explanation.setStyleSheet("color: #333;")
+        layout.addWidget(explanation)
 
         # Table for existing splits
         self.splits_table = QTableWidget()
-        self.splits_table.setColumnCount(3)  # Date, Ratio, Delete button
-        self.splits_table.setHorizontalHeaderLabels(["Date", "Ratio", ""])
-        self.splits_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.splits_table.setColumnCount(4)  # Date, Ratio, Source, Delete button
+        self.splits_table.setHorizontalHeaderLabels(["Date", "Ratio", "Source", ""])
+        self.splits_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         layout.addWidget(self.splits_table)
 
         # Add new split section
@@ -339,12 +416,12 @@ class StockSplitsDialog(QDialog):
         add_split_layout.addWidget(QLabel("Ratio:"))
         self.ratio_spin = QDoubleSpinBox()
         self.ratio_spin.setRange(0.01, 100)
-        self.ratio_spin.setValue(2)
+        self.ratio_spin.setValue(2.00)
         self.ratio_spin.setDecimals(2)
         add_split_layout.addWidget(self.ratio_spin)
 
         # Add button
-        self.add_button = QPushButton("Add Split")
+        self.add_button = QPushButton("Add Manual Split")
         self.add_button.clicked.connect(self.add_split)
         add_split_layout.addWidget(self.add_button)
 
@@ -359,39 +436,104 @@ class StockSplitsDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def load_splits(self):
-        # Load initial splits (from Yahoo or database)
-        self.splits = self.initial_splits.copy()
-        self.refresh_table()
+        """Load splits from both database and Yahoo Finance data."""
+        try:
+            # Get stock ID from database
+            stock = self.db_manager.get_stock(self.instrument_code)
+            if stock:
+                # Fetch splits including the verified_source field
+                db_splits = self.db_manager.fetch_all("""
+                    SELECT date, ratio, verified_source
+                    FROM stock_splits
+                    WHERE stock_id = ?
+                    ORDER BY date
+                """, (stock[0],))
+
+                # Load splits from database
+                for split in db_splits:
+                    date = datetime.strptime(split[0], '%Y-%m-%d').date()
+                    self.splits[date] = {
+                        'ratio': float(split[1]),
+                        'source': split[2] if split[2] else 'manual'
+                    }
+
+            # Add any new Yahoo splits
+            if self.initial_splits is not None:
+                for date, ratio in self.initial_splits.items():
+                    if isinstance(date, str):
+                        date = datetime.strptime(date, '%Y-%m-%d').date()
+                    self.splits[date] = {
+                        'ratio': float(ratio),
+                        'source': 'yahoo'
+                    }
+
+            self.refresh_table()
+
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Error Loading Splits",
+                f"Failed to load stock splits: {str(e)}"
+            )
 
     def refresh_table(self):
+        """Refresh the splits table with current data."""
         self.splits_table.setRowCount(len(self.splits))
-        for row, (date, ratio) in enumerate(self.splits.items()):
-            # Date
-            date_item = QTableWidgetItem(date.strftime('%Y-%m-%d') if isinstance(date, datetime) else date)
+        
+        # Sort splits by date
+        sorted_splits = sorted(self.splits.items())
+        
+        for row, (date, split_info) in enumerate(sorted_splits):
+            # Date column
+            date_item = QTableWidgetItem(date.strftime('%Y-%m-%d'))
             self.splits_table.setItem(row, 0, date_item)
             
-            # Ratio
-            ratio_item = QTableWidgetItem(str(ratio))
+            # Ratio column (format to 2 decimal places)
+            ratio_item = QTableWidgetItem(f"{split_info['ratio']:.2f}")
             self.splits_table.setItem(row, 1, ratio_item)
             
-            # Delete button
-            delete_button = QPushButton("Delete")
-            delete_button.clicked.connect(lambda _, r=row: self.delete_split(r))
-            self.splits_table.setCellWidget(row, 2, delete_button)
+            # Source column
+            source_item = QTableWidgetItem(split_info['source'])
+            if split_info['source'] == 'yahoo':
+                source_item.setForeground(Qt.blue)
+            self.splits_table.setItem(row, 2, source_item)
+            
+            # Delete button (only for manual splits)
+            if split_info['source'] != 'yahoo':
+                delete_button = QPushButton("Delete")
+                delete_button.clicked.connect(lambda checked, r=row: self.delete_split(r))
+                self.splits_table.setCellWidget(row, 3, delete_button)
 
     def add_split(self):
+        """Add a new manual split."""
         date = self.date_edit.date().toPython()
         ratio = self.ratio_spin.value()
-        
+
+        # Check if split already exists on this date
+        if date in self.splits:
+            QMessageBox.warning(
+                self,
+                "Split Exists",
+                f"A split already exists for {date.strftime('%Y-%m-%d')}. "
+                "Please choose a different date."
+            )
+            return
+
         # Add to splits dictionary
-        self.splits[date] = ratio
+        self.splits[date] = {
+            'ratio': ratio,
+            'source': 'manual'
+        }
+        
         self.refresh_table()
 
     def delete_split(self, row):
+        """Delete a manual split."""
         date_item = self.splits_table.item(row, 0)
         date_str = date_item.text()
         date = datetime.strptime(date_str, '%Y-%m-%d').date()
         
+        # Confirm deletion
         confirm = QMessageBox.question(
             self,
             "Confirm Deletion",
@@ -401,8 +543,55 @@ class StockSplitsDialog(QDialog):
         
         if confirm == QMessageBox.Yes:
             if date in self.splits:
-                del self.splits[date]
-            self.refresh_table()
+                # Only delete if it's a manual split
+                if self.splits[date]['source'] == 'manual':
+                    del self.splits[date]
+                    self.refresh_table()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Cannot Delete",
+                        "Yahoo Finance splits cannot be deleted."
+                    )
 
     def get_splits(self):
+        """Return the current splits dictionary."""
         return self.splits
+
+    def accept(self):
+        """Handle the OK button click."""
+        try:
+            # Get stock ID
+            stock = self.db_manager.get_stock(self.instrument_code)
+            if stock:
+                stock_id = stock[0]
+                
+                # Clear existing manual splits (preserve Yahoo splits)
+                self.db_manager.execute("""
+                    DELETE FROM stock_splits 
+                    WHERE stock_id = ? AND (verified_source IS NULL OR verified_source = 'manual')
+                """, (stock_id,))
+                
+                # Insert all current splits
+                for date, split_info in self.splits.items():
+                    self.db_manager.execute("""
+                        INSERT OR REPLACE INTO stock_splits 
+                        (stock_id, date, ratio, verified_source, verification_date)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        stock_id,
+                        date.strftime('%Y-%m-%d'),
+                        split_info['ratio'],
+                        split_info['source'],
+                        datetime.now()
+                    ))
+                
+                self.db_manager.conn.commit()
+                super().accept()
+            
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Error Saving Splits",
+                f"Failed to save stock splits: {str(e)}"
+            )
