@@ -81,6 +81,32 @@ class DatabaseManager:
     def get_stock(self, yahoo_symbol):
         return self.fetch_one("SELECT * FROM stocks WHERE yahoo_symbol = ?", (yahoo_symbol,))
 
+    def update_stock_info(self, stock_id, name, current_price, yahoo_symbol):
+        """Update stock information in the database"""
+        self.execute("""
+            UPDATE stocks 
+            SET name = ?,
+                current_price = ?,
+                last_updated = ?,
+                yahoo_symbol = ?
+            WHERE id = ?
+        """, (
+            name,
+            current_price,
+            datetime.now().replace(microsecond=0),
+            yahoo_symbol,
+            stock_id
+        ))
+        self.conn.commit()
+
+    def get_stock_by_instrument_code(self, instrument_code):
+        """Get stock information by instrument code"""
+        return self.fetch_one("""
+            SELECT id, yahoo_symbol, instrument_code, name, current_price, last_updated, market_suffix
+            FROM stocks
+            WHERE instrument_code = ?
+        """, (instrument_code,))
+
     # Transaction methods
     def add_transaction(self, stock_id, date, quantity, price, transaction_type):
         self.execute("""

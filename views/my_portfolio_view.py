@@ -10,6 +10,7 @@ class MyPortfolioView(QWidget):
     remove_stock = Signal(str)
     refresh_data = Signal()
     view_history = Signal(str)
+    manage_portfolio = Signal() 
 
     def __init__(self):
         super().__init__()
@@ -24,20 +25,23 @@ class MyPortfolioView(QWidget):
         layout.addWidget(self.portfolio_name_label)
         layout.addWidget(self.portfolio_value_label)
 
-        # Buttons
+        # Create Buttons
         button_layout = QHBoxLayout()
         self.add_stock_button = QPushButton("Add Stock")
         self.remove_stock_button = QPushButton("Remove Stock")
         self.refresh_button = QPushButton("Refresh Data")
+        self.manage_portfolio_button = QPushButton("Manage Portfolio")
+        self.view_history_button = QPushButton("View History")
+        self.view_history_button.setEnabled(False)
+
+        # Add buttons to widget
         button_layout.addWidget(self.add_stock_button)
         button_layout.addWidget(self.remove_stock_button)
         button_layout.addWidget(self.refresh_button)
-        layout.addLayout(button_layout)
-
-        # Add View History button
-        self.view_history_button = QPushButton("View History")
-        self.view_history_button.setEnabled(False)
+        button_layout.addWidget(self.manage_portfolio_button)
         button_layout.addWidget(self.view_history_button)
+
+        layout.addLayout(button_layout)
 
         # Stocks table
         self.stocks_table = QTableWidget()
@@ -55,6 +59,7 @@ class MyPortfolioView(QWidget):
         self.add_stock_button.clicked.connect(self.add_stock)
         self.remove_stock_button.clicked.connect(self.on_remove_stock)
         self.refresh_button.clicked.connect(self.refresh_data)
+        self.manage_portfolio_button.clicked.connect(self.manage_portfolio.emit)
         self.view_history_button.clicked.connect(self.on_view_history)
 
         # Connect selection change signal

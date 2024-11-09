@@ -82,76 +82,93 @@ class VerifyTransactionsDialog(QDialog):
         
         layout.addLayout(button_layout)
         
-        # Initialize table data
+        # Initialise table data
         self.populate_table()
 
     def populate_table(self):
         # Get unique instrument codes from transactions
-        print(type(self.transactions_data))  # Add this at start of populate_table
-        print(self.transactions_data.head()) # If it is a DataFrame
         instrument_codes = self.transactions_data['Instrument Code'].unique()
         self.table.setRowCount(len(instrument_codes))
         
         market_codes = self.db_manager.get_all_market_codes()
         
         for row, instrument_code in enumerate(instrument_codes):
+            # Initialize ALL table items first
+            for col in range(self.table.columnCount()):
+                self.table.setItem(row, col, QTableWidgetItem(""))
+                
+            # Now set specific values and widgets
             # Instrument Code
-            self.table.setItem(row, 0, QTableWidgetItem(instrument_code))
+            self.table.item(row, 0).setText(instrument_code)
             
             # Market Combo Box
             market_combo = QComboBox()
             market_combo.addItem("")  # Empty option
             for market_or_index, suffix in market_codes:
-                market_combo.addItem(market_or_index, suffix)
-            market_combo.currentIndexChanged.connect(
-                lambda idx, r=row: self.on_market_changed(r)
-            )
+                market_combo.addItem(f"{market_or_index} ({suffix})", suffix)
+            
+            # Important: Only connect the signal after setting the initial value
+            existing_stock = self.db_manager.get_stock(instrument_code)
             self.table.setCellWidget(row, 1, market_combo)
             
-            # Set existing market if available
-            existing_stock = self.db_manager.get_stock(instrument_code)
             if existing_stock and existing_stock[6]:  # market_suffix
                 market_suffix = existing_stock[6]
                 index = market_combo.findData(market_suffix)
                 if index >= 0:
                     market_combo.setCurrentIndex(index)
+                    
+                    # Set initial Yahoo symbol
+                    yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
+                    self.table.item(row, 2).setText(yahoo_symbol)
+                    
+                    # Store the mapping
+                    self.market_mappings[instrument_code] = market_suffix
             
-            # Yahoo Symbol (will be updated when market is selected)
-            self.table.setItem(row, 2, QTableWidgetItem(""))
+            # Now connect the signal
+            market_combo.currentIndexChanged.connect(
+                lambda idx, r=row: self.on_market_changed(r)
+            )
             
-            # Stock Name (will be populated from Yahoo)
-            self.table.setItem(row, 3, QTableWidgetItem(""))
+            # Set initial values for other columns
+            if existing_stock:
+                self.table.item(row, 3).setText(existing_stock[3] or "")  # name
+                self.table.item(row, 4).setText(str(existing_stock[4] or ""))  # price
+                
+                # Get and format splits
+                splits = self.db_manager.get_stock_splits(existing_stock[0])  # stock_id
+                if splits:
+                    splits_text = ", ".join(f"{split[0]}: {split[1]}" for split in splits)
+                    self.table.item(row, 5).setText(splits_text)
             
-            # Latest Price
-            self.table.setItem(row, 4, QTableWidgetItem(""))
-            
-            # Splits (button will be added when data is available)
-            self.table.setItem(row, 5, QTableWidgetItem(""))
-            
-            # Status
-            status_item = QTableWidgetItem("Pending")
-            status_item.setForeground(Qt.gray)
-            self.table.setItem(row, 6, status_item)
+            # Status (initialized as Pending)
+            self.table.item(row, 6).setText("Pending")
+            self.table.item(row, 6).setForeground(Qt.gray)
             
             # Actions Button
             actions_btn = QPushButton("Actions ▼")
             actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
             self.table.setCellWidget(row, 7, actions_btn)
+            
+            # Store status
+            self.verification_status[row] = "Pending"
 
     def on_market_changed(self, row):
-        instrument_code = self.table.item(row, 0).text()
-        market_combo = self.table.cellWidget(row, 1)
-        market_suffix = market_combo.currentData()
-        
-        # Update Yahoo Symbol
-        yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
-        self.table.item(row, 2).setText(yahoo_symbol)
-        
-        # Reset verification status
-        self.update_status(row, "Pending", Qt.gray)
-        
-        # Store mapping
-        self.market_mappings[instrument_code] = market_suffix
+        try:
+            instrument_code = self.table.item(row, 0).text()
+            market_combo = self.table.cellWidget(row, 1)
+            market_suffix = market_combo.currentData()
+            
+            # Update Yahoo Symbol
+            yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
+            self.table.item(row, 2).setText(yahoo_symbol)
+            
+            # Reset verification status
+            self.update_status(row, "Pending", Qt.gray)
+            
+            # Store mapping
+            self.market_mappings[instrument_code] = market_suffix
+        except Exception as e:
+            print(f"Error in on_market_changed: {str(e)}")
 
     def verify_all_stocks(self):
         progress = QProgressDialog("Verifying stocks with Yahoo Finance...", "Cancel", 0, self.table.rowCount(), self)
@@ -183,22 +200,25 @@ class VerifyTransactionsDialog(QDialog):
             self.table.item(row, 3).setText(name)
             
             # Update latest price
-            price = info.get('currentPrice', 'N/A')
+            price = info.get('currentPrice', 0.0)  # Changed from 'N/A' to 0.0 for numeric consistency
             self.table.item(row, 4).setText(str(price))
+            
+            # Store the verified data
+            self.stock_data[instrument_code] = {
+                'name': name,
+                'price': price,
+                'symbol': yahoo_symbol
+            }
             
             # Get splits
             splits = ticker.splits
             if not splits.empty:
                 splits_text = [f"{date.strftime('%Y-%m-%d')}: {ratio}" 
-                             for date, ratio in splits.items()]
+                            for date, ratio in splits.items()]
                 self.table.item(row, 5).setText(", ".join(splits_text))
                 
-                # Store splits for later
-                self.stock_data[instrument_code] = {
-                    'splits': splits,
-                    'name': name,
-                    'price': price
-                }
+                # Add splits to stock data
+                self.stock_data[instrument_code]['splits'] = splits
             
             self.update_status(row, "Verified", Qt.green)
             
