@@ -6,6 +6,7 @@ test/
 
 # Hide virtual environment
 venv/
+.venv/
 
 # Hide virtual environmen
 *.db
