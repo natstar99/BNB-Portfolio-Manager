@@ -172,7 +172,7 @@ class ImportTransactionsController(QObject):
                     
                     # Add buffer days to ensure we capture all relevant data
                     start_date = row['start_date'] - pd.Timedelta(days=5)
-                    end_date = row['end_date'] + pd.Timedelta(days=5)
+                    end_date = pd.Timestamp.today()
                     
                     ticker = yf.Ticker(yahoo_symbol)
                     history = ticker.history(
@@ -181,38 +181,47 @@ class ImportTransactionsController(QObject):
                         interval='1d'
                     )
                     
-                    if history.empty:
+                    if not history.empty:
+                        logger.info(f"Retrieved {len(history)} data points for {yahoo_symbol}")
+                        
+                        # Get dividend history
+                        dividends = ticker.dividends
+                        
+                        # Create a Series of dividends indexed by date
+                        dividend_series = pd.Series(0.0, index=history.index)
+                        if not dividends.empty:
+                            logger.info(f"Found {len(dividends)} dividends for {yahoo_symbol}")
+                            # Update dividend_series with actual dividend amounts
+                            dividend_series.update(dividends)
+                    
+                        # Prepare bulk insert data
+                        historical_prices = []
+                        for index, row_data in history.iterrows():
+                            historical_prices.append((
+                                stock.id,
+                                index.strftime('%Y-%m-%d'),
+                                row_data['Open'],
+                                row_data['High'],
+                                row_data['Low'],
+                                row_data['Close'],
+                                row_data['Volume'],
+                                row_data['Close'],  # adjusted_close
+                                row_data['Close'],  # original_close
+                                False,               # split_adjusted
+                                dividend_series[index]  # dividend amount for this date
+                            ))
+                        
+                        # Clear any existing historical data for this stock
+                        self.db_manager.execute(
+                            "DELETE FROM historical_prices WHERE stock_id = ?",
+                            (stock.id,)
+                        )
+                        
+                        # Insert new historical data
+                        self.db_manager.bulk_insert_historical_prices(historical_prices)
+                        logger.info(f"Successfully stored historical data for {yahoo_symbol}")
+                    else:
                         logger.warning(f"No historical data found for {yahoo_symbol}")
-                        continue
-                    
-                    logger.info(f"Retrieved {len(history)} data points for {yahoo_symbol}")
-                    
-                    # Prepare bulk insert data
-                    historical_prices = []
-                    for index, row_data in history.iterrows():
-                        historical_prices.append((
-                            stock.id,
-                            index.strftime('%Y-%m-%d'),
-                            row_data['Open'],
-                            row_data['High'],
-                            row_data['Low'],
-                            row_data['Close'],
-                            row_data['Volume'],
-                            row_data['Close'],  # adjusted_close
-                            row_data['Close'],  # original_close
-                            False               # split_adjusted
-                        ))
-                    
-                    # Clear any existing historical data for this stock
-                    self.db_manager.execute(
-                        "DELETE FROM historical_prices WHERE stock_id = ?",
-                        (stock.id,)
-                    )
-                    
-                    # Insert new historical data
-                    self.db_manager.bulk_insert_historical_prices(historical_prices)
-                    logger.info(f"Successfully stored historical data for {yahoo_symbol}")
-                    
                 else:
                     logger.warning(f"Stock not found for symbol: {yahoo_symbol}")
                     

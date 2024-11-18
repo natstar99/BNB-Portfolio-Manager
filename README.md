@@ -1,6 +1,6 @@
-# IPM (Insider Portfolio Tracker)
+# IPM (Insider Portfolio Manager)
 
-**IPM (Insider Portfolio Tracker)** is a free, user-friendly portfolio performance tracker designed to help investors monitor and evaluate their investment portfolios with ease. The application offers a comprehensive set of tools that provide insightful analytics, performance metrics, and detailed reports to assess the overall health and performance of their investments.
+**IPM (Insider Portfolio Manager)** is a free, user-friendly portfolio performance tracker designed to help investors monitor and evaluate their investment portfolios with ease. The application offers a comprehensive set of tools that provide insightful analytics, performance metrics, and detailed reports to assess the overall health and performance of their investments.
 
 ## Features
 

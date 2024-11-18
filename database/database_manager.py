@@ -170,14 +170,14 @@ class DatabaseManager:
         
         Args:
             prices: list of tuples (stock_id, date, open, high, low, close, volume, 
-                                adjusted_close, original_close, split_adjusted)
+                                adjusted_close, original_close, split_adjusted, dividend)
         """
         try:
             self.cursor.executemany("""
                 INSERT OR REPLACE INTO historical_prices 
                 (stock_id, date, open_price, high_price, low_price, close_price, volume, 
-                adjusted_close, original_close, split_adjusted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                adjusted_close, original_close, split_adjusted, dividend)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, prices)
             self.conn.commit()
         except Exception as e:

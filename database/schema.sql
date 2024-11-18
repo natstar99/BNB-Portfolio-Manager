@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     quantity REAL NOT NULL,
     price REAL NOT NULL,
     transaction_type TEXT NOT NULL,
-    original_quantity REAL,    -- New: stores pre-split quantity
-    original_price REAL,       -- New: stores pre-split price
+    original_quantity REAL,    -- stores pre-split quantity
+    original_price REAL,       -- stores pre-split price
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS stock_splits (
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
--- Historical_Prices table (new)
+-- Historical_Prices table
 CREATE TABLE IF NOT EXISTS historical_prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     stock_id INTEGER NOT NULL,
@@ -67,11 +67,12 @@ CREATE TABLE IF NOT EXISTS historical_prices (
     adjusted_close REAL,
     original_close REAL,      -- Stores pre-split price
     split_adjusted BOOLEAN,   -- Indicates if price has been adjusted for splits
+    dividend REAL DEFAULT 0.0,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE,
     UNIQUE(stock_id, date)
 );
 
--- Import_Verification table (new)
+-- Import_Verification table
 CREATE TABLE IF NOT EXISTS import_verification (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     import_date DATETIME NOT NULL,

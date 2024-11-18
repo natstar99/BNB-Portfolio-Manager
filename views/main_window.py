@@ -2,7 +2,7 @@
 
 import os
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QStackedWidget, QLabel, QHBoxLayout
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
 
 from controllers.portfolio_controller import PortfolioController
@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
 
         # Add navigation buttons
         self.nav_buttons = []
-        for button_text in ["Manage Portfolios", "My Portfolio", "Analyze Portfolio", "Settings"]:
+        for button_text in ["Manage Portfolios", "My Portfolio", "Analyse Portfolio", "Settings"]:
             button = QPushButton(button_text)
             button.clicked.connect(lambda checked, text=button_text: self.on_nav_button_clicked(text))
             sidebar_layout.addWidget(button)
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         # Add pages to stacked widget
         self.content_widget.addWidget(self.portfolio_controller.get_view())
         self.content_widget.addWidget(self.portfolio_view_controller.get_view())
-        self.content_widget.addWidget(QLabel("Analyze Portfolio Page"))
+        self.content_widget.addWidget(QLabel("Analyse Portfolio Page"))
         self.content_widget.addWidget(QLabel("Settings Page"))
 
         # Add sidebar and content to main layout
