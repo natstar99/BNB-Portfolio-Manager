@@ -1,32 +1,126 @@
-# IPM (Insider Portfolio Manager)
+# Insider Portfolio Manager (IPM)
 
-**IPM (Insider Portfolio Manager)** is a free, user-friendly portfolio performance tracker designed to help investors monitor and evaluate their investment portfolios with ease. The application offers a comprehensive set of tools that provide insightful analytics, performance metrics, and detailed reports to assess the overall health and performance of their investments.
+## Version 2.0 Development Branch
+This branch (v2.0) is a major architectural overhaul focusing on:
+- SQLite database integration for reliable data storage
+- Model-View-Controller (MVC) pattern for better code organisation
+- Better support for international markets
+- Improved transaction management
+- Automated data verification
+- More user control over database settings
 
-## Features
+## Core Features
 
-- **Performance Analytics**: Get detailed insights into the performance of your portfolio over time.
-- **Holdings Overview**: View a comprehensive summary of your current holdings, including individual stock performance and allocation.
-- **Real-Time Updates**: Users can access the latest market updates to see their investment performance in real-time.
-- **Reports and Charts**: Generate detailed reports and visualisations to better understand your investment trends and patterns.
-  - **Aggregated and Individual Plots**: Plot aggregated or individual values of the portfolio, including dividend performance and profit/loss.
-  - **Stacked Area Chart**: Visualise distribution through a stacked area chart.
-  - **Pie Chart**: See portfolio distribution through a pie chart.
-  - **Treemap**: Evaluate the weight of holdings and their performance over a set interval with a treemap.
-  - **Statistics Page**: Access information on the statistics of positions over a specified range.
-  - **Daily Details Table**: View all key metrics of the portfolio at any point in time through a daily details table.
+### Portfolio Management
+- Create and manage multiple investment portfolios
+- Import transactions from CSV/Excel files
+- Track stocks across 60+ global exchanges (Pretty much any stock that is available on yahoo finance)
+- Automatic stock verification against Yahoo Finance
+- Real-time price updates
+- Historical price data tracking
 
-## Key Points
+### Transaction Handling
+- Secure local SQLite database
+- Support for buy/sell transactions
+- Dividend tracking
+- Automated dividend reinvestment plan (DRP) calculations
+- Stock split management and verification
+- Historical transaction analysis
 
-- **Free and Open**: IPM is completely free to use, with no hidden fees or premium subscriptions.
-- **No Sign-Ups Required**: The application operates entirely locally, so there is no need for account creation or sign-ups.
-- **User-Friendly Interface**: The GUI ensures that both novice and experienced investors can easily navigate and utilise the app.
-- **Community Driven**: Contributions and feedback from users are welcome to continuously improve the application.
-- **Data Privacy**: All data is kept locally on the user's device, with no sensitive information held or uploaded anywhere else.
+### Market Support
+- Built-in support for major international exchanges
+- Automatic market code handling
+- Manual override options for special cases (To handle situations where yahoo finance is missing data)
+- Yahoo Finance integration for real-time data
 
-## Getting Started
+## Technical Details
 
-1. **Download and Set Up the Source Code**: Clone the repository and set up the source code to create the GUI.
-2. **Import Your Portfolio**: Easily import existing investment data through a .xlsx template.
-3. **Start Tracking**: Use the tools and features to monitor and analyse your portfolio performance.
+### Requirements
+- Python 3.8 or higher
+- PySide6 (Qt for Python)
+- pandas
+- yfinance
 
-I hope you find this application useful.
+### Installation
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/IPM.git
+cd IPM
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
+python main.py
+```
+
+### Project Structure
+```
+insider_portfolio_manager/
+├── config.py                 # Application configuration
+├── main.py                  # Entry point
+├── controllers/             # Application logic
+│   ├── import_transactions_controller.py
+│   ├── portfolio_controller.py
+│   └── portfolio_view_controller.py
+├── models/                  # Data models
+│   ├── portfolio.py
+│   ├── stock.py
+│   └── transaction.py
+├── views/                   # User interface
+│   ├── import_transactions_view.py
+│   ├── manage_portfolios_view.py
+│   └── my_portfolio_view.py
+├── database/               # Database management
+│   ├── database_manager.py
+│   └── schema.sql
+└── utils/                  # Utility functions
+    └── stock_symbol_manager.py
+```
+
+## Current Status
+
+### Working Features
+- Portfolio creation and management
+- Transaction import and verification
+- International market support
+- Stock split handling
+- Dividend reinvestment tracking
+- Historical data storage
+- Basic portfolio analysis
+- Yahoo Finance integration
+
+### Under Development
+1. Portfolio Analytics
+   - Performance reporting
+   - Advanced charting
+   - Technical analysis tools
+   - Comparative analysis
+   - Neural Network Integration
+
+### Known Limitations
+- Manual price refresh required
+- Limited charting capabilities
+- Basic reporting only
+- Some market data may be delayed
+
+## Contributing
+IPM is an open-source project and welcomes contributions from the community. Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
+
+### How to Contribute
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## Licence
+[Pending - To be determined]
+
+## Acknowledgements
+- Yahoo Finance for market data
+- Qt/PySide6 for the user interface framework
+- Community contributors and testers
+
+---
+*Note: This is a development branch. Features and functionality may change.*
