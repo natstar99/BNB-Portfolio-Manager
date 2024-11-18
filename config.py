@@ -6,4 +6,4 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Database
-DB_FILE = os.path.join(BASE_DIR, 'insider_portfolio.db')
+DB_FILE = os.path.join(BASE_DIR, 'portfolio.db')

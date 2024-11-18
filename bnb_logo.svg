@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+    <!-- Background circle with gradient -->
+    <defs>
+        <radialGradient id="backgroundGradient">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#f8f9fa"/>
+        </radialGradient>
+        
+        <!-- Enhanced glow filter -->
+        <filter id="enhancedGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur"/>
+            <feFlood flood-color="#27ae60" flood-opacity=""/>
+            <feComposite in2="blur" operator="in"/>
+            <feMerge>
+                <feMergeNode/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+        
+        <!-- Drop shadow for depth -->
+        <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+            <feOffset dx="2" dy="2"/>
+            <feComponentTransfer>
+                <feFuncA type="linear" slope="0.4"/>
+            </feComponentTransfer>
+            <feMerge>
+                <feMergeNode/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+
+        <!-- Arrow gradient -->
+        <linearGradient id="arrowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#27ae60"/>
+            <stop offset="100%" stop-color="#219a52"/>
+        </linearGradient>
+    </defs>
+
+    <!-- Background circle -->
+    <circle cx="100" cy="100" r="90" fill="url(#backgroundGradient)" stroke="#2c3e50" stroke-width="3"/>
+    
+    <!-- Circular text path -->
+    <path id="circlePath" d="M100,20 A80,80 0 1,1 99.9,20 A80,80 0 1,1 100,20" fill="none"/>
+    <text font-size="7.7" fill="#2c3e50">
+        <textPath href="#circlePath" startOffset="-%">
+            BEAR NO BEARS  •  BULL THROUGH  •  BEAR NO BEARS  •  BULL THROUGH  •  BEAR NO BEARS  •  BULL THROUGH  •  BEAR NO BEARS  •  BULL THROUGH  •
+        </textPath>
+    </text>
+    
+    <!-- Jail cell bars with down arrows -->
+    <g stroke="#e74c3c" stroke-width="2" opacity="0.">
+        <!-- Bars -->
+        <line x1="60" y1="50" x2="60" y2="150" stroke-dasharray="2,2"/>
+        <line x1="80" y1="50" x2="80" y2="150" stroke-dasharray="2,2"/>
+        <line x1="100" y1="50" x2="100" y2="150" stroke-dasharray="2,2"/>
+        <line x1="120" y1="50" x2="120" y2="150" stroke-dasharray="2,2"/>
+        <line x1="140" y1="50" x2="140" y2="150" stroke-dasharray="2,2"/>
+        
+        <!-- Down arrows -->
+        <path d="M60,150 l-4,-6 h8 z"/>
+        <path d="M80,150 l-4,-6 h8 z"/>
+        <path d="M100,150 l-4,-6 h8 z"/>
+        <path d="M120,150 l-4,-6 h8 z"/>
+        <path d="M140,150 l-4,-6 h8 z"/>
+    </g>
+    
+    <!-- Minimalist Bear Face using simple lines -->
+    <g stroke="#2c3e50" stroke-width="2.5" fill="none" filter="url(#dropShadow)">
+        <!-- Face outline -->
+        <circle cx="100" cy="100" r="40"/>
+        <!-- Ears -->
+        <circle cx="75" cy="70" r="12"/>
+        <circle cx="125" cy="70" r="12"/>
+        <!-- Eyes -->
+        <circle cx="87" cy="95" r="4"/>
+        <circle cx="113" cy="95" r="4"/>
+        <!-- Nose -->
+        <circle cx="100" cy="105" r="6"/>
+    </g>
+    
+    <!-- Bullish trend with enhanced glow effect -->
+    <g filter="url(#enhancedGlow)">
+        <!-- Trend line -->
+        <path d="M40,130 L60,120 L80,125 L100,95 L120,85 L150,55" 
+              fill="none"
+              filter="url(#dropShadow)"
+              stroke="#27ae60" 
+              stroke-width="3" 
+              stroke-linecap="round"/>
+        
+        <!-- Up arrow at the end (45 degrees) -->
+        <path d="M140,52 l-4,0 l4,-7 l4,7 z" 
+              fill="url(#arrowGradient)" 
+
+              transform="rotate(45 140 65)"/>
+        
+        <!-- Data points -->
+        <circle cx="60" cy="120" r="3" fill="#27ae60"/>
+        <circle cx="80" cy="125" r="3" fill="#27ae60"/>
+        <circle cx="100" cy="95" r="3" fill="#27ae60"/>
+        <circle cx="120" cy="85" r="3" fill="#27ae60"/>
+    </g>
+    
+    <!-- BNB text -->
+    <text x="100" y="45" font-family="Arial, sans-serif" font-weight="bold" font-size="20" fill="#2c3e50" text-anchor="middle" filter="url(#dropShadow)">BNB</text>
+</svg>

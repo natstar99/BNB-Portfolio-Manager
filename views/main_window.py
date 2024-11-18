@@ -11,7 +11,7 @@ from controllers.portfolio_view_controller import PortfolioViewController
 class MainWindow(QMainWindow):
     def __init__(self, db_manager):
         super().__init__()
-        self.setWindowTitle("Insider Portfolio Manager")
+        self.setWindowTitle("Bear No Bears - Portfolio Manager")
         self.setGeometry(100, 100, 1200, 800)
 
         self.db_manager = db_manager
@@ -24,17 +24,17 @@ class MainWindow(QMainWindow):
 
         # Create and set up sidebar
         sidebar = QWidget()
-        sidebar.setMaximumWidth(200)
-        sidebar.setMinimumWidth(200)
+        sidebar.setMaximumWidth(210)
+        sidebar.setMinimumWidth(210)
         sidebar_layout = QVBoxLayout()
         sidebar.setLayout(sidebar_layout)
 
         # Add logo
         logo_label = QLabel()
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(current_dir, "..", "logo.png")
+        logo_path = os.path.join(current_dir, "..", "bnb_logo.png")
         logo_pixmap = QPixmap(logo_path)
-        logo_label.setPixmap(logo_pixmap.scaled(180, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo_label.setPixmap(logo_pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         logo_label.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(logo_label)
 

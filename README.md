@@ -1,7 +1,11 @@
-# Insider Portfolio Manager (IPM)
+<p align="center">
+  <img src="bnb_logo.png" alt="Bear No Bears Portfolio Logo" width="320"/>
+</p>
 
-## Version 2.0 Development Branch
-This branch (v2.0) is a major architectural overhaul focusing on:
+# Bear No Bears - Portfolio Manager (BNB)
+
+## Version 2.X Development Branch
+This branch (v2.X) is a major architectural overhaul focusing on:
 - SQLite database integration for reliable data storage
 - Model-View-Controller (MVC) pattern for better code organisation
 - Better support for international markets
@@ -44,8 +48,8 @@ This branch (v2.0) is a major architectural overhaul focusing on:
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/IPM.git
-cd IPM
+git clone https://github.com/natstar99/BNB-Portfolio-Manager.git
+cd BNB-Portfolio-Manager
 
 # Install dependencies
 pip install -r requirements.txt
@@ -56,8 +60,8 @@ python main.py
 
 ### Project Structure
 ```
-insider_portfolio_manager/
-├── config.py                 # Application configuration
+BNB/
+├── config.py                # Application configuration
 ├── main.py                  # Entry point
 ├── controllers/             # Application logic
 │   ├── import_transactions_controller.py
@@ -91,12 +95,10 @@ insider_portfolio_manager/
 - Yahoo Finance integration
 
 ### Under Development
-1. Portfolio Analytics
-   - Performance reporting
-   - Advanced charting
-   - Technical analysis tools
-   - Comparative analysis
-   - Neural Network Integration
+V2.X is still under development and not ready for release.
+- V2.X is primarily focused on portfolio set up, database management and validation, along with error handling. 
+V3.X will include many of the graphs, settings,
+V4.X will include deeper stock market analysis such as machine learning/neural network integration, portfolio health checks and asset correlation matrices.
 
 ### Known Limitations
 - Manual price refresh required
@@ -105,7 +107,7 @@ insider_portfolio_manager/
 - Some market data may be delayed
 
 ## Contributing
-IPM is an open-source project and welcomes contributions from the community. Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
+BNB is an open-source project and welcomes contributions from the community. Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
 
 ### How to Contribute
 1. Fork the repository
