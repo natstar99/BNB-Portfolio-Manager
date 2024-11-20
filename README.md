@@ -116,8 +116,63 @@ BNB is an open-source project and welcomes contributions from the community. Whe
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## Licence
-[Pending - To be determined]
+
+# Bear No License (BNL) v1.0
+
+## In Normal Words
+
+The logo belongs to me and you can not steal it because I really like it. The code I don't like as much, so you can take it - just give thanks. I would prefer if you did not make money off it (unless its like voluntary donations or something), because it's meant to be a free app for all the people to use. But if you have made a significant development, and wish to take the code off on your own path and under your own name and license, I don't want to restrict that either - so in that case, just let me know first, and then it'll be sweet.
+
+## In Lawyer Words
+
+Copyright (c) 2024 Bear No Bears
+
+### Definitions
+
+- "Software" refers to the Bear No Bears Portfolio Manager application code and associated documentation
+- "Logo" refers to the Bear No Bears logo, the name "Bear No Bears", and all associated branding materials
+- "Original Author" refers to the creator of Bear No Bears
+- "Derivative Work" refers to any modified version of the Software
+- "Significant Development" refers to substantial modifications or enhancements that materially change the Software's functionality or purpose
+
+### Logo Rights
+
+The Logo (including the name "Bear No Bears") is protected by copyright and trademark law. Use of the Logo is permitted only for the purpose of attribution and acknowledging the Original Author ("giving thanks"). Any other use including, but not limited to, commercial use, modification, merging, publishing, distribution, sublicensing, and/or selling copies of the Logo, or using the name "Bear No Bears" as part of another project's branding, requires explicit written permission from the Original Author.
+
+### Software License Terms
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of the Software, to deal in the Software with the following restrictions:
+
+1. **Attribution Requirements**
+   - All copies or substantial portions of the Software must include appropriate attribution ("giving thanks") to the Original Author
+
+2. **Commercial Use**
+   - Non-commercial use is freely permitted
+   - Voluntary donations for non-commercial use are permitted without notification
+   - Commercial use or monetisation of the Software or Derivative Works requires prior written notification to the Original Author
+   - The Original Author reserves the right to review and approve commercial applications
+
+3. **Warranty and Liability**
+   - The Software is provided "AS IS", without warranty of any kind, express or implied
+   - In no event shall the Original Author be liable for any claim, damages or other liability arising from the use of the Software
+
+4. **Notification Requirements**
+   - Written notifications required under this license shall be sent to the Original Author via the project's official communication channels
+   - Notifications must include detailed information about:
+     - Intended commercial use or monetisation plans
+     - Description of Significant Development for relicensing purposes
+     - Proposed new license for Derivative Works
+
+### Additional Terms
+
+1. This license applies only to the Software and not to the Logo or other trademarked materials
+2. The Original Author reserves the right to modify this license for future versions of the Software
+3. Failure to comply with the terms of this license automatically terminates your rights under this license
+
+---
+
+END OF TERMS AND CONDITIONS
+
 
 ## Acknowledgements
 - Yahoo Finance for market data
@@ -125,4 +180,3 @@ BNB is an open-source project and welcomes contributions from the community. Whe
 - Community contributors and testers
 
 ---
-*Note: This is a development branch. Features and functionality may change.*
