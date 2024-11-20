@@ -171,7 +171,7 @@ class HistoricalDataDialog(QDialog):
                         transaction_price,
                         stock_id,
                         base_quantity_change,
-                        0 as drp_shares,  -- Explicit column for first row
+                        0 as drp_shares,
                         base_quantity_change as total_quantity_owned,
                         row_num
                     FROM running_totals 
@@ -200,11 +200,24 @@ class HistoricalDataDialog(QDialog):
                                 ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
                             ELSE 0
                         END as drp_shares,
-                        ct.total_quantity_owned + r.base_quantity_change + 
+                        -- Apply split adjustments to the running total
                         CASE
-                            WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
-                            ELSE 0
+                            WHEN r.split_ratio IS NOT NULL THEN
+                                -- When a split occurs, multiply existing shares by the split ratio
+                                (ct.total_quantity_owned * r.split_ratio) + r.base_quantity_change +
+                                CASE
+                                    WHEN s.drp = 1 AND r.dividend > 0 THEN
+                                        ROUND(r.dividend * ct.total_quantity_owned * r.split_ratio / r.close_price, 4)
+                                    ELSE 0
+                                END
+                            ELSE
+                                -- No split, just add new quantities
+                                ct.total_quantity_owned + r.base_quantity_change +
+                                CASE
+                                    WHEN s.drp = 1 AND r.dividend > 0 THEN
+                                        ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
+                                    ELSE 0
+                                END
                         END as total_quantity_owned,
                         r.row_num
                     FROM running_totals r
@@ -225,7 +238,7 @@ class HistoricalDataDialog(QDialog):
                     transaction_type,
                     transaction_quantity,
                     transaction_price,
-                    total_quantity_owned,
+                    ROUND(total_quantity_owned, 4) as total_quantity_owned,
                     ROUND(close_price * total_quantity_owned, 2) as market_value,
                     drp_shares
                 FROM compounded_totals
