@@ -13,6 +13,7 @@ class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
 
     def __init__(self, transactions_data, db_manager, parent=None):
+        self.market_names = {}
         super().__init__(parent)
         self.db_manager = db_manager
         self.transactions_data = transactions_data
@@ -24,7 +25,7 @@ class VerifyTransactionsDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("Verify Imported Transactions")
-        self.setMinimumWidth(1000)
+        self.setMinimumWidth(1350)
         self.setMinimumHeight(600)
         
         layout = QVBoxLayout(self)
@@ -115,38 +116,31 @@ class VerifyTransactionsDialog(QDialog):
             
             # Create and setup Market Combo Box (Column 1)
             market_combo = QComboBox()
-            market_combo.addItem("")  # Empty option
+            market_combo.addItem("Select Market", "")  # Modified to store just the suffix
             for market_or_index, suffix in market_codes:
-                display_text = f"{market_or_index} ({suffix})" if suffix else market_or_index
-                market_combo.addItem(display_text, suffix)
+                market_combo.addItem(market_or_index, suffix)  # Store just the suffix
             self.table.setCellWidget(row, 1, market_combo)
             
             if existing_stock:
-                # Handle existing stock data
-                stock_id, yahoo_symbol, _, name, current_price, _, market_suffix, drp = existing_stock
+                stock_id, yahoo_symbol, _, name, current_price, _, market_or_index, drp = existing_stock
                 
-                # Set market suffix in combo box if it exists
-                if market_suffix:
-                    index = market_combo.findData(market_suffix)
-                    if index >= 0:
-                        market_combo.setCurrentIndex(index)
-                        
-                    # Set Yahoo Symbol (Column 2)
-                    yahoo_symbol = f"{instrument_code}{market_suffix}"
-                    self.table.item(row, 2).setText(yahoo_symbol)
-                    self.market_mappings[instrument_code] = market_suffix
-                else:
-                    # Handle manual override case
-                    if yahoo_symbol and yahoo_symbol != instrument_code:
-                        # Find and select "Manually Declare Market Code"
-                        for i in range(market_combo.count()):
-                            if market_combo.itemText(i).startswith("Manually Declare Market Code"):
-                                market_combo.setCurrentIndex(i)
-                                break
+                # Find market by market_or_index
+                market_index = market_combo.findText(market_or_index)
+                
+                if market_index >= 0:
+                    market_combo.setCurrentIndex(market_index)
+                    market_suffix = market_combo.itemData(market_index)
+                    self.market_names[instrument_code] = market_or_index
+                    
+                    # Construct yahoo symbol from instrument code and market suffix
+                    self.table.item(row, 2).setText(f"{instrument_code}{market_suffix}")
+                elif market_or_index == "Manually Declare Market Code":
+                    # Handle manual market code case
+                    manual_market_index = market_combo.findText("Manually Declare Market Code")
+                    if manual_market_index >= 0:
+                        market_combo.setCurrentIndex(manual_market_index)
                         self.table.item(row, 2).setText(yahoo_symbol)
                         self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() | Qt.ItemIsEditable)
-                    else:
-                        self.table.item(row, 2).setText(instrument_code)
                 
                 # Set Stock Name (Column 3)
                 self.table.item(row, 3).setText(name or "")

@@ -114,15 +114,13 @@ class DatabaseManager:
         self.conn.commit()
 
     def get_stock_by_instrument_code(self, instrument_code):
-        """
-        Get stock information by instrument code.
-        Returns the stock with its proper yahoo symbol, whether manual or market-based.
-        """
+        """Get stock information by instrument code."""
         return self.fetch_one("""
-            SELECT id, yahoo_symbol, instrument_code, name, current_price, 
-                last_updated, market_suffix, drp
-            FROM stocks
-            WHERE instrument_code = ?
+            SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, 
+                s.last_updated, m.market_or_index, s.drp
+            FROM stocks s
+            LEFT JOIN market_codes m ON s.market_suffix = m.market_suffix
+            WHERE s.instrument_code = ?
         """, (instrument_code,))
         
     # Transaction methods
