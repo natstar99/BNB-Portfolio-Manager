@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
+import logging
 
 class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
@@ -205,32 +206,136 @@ class VerifyTransactionsDialog(QDialog):
             if row not in self.verification_status:
                 self.verification_status[row] = "Pending"
 
+    def populate_table(self):
+        """
+        Populate the verification table with stock data from the transactions.
+        This method initialises the table and handles existing stock data and verification status.
+        """
+        # Get unique instrument codes from transactions
+        instrument_codes = self.transactions_data['Instrument Code'].unique()
+        self.table.setRowCount(len(instrument_codes))
+        
+        # Get market codes for the dropdown
+        market_codes = self.db_manager.get_all_market_codes()
+        
+        for row, instrument_code in enumerate(instrument_codes):
+            # Initialise all table items first to prevent NoneType errors
+            for col in range(self.table.columnCount()):
+                self.table.setItem(row, col, QTableWidgetItem(""))
+                
+            # Set Instrument Code (Column 0)
+            self.table.setItem(row, 0, QTableWidgetItem(instrument_code))
+            
+            # Get existing stock data from database if it exists
+            existing_stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+            
+            # Create and setup Market Combo Box (Column 1)
+            market_combo = QComboBox()
+            market_combo.addItem("Select Market", None)  # Store None instead of tuple
+            for market_or_index, suffix in market_codes:
+                # Store the market_or_index directly instead of a tuple
+                market_combo.addItem(market_or_index, market_or_index)
+            self.table.setCellWidget(row, 1, market_combo)
+            
+            if existing_stock:
+                stock_id, yahoo_symbol, _, name, current_price, _, market_or_index, drp, market_suffix = existing_stock
+                
+                if market_or_index == "Manually Declare Market Code":
+                    # Handle manual market code case
+                    manual_market_index = market_combo.findText("Manually Declare Market Code")
+                    if manual_market_index >= 0:
+                        market_combo.setCurrentIndex(manual_market_index)
+                        self.table.item(row, 2).setText(yahoo_symbol)
+                        self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() | Qt.ItemIsEditable)
+                elif market_or_index:
+                    # Find market by market_or_index (exact match)
+                    market_index = market_combo.findText(market_or_index)
+                    if market_index >= 0:
+                        market_combo.setCurrentIndex(market_index)
+                        self.market_mappings[instrument_code] = market_suffix
+                
+                # Set Stock Name (Column 3)
+                self.table.item(row, 3).setText(name or "")
+                
+                # Set Current Price (Column 4)
+                if current_price:
+                    self.table.item(row, 4).setText(f"{current_price:.2f}")
+                
+                # Check for splits and set indicator (Column 5)
+                splits = self.db_manager.get_stock_splits(stock_id)
+                split_indicator = "✓" if splits else ""
+                self.table.item(row, 5).setText(split_indicator)
+                
+                # Set DRP checkbox (Column 6)
+                drp_checkbox = QCheckBox()
+                drp_checkbox.setChecked(bool(drp))
+                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                self.table.setCellWidget(row, 6, drp_checkbox)
+                self.drp_settings[instrument_code] = bool(drp)
+                
+                # Set verification status (Column 7)
+                if name:
+                    if name == "N/A":
+                        self.update_status(row, "Not Found", Qt.red)
+                    else:
+                        self.update_status(row, "Verified", Qt.green)
+                else:
+                    self.update_status(row, "Pending", Qt.gray)
+            else:
+                # Handle new stock
+                self.table.item(row, 2).setText(instrument_code)
+                self.update_status(row, "Pending", Qt.gray)
+                
+                # Add DRP checkbox for new stock
+                drp_checkbox = QCheckBox()
+                drp_checkbox.setChecked(False)
+                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                self.table.setCellWidget(row, 6, drp_checkbox)
+                self.drp_settings[instrument_code] = False
+            
+            # Connect market combo box signal
+            market_combo.currentIndexChanged.connect(
+                lambda idx, r=row: self.on_market_changed(r)
+            )
+            
+            # Create Actions Button
+            actions_btn = QPushButton("Actions ▼")
+            actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
+            self.table.setCellWidget(row, 8, actions_btn)
+
     def on_market_changed(self, row):
+        """Handle changes to the market selection dropdown."""
         try:
             instrument_code = self.table.item(row, 0).text()
             market_combo = self.table.cellWidget(row, 1)
-            market_suffix = market_combo.currentData()
+            market_or_index = market_combo.currentData()  # Now returns the market_or_index directly
             yahoo_symbol_item = self.table.item(row, 2)
             
-            # Handle manual market code declaration
-            if market_combo.currentText().startswith("Manually Declare Market Code"):
-                # Enable editing only for the Yahoo Symbol cell in this row
+            if market_combo.currentText() == "Manually Declare Market Code":
+                # Enable editing for manual yahoo symbol entry
                 yahoo_symbol_item.setFlags(yahoo_symbol_item.flags() | Qt.ItemIsEditable)
-                # Keep the current symbol if it exists, otherwise use instrument code
                 if not yahoo_symbol_item.text():
                     yahoo_symbol_item.setText(instrument_code)
             else:
                 # Disable editing and use standard market suffix
                 yahoo_symbol_item.setFlags(yahoo_symbol_item.flags() & ~Qt.ItemIsEditable)
-                yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
-                yahoo_symbol_item.setText(yahoo_symbol)
-                self.market_mappings[instrument_code] = market_suffix
+                
+                # Get market suffix from database
+                if market_or_index:
+                    result = self.db_manager.fetch_one(
+                        "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
+                        (market_or_index,)
+                    )
+                    market_suffix = result[0] if result else ""
+                    yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
+                    yahoo_symbol_item.setText(yahoo_symbol)
+                    self.market_mappings[instrument_code] = market_suffix
             
             # Reset verification status
             self.update_status(row, "Pending", Qt.gray)
             
         except Exception as e:
-            print(f"Error in on_market_changed: {str(e)}")
+            logging.error(f"Error in on_market_changed: {str(e)}")
 
     def on_cell_changed(self, row, column):
         """Handle changes to cells in the table."""
@@ -442,31 +547,39 @@ class VerifyTransactionsDialog(QDialog):
 
     def save_changes(self):
         """Save the current state of all stocks"""
-        for row in range(self.table.rowCount()):
-            instrument_code = self.table.item(row, 0).text()
-            market_combo = self.table.cellWidget(row, 1)
-            yahoo_symbol = self.table.item(row, 2).text()
+        try:
+            for row in range(self.table.rowCount()):
+                instrument_code = self.table.item(row, 0).text()
+                market_combo = self.table.cellWidget(row, 1)
+                yahoo_symbol = self.table.item(row, 2).text()
+                
+                selected_index = market_combo.currentIndex()
+                if selected_index > 0:  # If something other than "Select Market" is chosen
+                    market_or_index = market_combo.currentData()
+                    if market_combo.currentText() == "Manually Declare Market Code":
+                        # Save as manual override
+                        self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
+                    elif market_or_index:
+                        # Save with market_or_index
+                        self.db_manager.update_stock_market(instrument_code, market_or_index)
+                
+                # Save DRP setting
+                drp_checkbox = self.table.cellWidget(row, 6)
+                if drp_checkbox:
+                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                    if stock:
+                        self.db_manager.update_stock_drp(stock[0], drp_checkbox.isChecked())
             
-            # Get the market suffix from the combo box
-            market_suffix = market_combo.currentData()
+            # Commit all changes
+            self.db_manager.conn.commit()
             
-            # Update the database with current settings
-            if market_combo.currentText().startswith("Manually Declare Market Code"):
-                # Save as manual override
-                self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
-            else:
-                # Save with market suffix
-                self.db_manager.update_stock_market(instrument_code, market_suffix)
-            
-            # Save DRP setting
-            drp_checkbox = self.table.cellWidget(row, 6)
-            if drp_checkbox:
-                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
-                if stock:
-                    self.db_manager.update_stock_drp(stock[0], drp_checkbox.isChecked())
-        
-        # Commit all changes
-        self.db_manager.conn.commit()
+        except Exception as e:
+            logging.error(f"Error saving changes: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error Saving Changes",
+                f"Failed to save changes: {str(e)}"
+            )
 
     def closeEvent(self, event):
         """Handle the window close event (X button)"""

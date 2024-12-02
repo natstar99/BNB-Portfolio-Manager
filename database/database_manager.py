@@ -64,12 +64,38 @@ class DatabaseManager:
         self.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
 
     # Stock methods
-    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None):
+    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None):
+        """
+        Add or update a stock in the database.
+        
+        Args:
+            yahoo_symbol (str): The stock's Yahoo Finance symbol
+            instrument_code (str): The stock's instrument code
+            name (str, optional): The stock's name
+            current_price (float, optional): The stock's current price
+            market_or_index (str, optional): The market/index the stock belongs to
+        """
         current_time = datetime.now().replace(microsecond=0)
+        
+        # Get market_suffix if market_or_index is provided
+        market_suffix = None
+        if market_or_index:
+            result = self.fetch_one(
+                "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
+                (market_or_index,)
+            )
+            if result:
+                market_suffix = result[0]
+
         self.execute("""
-            INSERT OR REPLACE INTO stocks (yahoo_symbol, instrument_code, name, current_price, last_updated)
-            VALUES (?, ?, ?, ?, ?)
-        """, (yahoo_symbol, instrument_code, name, current_price, current_time))
+            INSERT OR REPLACE INTO stocks (
+                yahoo_symbol, instrument_code, name, current_price, 
+                last_updated, market_or_index, market_suffix
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (yahoo_symbol, instrument_code, name, current_price, 
+            current_time, market_or_index, market_suffix))
+        
         return self.cursor.lastrowid
 
     def update_stock_price(self, yahoo_symbol, current_price):
@@ -102,24 +128,42 @@ class DatabaseManager:
     def update_stock_yahoo_override(self, instrument_code, yahoo_symbol):
         """
         Update the yahoo_symbol directly for manual market declarations.
+        
+        Args:
+            instrument_code (str): The stock's instrument code
+            yahoo_symbol (str): The manually entered Yahoo symbol
         """
-        current_time = datetime.now().replace(microsecond=0)
-        self.execute("""
-            UPDATE stocks 
-            SET yahoo_symbol = ?,
-                last_updated = ?,
-                market_suffix = NULL  -- Clear market suffix to indicate manual override
-            WHERE instrument_code = ?
-        """, (yahoo_symbol, current_time, instrument_code))
-        self.conn.commit()
+        try:
+            current_time = datetime.now().replace(microsecond=0)
+            self.execute("""
+                UPDATE stocks 
+                SET yahoo_symbol = ?,
+                    market_or_index = 'Manually Declare Market Code',
+                    market_suffix = NULL,
+                    last_updated = ?
+                WHERE instrument_code = ?
+            """, (yahoo_symbol, current_time, instrument_code))
+            
+            self.conn.commit()
+            
+        except Exception as e:
+            logging.error(f"Error updating stock yahoo override: {str(e)}")
+            raise
 
     def get_stock_by_instrument_code(self, instrument_code):
-        """Get stock information by instrument code."""
+        """
+        Get stock information by instrument code.
+        
+        Args:
+            instrument_code (str): The stock's instrument code
+            
+        Returns:
+            tuple: Stock information including market details
+        """
         return self.fetch_one("""
             SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, 
-                s.last_updated, m.market_or_index, s.drp
+                s.last_updated, s.market_or_index, s.drp, s.market_suffix
             FROM stocks s
-            LEFT JOIN market_codes m ON s.market_suffix = m.market_suffix
             WHERE s.instrument_code = ?
         """, (instrument_code,))
         
@@ -250,12 +294,38 @@ class DatabaseManager:
     def update_stock_yahoo_symbol(self, instrument_code, yahoo_symbol):
         self.execute("UPDATE stocks SET yahoo_symbol = ? WHERE instrument_code = ?", (yahoo_symbol, instrument_code))
 
-    def update_stock_market(self, instrument_code, market_suffix):
-        self.execute("""
-            UPDATE stocks 
-            SET market_suffix = ?
-            WHERE instrument_code = ?
-        """, (market_suffix, instrument_code))
+    def update_stock_market(self, instrument_code, market_or_index):
+        """
+        Update a stock's market information.
+        
+        Args:
+            instrument_code (str): The stock's instrument code
+            market_or_index (str): The full market/index name from market_codes table
+        """
+        try:
+            # Get the corresponding market_suffix for the market_or_index
+            result = self.fetch_one(
+                "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
+                (market_or_index,)
+            )
+            market_suffix = result[0] if result else None
+
+            # Update both market_or_index and market_suffix
+            current_time = datetime.now().replace(microsecond=0)
+            self.execute("""
+                UPDATE stocks 
+                SET market_or_index = ?,
+                    market_suffix = ?,
+                    last_updated = ?
+                WHERE instrument_code = ?
+            """, (market_or_index, market_suffix, current_time, instrument_code))
+            
+            self.conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Error updating stock market: {str(e)}")
+            raise
+
 
     def get_all_stocks(self):
         return self.fetch_all("""

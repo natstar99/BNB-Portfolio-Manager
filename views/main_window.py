@@ -12,7 +12,7 @@ class MainWindow(QMainWindow):
     def __init__(self, db_manager):
         super().__init__()
         self.setWindowTitle("Bear No Bears - Portfolio Manager")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1200, 600)
 
         self.db_manager = db_manager
 

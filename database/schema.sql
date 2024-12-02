@@ -14,11 +14,13 @@ CREATE TABLE IF NOT EXISTS stocks (
     name TEXT,
     current_price REAL,
     last_updated DATETIME,
+    market_or_index TEXT,
     market_suffix TEXT,
-    verification_status TEXT DEFAULT 'pending', -- New: tracks verification status (pending, verified, failed)
-    last_verified DATETIME,                    -- New: when the stock was last verified with Yahoo
+    verification_status TEXT DEFAULT 'pending', -- tracks verification status (pending, verified, failed)
+    last_verified DATETIME,                    -- when the stock was last verified with Yahoo
     drp INTEGER DEFAULT 0,
-    UNIQUE(yahoo_symbol, instrument_code)
+    UNIQUE(yahoo_symbol, instrument_code),
+    FOREIGN KEY (market_or_index) REFERENCES market_codes(market_or_index)
 );
 
 -- Portfolio_Stocks table (for many-to-many relationship)
