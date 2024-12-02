@@ -74,7 +74,21 @@ class Stock:
 
     @classmethod
     def create(cls, yahoo_symbol: str, instrument_code: str, name: str, current_price: float, db_manager):
-        stock_id = db_manager.add_stock(yahoo_symbol, instrument_code, name, current_price)
+        # First check if stock exists and get its market data
+        existing_stock = db_manager.get_stock_by_instrument_code(instrument_code)
+        market_or_index = None
+        if existing_stock:
+            _, _, _, _, _, _, market_or_index, _, market_suffix = existing_stock
+
+        # Create or update the stock, preserving market data
+        stock_id = db_manager.add_stock(
+            yahoo_symbol=yahoo_symbol,
+            instrument_code=instrument_code,
+            name=name,
+            current_price=current_price,
+            market_or_index=market_or_index
+        )
+        
         return cls(
             id=stock_id,
             yahoo_symbol=yahoo_symbol,

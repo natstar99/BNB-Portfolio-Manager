@@ -64,39 +64,40 @@ class DatabaseManager:
         self.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
 
     # Stock methods
-    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None):
+    def update_stock_market(self, instrument_code, market_or_index):
         """
-        Add or update a stock in the database.
-        
-        Args:
-            yahoo_symbol (str): The stock's Yahoo Finance symbol
-            instrument_code (str): The stock's instrument code
-            name (str, optional): The stock's name
-            current_price (float, optional): The stock's current price
-            market_or_index (str, optional): The market/index the stock belongs to
+        Update stock's market information, getting the correct suffix from market_codes.
         """
-        current_time = datetime.now().replace(microsecond=0)
-        
-        # Get market_suffix if market_or_index is provided
-        market_suffix = None
-        if market_or_index:
-            result = self.fetch_one(
-                "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
-                (market_or_index,)
-            )
-            if result:
-                market_suffix = result[0]
+        # For manual market code entries
+        if market_or_index == "Manually Declare Market Code":
+            # Don't update anything - this should be handled by update_stock_yahoo_override
+            return
+            
+        # Get the market suffix from market_codes table
+        result = self.fetch_one("SELECT market_suffix FROM market_codes WHERE market_or_index = ?", 
+                            (market_or_index,))
+        if result:
+            market_suffix = result[0]
+            
+            self.execute("""
+                UPDATE stocks 
+                SET market_or_index = ?,
+                    market_suffix = ?,
+                    last_updated = ?
+                WHERE instrument_code = ?
+            """, (market_or_index, market_suffix, datetime.now().replace(microsecond=0), instrument_code))
+            self.conn.commit()
+            
+        self.log_stock_entry(instrument_code)
 
+    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None):
+        """Add or update a stock."""
         self.execute("""
-            INSERT OR REPLACE INTO stocks (
-                yahoo_symbol, instrument_code, name, current_price, 
-                last_updated, market_or_index, market_suffix
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (yahoo_symbol, instrument_code, name, current_price, 
-            current_time, market_or_index, market_suffix))
-        
-        return self.cursor.lastrowid
+            INSERT OR REPLACE INTO stocks (yahoo_symbol, instrument_code, name, current_price, last_updated)
+            VALUES (?, ?, ?, ?, ?)
+        """, (yahoo_symbol, instrument_code, name, current_price, datetime.now().replace(microsecond=0)))
+        self.conn.commit()
+        self.log_stock_entry(instrument_code)  # Log after insert
 
     def update_stock_price(self, yahoo_symbol, current_price):
         current_time = datetime.now().replace(microsecond=0)
@@ -166,6 +167,29 @@ class DatabaseManager:
             FROM stocks s
             WHERE s.instrument_code = ?
         """, (instrument_code,))
+    
+    def log_stock_entry(self, instrument_code):
+        """Simple method to log stock table entries."""
+        result = self.fetch_one("""
+            SELECT id, yahoo_symbol, instrument_code, name, current_price, 
+                last_updated, market_or_index, market_suffix, verification_status
+            FROM stocks 
+            WHERE instrument_code = ?
+        """, (instrument_code,))
+        
+        if result:
+            logging.info(f"""
+    Stock Entry for {instrument_code}:
+    - ID: {result[0]}
+    - Yahoo Symbol: {result[1]}
+    - Instrument Code: {result[2]}
+    - Name: {result[3]}
+    - Current Price: {result[4]}
+    - Last Updated: {result[5]}
+    - Market/Index: {result[6]}
+    - Market Suffix: {result[7]}
+    - Verification Status: {result[8]}
+            """)
         
     # Transaction methods
     def add_transaction(self, stock_id, date, quantity, price, transaction_type):
@@ -293,39 +317,6 @@ class DatabaseManager:
 
     def update_stock_yahoo_symbol(self, instrument_code, yahoo_symbol):
         self.execute("UPDATE stocks SET yahoo_symbol = ? WHERE instrument_code = ?", (yahoo_symbol, instrument_code))
-
-    def update_stock_market(self, instrument_code, market_or_index):
-        """
-        Update a stock's market information.
-        
-        Args:
-            instrument_code (str): The stock's instrument code
-            market_or_index (str): The full market/index name from market_codes table
-        """
-        try:
-            # Get the corresponding market_suffix for the market_or_index
-            result = self.fetch_one(
-                "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
-                (market_or_index,)
-            )
-            market_suffix = result[0] if result else None
-
-            # Update both market_or_index and market_suffix
-            current_time = datetime.now().replace(microsecond=0)
-            self.execute("""
-                UPDATE stocks 
-                SET market_or_index = ?,
-                    market_suffix = ?,
-                    last_updated = ?
-                WHERE instrument_code = ?
-            """, (market_or_index, market_suffix, current_time, instrument_code))
-            
-            self.conn.commit()
-            
-        except Exception as e:
-            logger.error(f"Error updating stock market: {str(e)}")
-            raise
-
 
     def get_all_stocks(self):
         return self.fetch_all("""
