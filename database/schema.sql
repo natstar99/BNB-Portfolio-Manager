@@ -93,11 +93,9 @@ CREATE TABLE IF NOT EXISTS market_codes (
 );
 
 -- Yahoo market codes
--- Might use an API call to populate this in the future
 INSERT OR IGNORE INTO market_codes (market_or_index, market_suffix) VALUES
-('Australia - Australian Stock Exchange', '.AX'),
-('Manually Declare Market Code', ''),
 ('Argentina - Buenos Aires Stock Exchange (BYMA)', '.BA'),
+('Australia - Australian Stock Exchange', '.AX'),
 ('Austria - Vienna Stock Exchange', '.VI'),
 ('Belgium - Euronext Brussels', '.BR'),
 ('Brazil - Sao Paolo Stock Exchange (BOVESPA)', '.SA'),
