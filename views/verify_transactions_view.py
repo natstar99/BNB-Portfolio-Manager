@@ -470,35 +470,60 @@ class VerifyTransactionsDialog(QDialog):
         self.reject()  # Close dialog with reject (won't trigger verification)
 
     def save_changes(self):
-            """Save the current state of all stocks"""
-            try:
-                for row in range(self.table.rowCount()):
-                    instrument_code = self.table.item(row, 0).text()
-                    market_combo = self.table.cellWidget(row, 1)
+        """Save the current state of all stocks"""
+        try:
+            for row in range(self.table.rowCount()):
+                instrument_code = self.table.item(row, 0).text()
+                market_combo = self.table.cellWidget(row, 1)
+                yahoo_symbol = self.table.item(row, 2).text()
+                name = self.table.item(row, 3).text()
+                current_price = self.table.item(row, 4).text()
+                verification_status = self.table.item(row, 7).text()
+                
+                # Get the stock from database
+                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if stock:
+                    stock_id = stock[0]
                     
                     # Save market selection if one is chosen
                     selected_index = market_combo.currentIndex()
-                    if selected_index > 0:  # If something other than "Select Market" is chosen
+                    if selected_index > 0:
                         market_or_index = market_combo.currentData()
                         self.db_manager.update_stock_market(instrument_code, market_or_index)
+                    
+                    # Update stock information
+                    self.db_manager.execute("""
+                        UPDATE stocks 
+                        SET name = ?,
+                            current_price = ?,
+                            yahoo_symbol = ?,
+                            verification_status = ?,
+                            last_updated = ?
+                        WHERE id = ?
+                    """, (
+                        name if name else None,
+                        float(current_price) if current_price else None,
+                        yahoo_symbol,
+                        verification_status,
+                        datetime.now().replace(microsecond=0),
+                        stock_id
+                    ))
                     
                     # Save DRP setting
                     drp_checkbox = self.table.cellWidget(row, 6)
                     if drp_checkbox:
-                        stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
-                        if stock:
-                            self.db_manager.update_stock_drp(stock[0], drp_checkbox.isChecked())
-                
-                # Commit all changes
-                self.db_manager.conn.commit()
-                
-            except Exception as e:
-                logging.error(f"Error saving changes: {str(e)}")
-                QMessageBox.warning(
-                    self,
-                    "Error Saving Changes",
-                    f"Failed to save changes: {str(e)}"
-                )
+                        self.db_manager.update_stock_drp(stock_id, drp_checkbox.isChecked())
+            
+            # Commit all changes
+            self.db_manager.conn.commit()
+            
+        except Exception as e:
+            logging.error(f"Error saving changes: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error Saving Changes",
+                f"Failed to save changes: {str(e)}"
+            )
 
     def closeEvent(self, event):
         """Handle the window close event (X button)"""
