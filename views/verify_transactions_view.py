@@ -347,12 +347,22 @@ class VerifyTransactionsDialog(QDialog):
             market_combo = self.table.cellWidget(row, 1)
             market_or_index = market_combo.currentData()
             
+            # Get market suffix from database
+            market_suffix = None
+            if market_or_index:
+                result = self.db_manager.fetch_one(
+                    "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
+                    (market_or_index,)
+                )
+                market_suffix = result[0] if result else ""
+            
             # Store the verified data
             self.stock_data[instrument_code] = {
                 'name': name,
                 'price': price,
                 'symbol': yahoo_symbol,
                 'market_or_index': market_or_index,
+                'market_suffix': market_suffix,  # Add market_suffix to stored data
                 'drp': self.drp_settings.get(instrument_code, False)
             }
 

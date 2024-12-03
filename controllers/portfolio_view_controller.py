@@ -104,50 +104,32 @@ class PortfolioViewController:
             dialog.exec_()
 
     def on_verification_completed(self, verification_results):
-        """Handle the results of stock verification"""
         try:
-            # Update market mappings and stock data
-            for instrument_code, market_suffix in verification_results['market_mappings'].items():
-                # Update the database
-                self.db_manager.update_stock_market(instrument_code, market_suffix)
+            for instrument_code, stock_info in verification_results['stock_data'].items():
+                # Get the stock from portfolio
+                yahoo_symbol = stock_info['symbol']
+                stock = self.current_portfolio.get_stock(yahoo_symbol)
                 
-                # If we have additional stock data, update it
-                if instrument_code in verification_results['stock_data']:
-                    stock_info = verification_results['stock_data'][instrument_code]
-                    
-                    # Get the stock from portfolio
-                    yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
-                    stock = self.current_portfolio.get_stock(yahoo_symbol)
-                    
-                    if stock:
-                        # Update stock information in both object and database
-                        stock.name = stock_info.get('name', stock.name)
-                        stock.current_price = stock_info.get('price', stock.current_price)
-                        
-                        # Update the database with all stock information
-                        self.db_manager.execute("""
-                            UPDATE stocks 
-                            SET name = ?,
-                                current_price = ?,
-                                last_updated = ?,
-                                yahoo_symbol = ?
-                            WHERE id = ?
-                        """, (
-                            stock_info.get('name'),
-                            stock_info.get('price'),
-                            datetime.now().replace(microsecond=0),
-                            yahoo_symbol,
-                            stock.id
-                        ))
-                        
-                        # Handle splits if any
-                        if 'splits' in stock_info:
-                            splits = stock_info['splits']
-                            split_data = [
-                                (stock.id, date.strftime('%Y-%m-%d'), ratio, 'yahoo', datetime.now())
-                                for date, ratio in splits.items()
-                            ]
-                            self.db_manager.bulk_insert_stock_splits(split_data)
+                if stock:
+                    # Update the database with all stock information
+                    self.db_manager.execute("""
+                        UPDATE stocks 
+                        SET name = ?,
+                            current_price = ?,
+                            last_updated = ?,
+                            yahoo_symbol = ?,
+                            market_or_index = ?,
+                            market_suffix = ?
+                        WHERE id = ?
+                    """, (
+                        stock_info.get('name'),
+                        stock_info.get('price'),
+                        datetime.now().replace(microsecond=0),
+                        yahoo_symbol,
+                        stock_info.get('market_or_index'),
+                        stock_info.get('market_suffix'),
+                        stock.id
+                    ))
             
             # Commit the database changes
             self.db_manager.conn.commit()
@@ -222,11 +204,13 @@ class PortfolioViewController:
                             row_data['Volume'],
                             row_data['Close'],  # adjusted_close
                             row_data['Close'],  # original_close
-                            False               # split_adjusted
+                            False,              # split_adjusted
+                            0.0                 # dividend (default to 0.0 if not available)
                         )
                         for index, row_data in history.iterrows()
                     ]
-                    
+
+
                     # Clear existing historical data for this stock
                     self.db_manager.execute(
                         "DELETE FROM historical_prices WHERE stock_id = ? AND date >= ?",
