@@ -6,8 +6,6 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, Signal
 
 class MyPortfolioView(QWidget):
-    add_stock = Signal()
-    remove_stock = Signal(str)
     refresh_data = Signal()
     view_history = Signal(str)
     manage_portfolio = Signal() 
@@ -27,16 +25,12 @@ class MyPortfolioView(QWidget):
 
         # Create Buttons
         button_layout = QHBoxLayout()
-        self.add_stock_button = QPushButton("Add Stock")
-        self.remove_stock_button = QPushButton("Remove Stock")
         self.refresh_button = QPushButton("Refresh Data")
         self.manage_portfolio_button = QPushButton("Manage Portfolio")
         self.view_history_button = QPushButton("View History")
         self.view_history_button.setEnabled(False)
 
         # Add buttons to widget
-        button_layout.addWidget(self.add_stock_button)
-        button_layout.addWidget(self.remove_stock_button)
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.manage_portfolio_button)
         button_layout.addWidget(self.view_history_button)
@@ -56,20 +50,12 @@ class MyPortfolioView(QWidget):
         self.setLayout(layout)
 
         # Connect signals (buttons)
-        self.add_stock_button.clicked.connect(self.add_stock)
-        self.remove_stock_button.clicked.connect(self.on_remove_stock)
         self.refresh_button.clicked.connect(self.refresh_data)
         self.manage_portfolio_button.clicked.connect(self.manage_portfolio.emit)
         self.view_history_button.clicked.connect(self.on_view_history)
 
         # Connect selection change signal
         self.stocks_table.itemSelectionChanged.connect(self.on_selection_changed)
-
-    def on_remove_stock(self):
-        selected_items = self.stocks_table.selectedItems()
-        if selected_items:
-            yahoo_symbol = self.stocks_table.item(selected_items[0].row(), 0).text()
-            self.remove_stock.emit(yahoo_symbol)
 
     def on_view_history(self):
         selected_items = self.stocks_table.selectedItems()
@@ -80,7 +66,6 @@ class MyPortfolioView(QWidget):
     # Modify the existing method to enable/disable history button
     def on_selection_changed(self):
         selected = bool(self.stocks_table.selectedItems())
-        self.remove_stock_button.setEnabled(selected)
         self.view_history_button.setEnabled(selected)
 
     def update_portfolio(self, portfolio):

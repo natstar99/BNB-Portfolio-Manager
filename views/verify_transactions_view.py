@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QTableWidget, QTableWidgetItem, QHeaderView,
                               QComboBox, QMessageBox, QLabel, QProgressDialog,
                               QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox,
-                              QCheckBox)
+                              QCheckBox, QAbstractItemView, QLineEdit)
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
@@ -61,6 +61,28 @@ class VerifyTransactionsDialog(QDialog):
         layout.addWidget(self.table)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers) # Make table uneditable by default
+
+        # Add management buttons
+        management_layout = QHBoxLayout()
+        
+        self.add_instrument_btn = QPushButton("Add Instrument")
+        self.add_instrument_btn.clicked.connect(self.add_instrument)
+        management_layout.addWidget(self.add_instrument_btn)
+        
+        self.remove_selected_btn = QPushButton("Remove Selected")
+        self.remove_selected_btn.clicked.connect(self.remove_selected)
+        self.remove_selected_btn.setEnabled(False)  # Initially disabled
+        management_layout.addWidget(self.remove_selected_btn)
+        
+        management_layout.addStretch()
+        layout.insertLayout(1, management_layout)  # Add after instructions
+        
+        # Enable multi-selection in table
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        
+        # Connect selection changed signal
+        self.table.itemSelectionChanged.connect(self.update_button_states)
         
         # Buttons bar
         button_layout = QHBoxLayout()
@@ -432,6 +454,126 @@ class VerifyTransactionsDialog(QDialog):
             manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
             
             menu.exec_(self.table.viewport().mapToGlobal(position))
+
+    def update_button_states(self):
+        """Enable/disable buttons based on selection state."""
+        has_selection = len(self.table.selectedItems()) > 0
+        self.remove_selected_btn.setEnabled(has_selection)
+
+    def add_instrument(self):
+        """Show dialog to add a new instrument code."""
+        dialog = AddInstrumentDialog(self)
+        if dialog.exec_():
+            instrument_code = dialog.get_instrument_code()
+            if not instrument_code:
+                return
+                
+            # Check if instrument code already exists
+            existing = False
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0).text() == instrument_code:
+                    existing = True
+                    break
+            
+            if existing:
+                QMessageBox.warning(
+                    self,
+                    "Duplicate Instrument",
+                    f"Instrument code {instrument_code} already exists."
+                )
+                return
+                
+            # Add new row to table
+            current_row = self.table.rowCount()
+            self.table.setRowCount(current_row + 1)
+            
+            # Set instrument code
+            self.table.setItem(current_row, 0, QTableWidgetItem(instrument_code))
+            
+            # Add market combo box
+            market_combo = QComboBox()
+            market_combo.addItem("Select Market", "")
+            market_codes = self.db_manager.get_all_market_codes()
+            for market_or_index, suffix in market_codes:
+                market_combo.addItem(market_or_index, market_or_index)
+            self.table.setCellWidget(current_row, 1, market_combo)
+            
+            # Initialize other columns
+            for col in range(2, 7):
+                self.table.setItem(current_row, col, QTableWidgetItem(""))
+                
+            # Add DRP checkbox
+            drp_checkbox = QCheckBox()
+            drp_checkbox.setChecked(False)
+            drp_checkbox.stateChanged.connect(lambda state, r=current_row: self.on_drp_changed(r))
+            self.table.setCellWidget(current_row, 6, drp_checkbox)
+            
+            # Set initial status
+            self.update_status(current_row, "Pending", Qt.gray)
+            
+            # Add actions button
+            actions_btn = QPushButton("Actions ▼")
+            actions_btn.clicked.connect(lambda _, r=current_row: self.show_actions_menu(r))
+            self.table.setCellWidget(current_row, 8, actions_btn)
+            
+            # Connect market combo signal
+            market_combo.currentIndexChanged.connect(
+                lambda idx, r=current_row: self.on_market_changed(r)
+            )
+
+    def remove_selected(self):
+        """Remove selected instruments after validation."""
+        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+        if not selected_rows:
+            return
+            
+        # Check for existing transactions
+        instruments_with_transactions = []
+        for row in selected_rows:
+            instrument_code = self.table.item(row, 0).text()
+            stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+            if stock:
+                stock_id = stock[0]
+                transactions = self.db_manager.fetch_one(
+                    "SELECT COUNT(*) FROM transactions WHERE stock_id = ?",
+                    (stock_id,)
+                )
+                if transactions and transactions[0] > 0:
+                    instruments_with_transactions.append(instrument_code)
+        
+        if instruments_with_transactions:
+            QMessageBox.warning(
+                self,
+                "Cannot Remove",
+                "The following instruments have existing transactions and cannot be removed:\n" +
+                "\n".join(instruments_with_transactions)
+            )
+            return
+        
+        # Confirm deletion
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Removal",
+            f"Are you sure you want to remove {len(selected_rows)} selected instruments?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            # Remove from database
+            for row in reversed(selected_rows):
+                instrument_code = self.table.item(row, 0).text()
+                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if stock:
+                    stock_id = stock[0]
+                    self.db_manager.execute(
+                        "DELETE FROM stocks WHERE id = ?",
+                        (stock_id,)
+                    )
+                
+                # Remove from table
+                self.table.removeRow(row)
+            
+            self.db_manager.conn.commit()
 
     def accept(self):
         # Check if all stocks have been verified
@@ -808,3 +950,39 @@ class StockSplitsDialog(QDialog):
                 "Error Saving Splits",
                 f"Failed to save stock splits: {str(e)}"
             )
+
+class AddInstrumentDialog(QDialog):
+    """
+    Simple dialog for adding a new instrument code to the verification list.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New Instrument")
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        
+        # Instructions
+        instructions = QLabel(
+            "Enter the instrument code for the stock you wish to add.\n"
+            "You can verify and configure the stock details after adding it."
+        )
+        layout.addWidget(instructions)
+        
+        # Input field
+        self.instrument_code = QLineEdit()
+        self.instrument_code.setPlaceholderText("Enter Instrument Code")
+        layout.addWidget(self.instrument_code)
+        
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            parent=self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+    
+    def get_instrument_code(self):
+        """Return the entered instrument code in uppercase."""
+        return self.instrument_code.text().strip().upper()

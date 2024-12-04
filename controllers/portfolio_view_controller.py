@@ -22,8 +22,6 @@ class PortfolioViewController:
         
         # Connect signals
         self.view.view_history.connect(self.show_history)
-        self.view.add_stock.connect(self.add_stock)
-        self.view.remove_stock.connect(self.remove_stock)
         self.view.refresh_data.connect(self.refresh_data)
         self.view.manage_portfolio.connect(self.show_portfolio_manager)
 
@@ -45,30 +43,6 @@ class PortfolioViewController:
             if stock:
                 dialog = HistoricalDataDialog(stock, self.db_manager, self.view)
                 dialog.exec_()
-
-    def add_stock(self):
-        """Add a new stock to the portfolio"""
-        if not self.current_portfolio:
-            return
-
-        instrument_code, ok = QInputDialog.getText(self.view, "Add Stock", "Enter stock symbol:")
-        if ok and instrument_code:
-            quantity, ok = QInputDialog.getInt(self.view, "Add Stock", f"Enter quantity for {instrument_code}:", min=1)
-            if ok:
-                try:
-                    ticker = yf.Ticker(instrument_code)
-                    info = ticker.info
-                    yahoo_symbol = info['symbol']
-                    stock_name = info.get('longName', instrument_code)
-                    current_price = info.get('currentPrice', 0.0)
-
-                    new_stock = Stock.create(yahoo_symbol, instrument_code, stock_name, current_price, self.db_manager)
-                    self.current_portfolio.add_stock(new_stock)
-                    Transaction.create(new_stock.id, datetime.now(), quantity, current_price, "BUY", self.db_manager)
-                    
-                    self.update_view()
-                except Exception as e:
-                    QMessageBox.warning(self.view, "Error", f"Failed to add stock: {str(e)}")
 
     def refresh_data(self):
         """Update current prices for all stocks"""
@@ -92,21 +66,6 @@ class PortfolioViewController:
         self.current_portfolio.load_stocks()
         self.update_view()
         QMessageBox.information(self.view, "Update Complete", "Portfolio prices have been updated.")
-
-    def remove_stock(self, yahoo_symbol: str):
-        """Remove a stock from the portfolio"""
-        if not self.current_portfolio:
-            return
-
-        confirm = QMessageBox.question(
-            self.view, 
-            "Confirm Removal",
-            f"Are you sure you want to remove {yahoo_symbol} from the portfolio?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if confirm == QMessageBox.Yes:
-            self.current_portfolio.remove_stock(yahoo_symbol)
-            self.update_view()
 
     def show_portfolio_manager(self):
         """Open the verification dialog for the portfolio and refresh view after"""
