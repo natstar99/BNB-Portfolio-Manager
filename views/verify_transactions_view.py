@@ -460,9 +460,53 @@ class VerifyTransactionsDialog(QDialog):
         super().accept()
 
     def save_and_update(self):
-        """Save all changes and update stock data"""
-        self.save_changes()  # Save current state
-        self.accept()  # Close dialog with accept (will trigger verification)
+        """Save all changes and update stock data if user confirms"""
+        try:
+            # Save current changes
+            self.save_changes()
+
+            # Ask about historical data
+            response = QMessageBox.question(
+                self,
+                "Historical Data",
+                "Would you like to collect historical price data for verified stocks?\n"
+                "This process might take several minutes.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if response == QMessageBox.Yes:
+                # Get list of verified stocks
+                verified_stocks = []
+                for row in range(self.table.rowCount()):
+                    status_item = self.table.item(row, 7)  # Status column
+                    if status_item and status_item.text() == "Verified":
+                        instrument_code = self.table.item(row, 0).text()
+                        yahoo_symbol = self.table.item(row, 2).text()
+                        stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                        if stock:
+                            verified_stocks.append((stock[0], yahoo_symbol))  # stock_id, yahoo_symbol
+
+                # Create verification results
+                verification_results = {
+                    'market_mappings': self.market_mappings,
+                    'stock_data': self.stock_data,
+                    'verification_status': self.verification_status,
+                    'transactions_df': self.transactions_data,
+                    'drp_settings': self.drp_settings
+                }
+
+                # Emit verification completed signal with results
+                self.verification_completed.emit(verification_results)
+
+            self.accept()
+
+        except Exception as e:
+            logging.error(f"Error saving changes and updating data: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to save changes and update data: {str(e)}"
+            )
 
     def save_and_exit(self):
         """Save all changes without updating stock data"""

@@ -109,7 +109,7 @@ class PortfolioViewController:
             self.update_view()
 
     def show_portfolio_manager(self):
-        """Open the verification dialog for the portfolio"""
+        """Open the verification dialog for the portfolio and refresh view after"""
         if not self.current_portfolio:
             return
                 
@@ -127,7 +127,11 @@ class PortfolioViewController:
                 'Instrument Code': [code[0] for code in instruments]
             })
             dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
-            dialog.exec_()
+            
+            if dialog.exec_():
+                # Refresh the portfolio data after dialog closes
+                self.current_portfolio.load_stocks()
+                self.update_view()
 
     def get_view(self):
         """Return the view instance"""
