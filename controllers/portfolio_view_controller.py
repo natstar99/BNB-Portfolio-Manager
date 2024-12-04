@@ -109,19 +109,23 @@ class PortfolioViewController:
             self.update_view()
 
     def show_portfolio_manager(self):
-        """Open the verification dialog for current holdings"""
+        """Open the verification dialog for the portfolio"""
         if not self.current_portfolio:
             return
-            
-        holdings_data = pd.DataFrame([{
-            'Instrument Code': stock.instrument_code,
-            'Trade Date': datetime.now().date(),
-            'Quantity': stock.calculate_total_shares(),
-            'Price': stock.current_price,
-            'Transaction Type': 'HOLD'
-        } for stock in self.current_portfolio.stocks.values()])
-            
-        if not holdings_data.empty:
+                
+        # Get just the instrument codes
+        instruments = self.db_manager.fetch_all("""
+            SELECT DISTINCT instrument_code 
+            FROM stocks 
+            JOIN portfolio_stocks ps ON stocks.id = ps.stock_id
+            WHERE ps.portfolio_id = ?
+        """, (self.current_portfolio.id,))
+                
+        if instruments:
+            # Create DataFrame with just instrument codes
+            holdings_data = pd.DataFrame({
+                'Instrument Code': [code[0] for code in instruments]
+            })
             dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
             dialog.exec_()
 

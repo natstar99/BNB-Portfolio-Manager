@@ -150,70 +150,67 @@ class ImportTransactionsController(QObject):
 
     def on_verification_completed(self, verification_results):
         """
-        Process verified transactions and collect historical data.
-        
-        Args:
-            verification_results (dict): Contains verified transaction data and mappings
+        Process verified transactions and collect historical data only for verified stocks.
+        Uses verification status from the verification dialog.
         """
         try:
-            # Store the mappings from verification results
             self.market_mappings = verification_results['market_mappings']
             stock_data = verification_results['stock_data']
             drp_settings = verification_results.get('drp_settings', {})
             df = verification_results['transactions_df']
+            verification_status = verification_results['verification_status']
 
-            # Process each stock's transactions
             processed_stocks = set()
             for instrument_code, group in df.groupby('Instrument Code'):
                 # Get market suffix and create yahoo symbol
                 market_suffix = self.market_mappings.get(instrument_code, '')
                 yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
 
-                # Create or get stock
-                stock = Stock.get_by_yahoo_symbol(yahoo_symbol, self.db_manager)
-                if not stock:
-                    stock_info = stock_data.get(instrument_code, {})
-                    stock = Stock.create(
-                        yahoo_symbol=yahoo_symbol,
-                        instrument_code=instrument_code,
-                        name=stock_info.get('name', ''),
-                        current_price=stock_info.get('price', 0.0),
-                        db_manager=self.db_manager
-                    )
-                    self.portfolio.add_stock(stock)
+                # Only process verified stocks
+                row_index = df[df['Instrument Code'] == instrument_code].index[0]
+                if verification_status.get(row_index) == "Verified":
+                    # Create or get stock
+                    stock = Stock.get_by_yahoo_symbol(yahoo_symbol, self.db_manager)
+                    if not stock:
+                        stock_info = stock_data.get(instrument_code, {})
+                        stock = Stock.create(
+                            yahoo_symbol=yahoo_symbol,
+                            instrument_code=instrument_code,
+                            name=stock_info.get('name', ''),
+                            current_price=stock_info.get('price', 0.0),
+                            db_manager=self.db_manager
+                        )
+                        self.portfolio.add_stock(stock)
 
-                # Update DRP setting
-                drp_status = drp_settings.get(instrument_code, False)
-                self.db_manager.update_stock_drp(stock.id, drp_status)
+                    # Update DRP setting
+                    drp_status = drp_settings.get(instrument_code, False)
+                    self.db_manager.update_stock_drp(stock.id, drp_status)
 
-                # Bulk insert transactions
-                transactions = []
-                for _, row in group.iterrows():
-                    transactions.append((
-                        stock.id,
-                        row['Trade Date'],
-                        row['Quantity'],
-                        row['Price'],
-                        row['Transaction Type'],
-                        row['Quantity'],  # original_quantity
-                        row['Price']      # original_price
-                    ))
-                
-                self.db_manager.bulk_insert_transactions(transactions)
-                
-                # Collect historical data for this stock
-                if stock.id not in processed_stocks:
-                    self.collect_historical_data(stock.id, yahoo_symbol)
-                    processed_stocks.add(stock.id)
+                    # Bulk insert transactions
+                    transactions = [
+                        (stock.id, row['Trade Date'], row['Quantity'], row['Price'],
+                        row['Transaction Type'], row['Quantity'], row['Price'])
+                        for _, row in group.iterrows()
+                    ]
+                    self.db_manager.bulk_insert_transactions(transactions)
+                    
+                    # Collect historical data
+                    if stock.id not in processed_stocks:
+                        self.collect_historical_data(stock.id, yahoo_symbol)
+                        processed_stocks.add(stock.id)
 
-            QMessageBox.information(self.view, "Import Successful", 
-                                  "Transactions and historical data have been imported successfully.")
+            QMessageBox.information(
+                self.view,
+                "Import Successful", 
+                "Transactions and historical data have been imported for verified stocks."
+            )
             self.import_completed.emit()
 
         except Exception as e:
             error_msg = f"Failed to process verified transactions: {str(e)}"
             logger.error(error_msg)
             QMessageBox.warning(self.view, "Import Failed", error_msg)
+
 
     def provide_template(self):
         """Provide a template file for transaction import."""

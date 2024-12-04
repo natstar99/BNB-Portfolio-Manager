@@ -263,11 +263,22 @@ class DatabaseManager:
         """, (portfolio_id, stock_id))
 
     def get_stocks_for_portfolio(self, portfolio_id):
+        """
+        Get only verified stocks for a portfolio.
+        
+        Args:
+            portfolio_id (int): The ID of the portfolio
+            
+        Returns:
+            list: List of tuples containing stock data for verified stocks
+        """
         return self.fetch_all("""
             SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, s.last_updated
             FROM stocks s
             JOIN portfolio_stocks ps ON s.id = ps.stock_id
             WHERE ps.portfolio_id = ?
+            AND s.verification_status = 'Verified'
+            AND s.current_price IS NOT NULL
         """, (portfolio_id,))
 
     # Stock split methods
