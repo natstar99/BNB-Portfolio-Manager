@@ -5,7 +5,7 @@ from views.my_portfolio_view import MyPortfolioView
 from models.portfolio import Portfolio
 from models.stock import Stock
 from models.transaction import Transaction
-from datetime import datetime, timedelta
+from datetime import datetime
 import yfinance as yf
 import logging
 import pandas as pd
@@ -28,9 +28,10 @@ class PortfolioViewController:
         self.view.manage_portfolio.connect(self.show_portfolio_manager)
 
     def set_portfolio(self, portfolio: Portfolio):
+        """Set the current portfolio and load its data"""
         self.current_portfolio = portfolio
-        self.current_portfolio.load_stocks() # Load existing data from database
-        self.refresh_data() # Display the data
+        self.current_portfolio.load_stocks()
+        self.update_view()
 
     def update_view(self):
         """Update the view with current portfolio data"""
@@ -38,6 +39,7 @@ class PortfolioViewController:
             self.view.update_portfolio(self.current_portfolio)
 
     def show_history(self, yahoo_symbol):
+        """Display historical data for a selected stock"""
         if self.current_portfolio:
             stock = self.current_portfolio.get_stock(yahoo_symbol)
             if stock:
@@ -45,6 +47,7 @@ class PortfolioViewController:
                 dialog.exec_()
 
     def add_stock(self):
+        """Add a new stock to the portfolio"""
         if not self.current_portfolio:
             return
 
@@ -53,192 +56,75 @@ class PortfolioViewController:
             quantity, ok = QInputDialog.getInt(self.view, "Add Stock", f"Enter quantity for {instrument_code}:", min=1)
             if ok:
                 try:
-                    # Fetch basic stock info
                     ticker = yf.Ticker(instrument_code)
                     info = ticker.info
                     yahoo_symbol = info['symbol']
                     stock_name = info.get('longName', instrument_code)
                     current_price = info.get('currentPrice', 0.0)
 
-                    # Create new stock and add to portfolio
                     new_stock = Stock.create(yahoo_symbol, instrument_code, stock_name, current_price, self.db_manager)
                     self.current_portfolio.add_stock(new_stock)
-                    
-                    # Add transaction
                     Transaction.create(new_stock.id, datetime.now(), quantity, current_price, "BUY", self.db_manager)
                     
                     self.update_view()
                 except Exception as e:
                     QMessageBox.warning(self.view, "Error", f"Failed to add stock: {str(e)}")
 
-    def remove_stock(self, yahoo_symbol: str):
-        if not self.current_portfolio:
-            return
-
-        confirm = QMessageBox.question(self.view, "Confirm Removal",
-                                       f"Are you sure you want to remove {yahoo_symbol} from the portfolio?",
-                                       QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
-            self.current_portfolio.remove_stock(yahoo_symbol)
-            self.update_view()
-
-    def show_portfolio_manager(self):
-        if not self.current_portfolio:
-            return
-            
-        # Create dataframe of current holdings for the verification dialog
-        holdings_data = []
-        for stock in self.current_portfolio.stocks.values():
-            holdings_data.append({
-                'Instrument Code': stock.instrument_code,
-                'Trade Date': datetime.now().date(),  # Current date as reference
-                'Quantity': stock.calculate_total_shares(),
-                'Price': stock.current_price,
-                'Transaction Type': 'HOLD'  # New type to indicate existing holding
-            })
-            
-        if holdings_data:
-            df = pd.DataFrame(holdings_data)
-            dialog = VerifyTransactionsDialog(df, self.db_manager, self.view)
-            dialog.verification_completed.connect(self.on_verification_completed)
-            dialog.exec_()
-
-    def on_verification_completed(self, verification_results):
-        try:
-            for instrument_code, stock_info in verification_results['stock_data'].items():
-                # Get the stock from portfolio
-                yahoo_symbol = stock_info['symbol']
-                stock = self.current_portfolio.get_stock(yahoo_symbol)
-                
-                if stock:
-                    # Update the database with all stock information
-                    self.db_manager.execute("""
-                        UPDATE stocks 
-                        SET name = ?,
-                            current_price = ?,
-                            last_updated = ?,
-                            yahoo_symbol = ?,
-                            market_or_index = ?,
-                            market_suffix = ?
-                        WHERE id = ?
-                    """, (
-                        stock_info.get('name'),
-                        stock_info.get('price'),
-                        datetime.now().replace(microsecond=0),
-                        yahoo_symbol,
-                        stock_info.get('market_or_index'),
-                        stock_info.get('market_suffix'),
-                        stock.id
-                    ))
-            
-            # Commit the database changes
-            self.db_manager.conn.commit()
-            
-            # Reload the portfolio data to ensure we have fresh data
-            self.current_portfolio.load_stocks()
-            
-            # Refresh the view
-            self.refresh_data()
-                
-        except Exception as e:
-            QMessageBox.warning(
-                self.view,
-                "Update Failed",
-                f"Failed to update portfolio data: {str(e)}"
-            )
-
-    def set_portfolio(self, portfolio: Portfolio):
-        self.current_portfolio = portfolio
-        self.current_portfolio.load_stocks()  # Load existing data from database
-        self.update_view()  # Update view with existing data
-
-        # After loading and displaying existing data, ask about updates
-        response = QMessageBox.question(
-            self.view,
-            "Update Historical Data",
-            "Would you like to update historical price data for all stocks?\n"
-            "This process might take several minutes.",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
-        if response == QMessageBox.Yes:
-            self.refresh_data()
-
     def refresh_data(self):
+        """Update current prices for all stocks"""
         if not self.current_portfolio:
             return
 
         for stock in self.current_portfolio.stocks.values():
             try:
-                # Update current price
                 ticker = yf.Ticker(stock.yahoo_symbol)
                 info = ticker.info
                 stock.current_price = info.get('currentPrice', stock.current_price)
                 stock.update_price()
-
-                logger.info(f"Collecting historical data for {stock.yahoo_symbol}")
-                
-                # Get data for the last year or since the earliest transaction
-                earliest_transaction = min(t.date for t in stock.transactions) if stock.transactions else None
-                start_date = earliest_transaction if earliest_transaction else (datetime.now() - timedelta(days=365))
-                end_date = datetime.now()
-                
-                history = ticker.history(
-                    start=start_date,
-                    end=end_date,
-                    interval='1d'
-                )
-                
-                if not history.empty:
-                    logger.info(f"Retrieved {len(history)} data points for {stock.yahoo_symbol}")
-                    
-                    # Prepare bulk insert data
-                    historical_prices = [
-                        (
-                            stock.id,
-                            index.strftime('%Y-%m-%d'),
-                            row_data['Open'],
-                            row_data['High'],
-                            row_data['Low'],
-                            row_data['Close'],
-                            row_data['Volume'],
-                            row_data['Close'],  # adjusted_close
-                            row_data['Close'],  # original_close
-                            False,              # split_adjusted
-                            0.0                 # dividend (default to 0.0 if not available)
-                        )
-                        for index, row_data in history.iterrows()
-                    ]
-
-
-                    # Clear existing historical data for this stock
-                    self.db_manager.execute(
-                        "DELETE FROM historical_prices WHERE stock_id = ? AND date >= ?",
-                        (stock.id, start_date.strftime('%Y-%m-%d'))
-                    )
-                    
-                    # Insert new historical data
-                    self.db_manager.bulk_insert_historical_prices(historical_prices)
-                    logger.info(f"Successfully updated historical data for {stock.yahoo_symbol}")
-                else:
-                    logger.warning(f"No historical data found for {stock.yahoo_symbol}")
-                    
             except Exception as e:
-                logger.error(f"Failed to update data for {stock.yahoo_symbol}: {str(e)}")
+                logger.error(f"Failed to update price for {stock.yahoo_symbol}: {str(e)}")
                 QMessageBox.warning(
                     self.view,
                     "Update Failed",
-                    f"Failed to update data for {stock.yahoo_symbol}: {str(e)}"
+                    f"Failed to update price for {stock.yahoo_symbol}: {str(e)}"
                 )
 
-        self.current_portfolio.load_stocks()  # Reload from database after updates
+        self.current_portfolio.load_stocks()
         self.update_view()
-        
-        QMessageBox.information(
-            self.view,
-            "Update Complete",
-            "Portfolio data and historical prices have been updated."
+        QMessageBox.information(self.view, "Update Complete", "Portfolio prices have been updated.")
+
+    def remove_stock(self, yahoo_symbol: str):
+        """Remove a stock from the portfolio"""
+        if not self.current_portfolio:
+            return
+
+        confirm = QMessageBox.question(
+            self.view, 
+            "Confirm Removal",
+            f"Are you sure you want to remove {yahoo_symbol} from the portfolio?",
+            QMessageBox.Yes | QMessageBox.No
         )
+        if confirm == QMessageBox.Yes:
+            self.current_portfolio.remove_stock(yahoo_symbol)
+            self.update_view()
+
+    def show_portfolio_manager(self):
+        """Open the verification dialog for current holdings"""
+        if not self.current_portfolio:
+            return
+            
+        holdings_data = pd.DataFrame([{
+            'Instrument Code': stock.instrument_code,
+            'Trade Date': datetime.now().date(),
+            'Quantity': stock.calculate_total_shares(),
+            'Price': stock.current_price,
+            'Transaction Type': 'HOLD'
+        } for stock in self.current_portfolio.stocks.values()])
+            
+        if not holdings_data.empty:
+            dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
+            dialog.exec_()
 
     def get_view(self):
+        """Return the view instance"""
         return self.view

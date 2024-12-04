@@ -13,8 +13,7 @@ from models.stock import Stock
 from views.import_transactions_view import ImportTransactionsView
 from views.verify_transactions_view import VerifyTransactionsDialog
 
-logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ImportTransactionsController(QObject):
@@ -30,7 +29,94 @@ class ImportTransactionsController(QObject):
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
 
+    def collect_historical_data(self, stock_id, yahoo_symbol):
+        """
+        Collect missing historical data for a stock.
+        Only collects new data that isn't already in the database.
+        
+        Args:
+            stock_id (int): The database ID of the stock
+            yahoo_symbol (str): The Yahoo Finance symbol for the stock
+        """
+        try:
+            logger.info(f"Starting historical data collection for {yahoo_symbol}")
+            
+            # Get latest historical date if any
+            latest_date = self.db_manager.fetch_one(
+                "SELECT MAX(date) FROM historical_prices WHERE stock_id = ?", 
+                (stock_id,)
+            )
+
+            if latest_date and latest_date[0]:
+                # We have some data - get start date for new data collection
+                start_date = pd.to_datetime(latest_date[0]) + pd.Timedelta(days=1)
+                logger.info(f"Found existing data, collecting from {start_date}")
+            else:
+                # No data - get earliest transaction date
+                earliest_transaction = self.db_manager.fetch_one(
+                    "SELECT MIN(date) FROM transactions WHERE stock_id = ?", 
+                    (stock_id,)
+                )
+                start_date = pd.to_datetime(earliest_transaction[0])
+                logger.info(f"No existing data, collecting from {start_date}")
+
+            # Only collect if we need new data
+            if start_date < pd.Timestamp.today():
+                ticker = yf.Ticker(yahoo_symbol)
+                
+                # Get historical data
+                history = ticker.history(
+                    start=start_date,
+                    end=pd.Timestamp.today(),
+                    interval='1d'
+                )
+
+                if not history.empty:
+                    logger.info(f"Retrieved {len(history)} new data points")
+                    
+                    # Get dividends for the period
+                    dividends = ticker.dividends
+                    dividend_series = pd.Series(0.0, index=history.index)
+                    if not dividends.empty:
+                        dividend_series.update(dividends)
+                    
+                    # Prepare bulk insert data
+                    historical_prices = []
+                    for index, row in history.iterrows():
+                        historical_prices.append((
+                            stock_id,
+                            index.strftime('%Y-%m-%d'),
+                            row['Open'],
+                            row['High'],
+                            row['Low'],
+                            row['Close'],
+                            row['Volume'],
+                            row['Close'],  # adjusted_close
+                            row['Close'],  # original_close
+                            False,         # split_adjusted
+                            dividend_series[index]
+                        ))
+                    
+                    # Insert new historical data in a single transaction
+                    self.db_manager.bulk_insert_historical_prices(historical_prices)
+                    logger.info(f"Successfully stored historical data")
+                else:
+                    logger.warning(f"No new historical data found")
+            else:
+                logger.info("Historical data is up to date")
+
+        except Exception as e:
+            logger.error(f"Failed to collect historical data: {str(e)}")
+            raise
+
     def import_transactions(self, file_name, column_mapping):
+        """
+        Import transactions from a file and collect historical data.
+        
+        Args:
+            file_name (str): Path to the import file
+            column_mapping (dict): Mapping of file columns to database columns
+        """
         try:
             logger.info(f"Starting import from file: {file_name}")
             # Read the file
@@ -59,10 +145,16 @@ class ImportTransactionsController(QObject):
 
         except Exception as e:
             error_msg = f"Failed to import transactions: {str(e)}"
-            logger.exception(error_msg)
+            logger.error(error_msg)
             QMessageBox.warning(self.view, "Import Failed", error_msg)
 
     def on_verification_completed(self, verification_results):
+        """
+        Process verified transactions and collect historical data.
+        
+        Args:
+            verification_results (dict): Contains verified transaction data and mappings
+        """
         try:
             # Store the mappings from verification results
             self.market_mappings = verification_results['market_mappings']
@@ -70,17 +162,8 @@ class ImportTransactionsController(QObject):
             drp_settings = verification_results.get('drp_settings', {})
             df = verification_results['transactions_df']
 
-            # Ask about historical data
-            response = QMessageBox.question(
-                self.view,
-                "Historical Data",
-                "Would you like to collect historical price data for verified stocks?\n"
-                "This process might take several minutes.",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            collect_history = response == QMessageBox.Yes
-
-            # Group transactions by instrument_code for efficiency
+            # Process each stock's transactions
+            processed_stocks = set()
             for instrument_code, group in df.groupby('Instrument Code'):
                 # Get market suffix and create yahoo symbol
                 market_suffix = self.market_mappings.get(instrument_code, '')
@@ -103,7 +186,7 @@ class ImportTransactionsController(QObject):
                 drp_status = drp_settings.get(instrument_code, False)
                 self.db_manager.update_stock_drp(stock.id, drp_status)
 
-                # Bulk insert transactions for this stock
+                # Bulk insert transactions
                 transactions = []
                 for _, row in group.iterrows():
                     transactions.append((
@@ -117,119 +200,23 @@ class ImportTransactionsController(QObject):
                     ))
                 
                 self.db_manager.bulk_insert_transactions(transactions)
-
-                # Update stock splits if any
-                if instrument_code in stock_data and 'splits' in stock_data[instrument_code]:
-                    splits = stock_data[instrument_code]['splits']
-                    split_data = [
-                        (stock.id, date.strftime('%Y-%m-%d'), ratio, 'yahoo', datetime.now())
-                        for date, ratio in splits.items()
-                    ]
-                    self.db_manager.bulk_insert_stock_splits(split_data)
-
-            if collect_history:
-                self.collect_historical_data(df)
+                
+                # Collect historical data for this stock
+                if stock.id not in processed_stocks:
+                    self.collect_historical_data(stock.id, yahoo_symbol)
+                    processed_stocks.add(stock.id)
 
             QMessageBox.information(self.view, "Import Successful", 
-                                  "Transactions have been imported successfully.")
+                                  "Transactions and historical data have been imported successfully.")
             self.import_completed.emit()
 
         except Exception as e:
             error_msg = f"Failed to process verified transactions: {str(e)}"
-            logger.exception(error_msg)
+            logger.error(error_msg)
             QMessageBox.warning(self.view, "Import Failed", error_msg)
 
-    def collect_historical_data(self, df):
-        """
-        Collect and store historical price data for verified stocks.
-        
-        Args:
-            df (pandas.DataFrame): DataFrame containing transaction data
-        """
-        logger.info("Starting historical data collection")
-        
-        # Group by instrument code and get date ranges
-        date_ranges = df.groupby('Instrument Code').agg({
-            'Trade Date': ['min', 'max']
-        }).reset_index()
-        date_ranges.columns = ['instrument_code', 'start_date', 'end_date']
-        
-        total_stocks = len(date_ranges)
-        logger.info(f"Found {total_stocks} stocks to collect historical data for")
-        
-        # Collect and store historical data for each stock
-        for _, row in date_ranges.iterrows():
-            try:
-                instrument_code = row['instrument_code']
-                # Construct yahoo symbol using the verified mapping
-                market_suffix = self.market_mappings.get(instrument_code, '')
-                yahoo_symbol = f"{instrument_code}{market_suffix}"
-                
-                stock = self.portfolio.get_stock(yahoo_symbol)
-                
-                if stock:
-                    logger.info(f"Collecting data for {yahoo_symbol} from {row['start_date']} to {row['end_date']}")
-                    
-                    # Add buffer days to ensure we capture all relevant data
-                    start_date = row['start_date'] - pd.Timedelta(days=5)
-                    end_date = pd.Timestamp.today()
-                    
-                    ticker = yf.Ticker(yahoo_symbol)
-                    history = ticker.history(
-                        start=start_date,
-                        end=end_date,
-                        interval='1d'
-                    )
-                    
-                    if not history.empty:
-                        logger.info(f"Retrieved {len(history)} data points for {yahoo_symbol}")
-                        
-                        # Get dividend history
-                        dividends = ticker.dividends
-                        
-                        # Create a Series of dividends indexed by date
-                        dividend_series = pd.Series(0.0, index=history.index)
-                        if not dividends.empty:
-                            logger.info(f"Found {len(dividends)} dividends for {yahoo_symbol}")
-                            # Update dividend_series with actual dividend amounts
-                            dividend_series.update(dividends)
-                    
-                        # Prepare bulk insert data
-                        historical_prices = []
-                        for index, row_data in history.iterrows():
-                            historical_prices.append((
-                                stock.id,
-                                index.strftime('%Y-%m-%d'),
-                                row_data['Open'],
-                                row_data['High'],
-                                row_data['Low'],
-                                row_data['Close'],
-                                row_data['Volume'],
-                                row_data['Close'],  # adjusted_close
-                                row_data['Close'],  # original_close
-                                False,               # split_adjusted
-                                dividend_series[index]  # dividend amount for this date
-                            ))
-                        
-                        # Clear any existing historical data for this stock
-                        self.db_manager.execute(
-                            "DELETE FROM historical_prices WHERE stock_id = ?",
-                            (stock.id,)
-                        )
-                        
-                        # Insert new historical data
-                        self.db_manager.bulk_insert_historical_prices(historical_prices)
-                        logger.info(f"Successfully stored historical data for {yahoo_symbol}")
-                    else:
-                        logger.warning(f"No historical data found for {yahoo_symbol}")
-                else:
-                    logger.warning(f"Stock not found for symbol: {yahoo_symbol}")
-                    
-            except Exception as e:
-                logger.error(f"Failed to collect historical data for {row['instrument_code']}: {str(e)}")
-                logger.exception("Detailed error:")  # This will log the full stack trace
-
     def provide_template(self):
+        """Provide a template file for transaction import."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
         template_path = os.path.join(current_dir, "..", "Transaction_Data_Template.xlsx")
         
@@ -250,4 +237,5 @@ class ImportTransactionsController(QObject):
                                   f"Template has been saved to {save_path}")
 
     def show_view(self):
+        """Show the import transactions view."""
         self.view.show()
