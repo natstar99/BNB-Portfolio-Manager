@@ -121,108 +121,127 @@ class VerifyTransactionsDialog(QDialog):
 
     def populate_table(self):
         """
-        Populate the verification table with stock data from the transactions.
-        This method initialises the table and handles existing stock data and verification status.
+        Populate the verification table with stock data.
+        Shows both imported transactions and existing database stocks.
         """
-        # Get unique instrument codes from transactions
-        instrument_codes = self.transactions_data['Instrument Code'].unique()
-        self.table.setRowCount(len(instrument_codes))
-        
-        # Get market codes for the dropdown
-        market_codes = self.db_manager.get_all_market_codes()
-        
-        for row, instrument_code in enumerate(instrument_codes):
-            # Initialize all table items first to prevent NoneType errors
-            for col in range(self.table.columnCount()):
-                self.table.setItem(row, col, QTableWidgetItem(""))
-                
-            # Set Instrument Code (Column 0)
-            self.table.item(row, 0).setText(instrument_code)
+        try:
+            # Get all unique instrument codes from both transactions and database
+            transaction_codes = set()
+            if self.transactions_data is not None and 'Instrument Code' in self.transactions_data:
+                transaction_codes = set(self.transactions_data['Instrument Code'].unique())
             
-            # Get existing stock data from database if it exists
-            existing_stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+            # Get all stocks from database
+            db_stocks = self.db_manager.get_all_stocks()
+            db_codes = {stock[2] for stock in db_stocks}  # stock[2] is instrument_code
             
-            # Create and setup Market Combo Box (Column 1)
-            market_combo = QComboBox()
-            market_combo.addItem("Select Market", "")
-            for market_or_index, suffix in market_codes:
-                market_combo.addItem(market_or_index, market_or_index)
-            self.table.setCellWidget(row, 1, market_combo)
+            # Combine unique codes from both sources
+            all_instrument_codes = sorted(transaction_codes.union(db_codes))
             
-            if existing_stock:
-                stock_id, yahoo_symbol, _, name, current_price, _, market_or_index, drp, market_suffix = existing_stock
+            self.table.setRowCount(len(all_instrument_codes))
+            
+            # Get market codes for the dropdown
+            market_codes = self.db_manager.get_all_market_codes()
+            
+            for row, instrument_code in enumerate(all_instrument_codes):
+                # Initialize all table items first to prevent NoneType errors
+                for col in range(self.table.columnCount()):
+                    self.table.setItem(row, col, QTableWidgetItem(""))
+                    
+                # Set Instrument Code (Column 0)
+                self.table.setItem(row, 0, QTableWidgetItem(instrument_code))
                 
-                # Set the market combo box value if we have one
-                if market_or_index:
-                    index = market_combo.findText(market_or_index)
-                    if index >= 0:
-                        market_combo.setCurrentIndex(index)
+                # Get existing stock data from database if it exists
+                existing_stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
                 
-                # Set Yahoo Symbol (Column 2)
-                self.table.setItem(row, 2, QTableWidgetItem(yahoo_symbol if yahoo_symbol else ""))
+                # Create and setup Market Combo Box (Column 1)
+                market_combo = QComboBox()
+                market_combo.addItem("Select Market", "")
+                for market_or_index, suffix in market_codes:
+                    market_combo.addItem(market_or_index, market_or_index)
+                self.table.setCellWidget(row, 1, market_combo)
                 
-                # Set Stock Name (Column 3)
-                self.table.item(row, 3).setText(name or "")
-                
-                # Set Current Price (Column 4)
-                if current_price:
-                    self.table.item(row, 4).setText(f"{current_price:.2f}")
-                
-                # Check for splits and set indicator (Column 5)
-                splits = self.db_manager.get_stock_splits(stock_id)
-                split_indicator = "✓" if splits else ""
-                self.table.item(row, 5).setText(split_indicator)
-                
-                # Set DRP checkbox (Column 6)
-                drp_checkbox = QCheckBox()
-                drp_checkbox.setChecked(bool(drp))
-                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
-                self.table.setCellWidget(row, 6, drp_checkbox)
-                self.drp_settings[instrument_code] = bool(drp)
-                
-                # Set verification status (Column 7)
-                if name:
-                    if name == "N/A":
-                        self.update_status(row, "Not Found", Qt.red)
+                if existing_stock:
+                    stock_id, yahoo_symbol, _, name, current_price, _, market_or_index, drp, market_suffix = existing_stock
+                    
+                    # Set the market combo box value if we have one
+                    if market_or_index:
+                        index = market_combo.findText(market_or_index)
+                        if index >= 0:
+                            market_combo.setCurrentIndex(index)
+                    
+                    # Set Yahoo Symbol (Column 2)
+                    self.table.setItem(row, 2, QTableWidgetItem(yahoo_symbol if yahoo_symbol else ""))
+                    
+                    # Set Stock Name (Column 3)
+                    self.table.item(row, 3).setText(name or "")
+                    
+                    # Set Current Price (Column 4)
+                    if current_price:
+                        self.table.item(row, 4).setText(f"{current_price:.2f}")
+                    
+                    # Check for splits and set indicator (Column 5)
+                    splits = self.db_manager.get_stock_splits(stock_id)
+                    split_indicator = "✓" if splits else ""
+                    self.table.item(row, 5).setText(split_indicator)
+                    
+                    # Set DRP checkbox (Column 6)
+                    drp_checkbox = QCheckBox()
+                    drp_checkbox.setChecked(bool(drp))
+                    drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                    self.table.setCellWidget(row, 6, drp_checkbox)
+                    self.drp_settings[instrument_code] = bool(drp)
+                    
+                    # Set verification status (Column 7)
+                    if name:
+                        if name == "N/A":
+                            self.update_status(row, "Not Found", Qt.red)
+                        else:
+                            self.update_status(row, "Verified", Qt.green)
                     else:
-                        self.update_status(row, "Verified", Qt.green)
+                        self.update_status(row, "Pending", Qt.gray)
+                            
                 else:
+                    # Handle new stock
+                    # Set empty Yahoo Symbol (will be updated when market is selected)
+                    self.table.item(row, 2).setText(instrument_code)
+                    
+                    # Initialize other columns as empty
+                    self.table.item(row, 3).setText("")  # Name
+                    self.table.item(row, 4).setText("")  # Price
+                    self.table.item(row, 5).setText("")  # Splits
+                    
+                    # Add DRP checkbox for new stock (Column 6)
+                    drp_checkbox = QCheckBox()
+                    drp_checkbox.setChecked(False)
+                    drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
+                    self.table.setCellWidget(row, 6, drp_checkbox)
+                    self.drp_settings[instrument_code] = False
+                    
+                    # Set initial verification status as Pending (Column 7)
                     self.update_status(row, "Pending", Qt.gray)
-                        
-            else:
-                # Handle new stock
-                # Set empty Yahoo Symbol (will be updated when market is selected)
-                self.table.item(row, 2).setText(instrument_code)
                 
-                # Initialise other columns as empty
-                self.table.item(row, 3).setText("")  # Name
-                self.table.item(row, 4).setText("")  # Price
-                self.table.item(row, 5).setText("")  # Splits
+                # Connect market combo box signal
+                # Important: Connect after setting initial value to avoid triggering updates
+                market_combo.currentIndexChanged.connect(
+                    lambda idx, r=row: self.on_market_changed(r)
+                )
                 
-                # Add DRP checkbox for new stock (Column 6)
-                drp_checkbox = QCheckBox()
-                drp_checkbox.setChecked(False)
-                drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
-                self.table.setCellWidget(row, 6, drp_checkbox)
-                self.drp_settings[instrument_code] = False
-                
-                # Set initial verification status as Pending (Column 7)
-                self.update_status(row, "Pending", Qt.gray)
-            
-            # Connect market combo box signal
-            # Important: Connect after setting initial value to avoid triggering updates
-            market_combo.currentIndexChanged.connect(
-                lambda idx, r=row: self.on_market_changed(r)
-            )
-            
-            # Create Actions Button (Column 8)
-            actions_btn = QPushButton("Actions ▼")
-            actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
-            self.table.setCellWidget(row, 8, actions_btn)
+                # Create Actions Button (Column 8)
+                actions_btn = QPushButton("Actions ▼")
+                actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
+                self.table.setCellWidget(row, 8, actions_btn)
 
-            # Store the initial verification status
-            if row not in self.verification_status:
-                self.verification_status[row] = "Pending"
+                # Store the initial verification status
+                if row not in self.verification_status:
+                    self.verification_status[row] = "Pending"
+
+        except Exception as e:
+            logging.error(f"Error populating table: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to populate table: {str(e)}"
+            )
 
     def on_market_changed(self, row):
         """Handle changes to the market selection dropdown."""
@@ -522,7 +541,7 @@ class VerifyTransactionsDialog(QDialog):
             )
 
     def remove_selected(self):
-        """Remove selected instruments after validation."""
+        """Remove selected instruments after appropriate warnings and validation."""
         selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
         if not selected_rows:
             return
@@ -539,41 +558,49 @@ class VerifyTransactionsDialog(QDialog):
                     (stock_id,)
                 )
                 if transactions and transactions[0] > 0:
-                    instruments_with_transactions.append(instrument_code)
+                    instruments_with_transactions.append((instrument_code, transactions[0]))
+        
+        warning_message = f"Are you sure you want to remove {len(selected_rows)} selected instruments?"
         
         if instruments_with_transactions:
-            QMessageBox.warning(
-                self,
-                "Cannot Remove",
-                "The following instruments have existing transactions and cannot be removed:\n" +
-                "\n".join(instruments_with_transactions)
-            )
-            return
+            warning_message += "\n\nWARNING: The following instruments have existing transactions:\n"
+            for instrument, count in instruments_with_transactions:
+                warning_message += f"\n• {instrument}: {count} transactions"
+            warning_message += "\n\nDeleting these stocks will also delete all their historical data and transactions."
         
-        # Confirm deletion
         confirm = QMessageBox.question(
             self,
             "Confirm Removal",
-            f"Are you sure you want to remove {len(selected_rows)} selected instruments?",
+            warning_message,
             QMessageBox.Yes | QMessageBox.No
         )
         
         if confirm == QMessageBox.Yes:
-            # Remove from database
-            for row in reversed(selected_rows):
-                instrument_code = self.table.item(row, 0).text()
-                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
-                if stock:
-                    stock_id = stock[0]
-                    self.db_manager.execute(
-                        "DELETE FROM stocks WHERE id = ?",
-                        (stock_id,)
-                    )
+            try:
+                # Remove from database
+                for row in reversed(selected_rows):
+                    instrument_code = self.table.item(row, 0).text()
+                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                    if stock:
+                        stock_id = stock[0]
+                        # Delete the stock (CASCADE will handle related records)
+                        self.db_manager.execute(
+                            "DELETE FROM stocks WHERE id = ?",
+                            (stock_id,)
+                        )
+                    
+                    # Remove from table
+                    self.table.removeRow(row)
                 
-                # Remove from table
-                self.table.removeRow(row)
-            
-            self.db_manager.conn.commit()
+                self.db_manager.conn.commit()
+                
+            except Exception as e:
+                self.db_manager.conn.rollback()
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to remove stocks: {str(e)}"
+                )
 
     def accept(self):
         # Check if all stocks have been verified
@@ -666,18 +693,16 @@ class VerifyTransactionsDialog(QDialog):
                 current_price = self.table.item(row, 4).text()
                 verification_status = self.table.item(row, 7).text()
                 
-                # Get the stock from database
+                # Get or create the stock
                 stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                
                 if stock:
                     stock_id = stock[0]
-                    
-                    # Save market selection if one is chosen
-                    selected_index = market_combo.currentIndex()
-                    if selected_index > 0:
+                    # Update existing stock
+                    if market_combo.currentIndex() > 0:
                         market_or_index = market_combo.currentData()
                         self.db_manager.update_stock_market(instrument_code, market_or_index)
                     
-                    # Update stock information
                     self.db_manager.execute("""
                         UPDATE stocks 
                         SET name = ?,
@@ -694,8 +719,21 @@ class VerifyTransactionsDialog(QDialog):
                         datetime.now().replace(microsecond=0),
                         stock_id
                     ))
+                else:
+                    # Create new stock
+                    market_or_index = market_combo.currentData() if market_combo.currentIndex() > 0 else None
                     
-                    # Save DRP setting
+                    # Add the stock record
+                    stock_id = self.db_manager.add_stock(
+                        yahoo_symbol=yahoo_symbol,
+                        instrument_code=instrument_code,
+                        name=name if name else None,
+                        current_price=float(current_price) if current_price else None,
+                        market_or_index=market_or_index
+                    )
+                
+                # Save DRP setting
+                if stock_id:
                     drp_checkbox = self.table.cellWidget(row, 6)
                     if drp_checkbox:
                         self.db_manager.update_stock_drp(stock_id, drp_checkbox.isChecked())
@@ -704,6 +742,7 @@ class VerifyTransactionsDialog(QDialog):
             self.db_manager.conn.commit()
             
         except Exception as e:
+            self.db_manager.conn.rollback()
             logging.error(f"Error saving changes: {str(e)}")
             QMessageBox.warning(
                 self,
