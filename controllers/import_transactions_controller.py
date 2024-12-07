@@ -29,40 +29,57 @@ class ImportTransactionsController(QObject):
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
 
-    def collect_historical_data(self, stock_id, yahoo_symbol):
+    def collect_historical_data(self, stock_id, yahoo_symbol, force_refresh=False):
         """
-        Collect missing historical data for a stock.
-        Only collects new data that isn't already in the database.
+        Collect historical data for a stock.
         
         Args:
             stock_id (int): The database ID of the stock
             yahoo_symbol (str): The Yahoo Finance symbol for the stock
+            force_refresh (bool): If True, re-fetch all data. If False, only fetch new data.
         """
         try:
             logger.info(f"Starting historical data collection for {yahoo_symbol}")
             
-            # Get latest historical date if any
-            latest_date = self.db_manager.fetch_one(
-                "SELECT MAX(date) FROM historical_prices WHERE stock_id = ?", 
-                (stock_id,)
-            )
-
-            if latest_date and latest_date[0]:
-                # We have some data - get start date for new data collection
-                start_date = pd.to_datetime(latest_date[0]) + pd.Timedelta(days=1)
-                logger.info(f"Found existing data, collecting from {start_date}")
-            else:
-                # No data - get earliest transaction date
+            if force_refresh:
+                # Get earliest transaction date for full refresh
                 earliest_transaction = self.db_manager.fetch_one(
                     "SELECT MIN(date) FROM transactions WHERE stock_id = ?", 
                     (stock_id,)
                 )
                 start_date = pd.to_datetime(earliest_transaction[0])
-                logger.info(f"No existing data, collecting from {start_date}")
+                logger.info(f"Forcing full refresh from {start_date}")
+            else:
+                # Get latest historical date if any
+                latest_date = self.db_manager.fetch_one(
+                    "SELECT MAX(date) FROM historical_prices WHERE stock_id = ?", 
+                    (stock_id,)
+                )
+
+                if latest_date and latest_date[0]:
+                    # We have some data - get start date for new data collection
+                    start_date = pd.to_datetime(latest_date[0]) + pd.Timedelta(days=1)
+                    logger.info(f"Found existing data, collecting from {start_date}")
+                else:
+                    # No data - get earliest transaction date
+                    earliest_transaction = self.db_manager.fetch_one(
+                        "SELECT MIN(date) FROM transactions WHERE stock_id = ?", 
+                        (stock_id,)
+                    )
+                    start_date = pd.to_datetime(earliest_transaction[0])
+                    logger.info(f"No existing data, collecting from {start_date}")
 
             # Only collect if we need new data
             if start_date < pd.Timestamp.today():
                 ticker = yf.Ticker(yahoo_symbol)
+                
+                if force_refresh:
+                    # Clear existing data first if doing a full refresh
+                    self.db_manager.execute(
+                        "DELETE FROM historical_prices WHERE stock_id = ?",
+                        (stock_id,)
+                    )
+                    self.db_manager.conn.commit()
                 
                 # Get historical data
                 history = ticker.history(
@@ -73,12 +90,6 @@ class ImportTransactionsController(QObject):
 
                 if not history.empty:
                     logger.info(f"Retrieved {len(history)} new data points")
-                    
-                    # Get dividends for the period
-                    dividends = ticker.dividends
-                    dividend_series = pd.Series(0.0, index=history.index)
-                    if not dividends.empty:
-                        dividend_series.update(dividends)
                     
                     # Prepare bulk insert data
                     historical_prices = []
@@ -94,10 +105,10 @@ class ImportTransactionsController(QObject):
                             row['Close'],  # adjusted_close
                             row['Close'],  # original_close
                             False,         # split_adjusted
-                            dividend_series[index]
+                            0.0           # dividend
                         ))
                     
-                    # Insert new historical data in a single transaction
+                    # Insert new historical data
                     self.db_manager.bulk_insert_historical_prices(historical_prices)
                     logger.info(f"Successfully stored historical data")
                 else:

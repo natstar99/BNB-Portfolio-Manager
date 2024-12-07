@@ -497,13 +497,7 @@ class HistoricalDataDialog(QDialog):
                 # Use the same bulk insert method as the import controller
                 self.db_manager.bulk_insert_transactions(transaction)
                 
-                # Collect historical data if needed
-                if self.stock.yahoo_symbol:
-                    from controllers.import_transactions_controller import ImportTransactionsController
-                    temp_controller = ImportTransactionsController(None, self.db_manager)
-                    temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol)
-                
-                # Refresh the view
+                # Refresh the view to show new transaction
                 self.load_data()
                 
                 QMessageBox.information(
@@ -518,7 +512,7 @@ class HistoricalDataDialog(QDialog):
                     "Error",
                     f"Failed to add transaction: {str(e)}"
                 )
-
+                
     def delete_transaction(self):
         """Delete the selected transaction."""
         selected_items = self.table.selectedItems()
@@ -589,7 +583,7 @@ class HistoricalDataDialog(QDialog):
             
             # Create temporary controller just for historical data collection
             temp_controller = ImportTransactionsController(None, self.db_manager)
-            temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol)
+            temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol, force_refresh=True)
             
             # Refresh the view
             self.load_data()
