@@ -86,7 +86,7 @@ class PortfolioViewController:
                 'Instrument Code': [code[0] for code in instruments]
             })
             dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
-            
+            dialog.portfolio_id = self.current_portfolio.id
             if dialog.exec_():
                 # Refresh the portfolio data after dialog closes
                 self.current_portfolio.load_stocks()

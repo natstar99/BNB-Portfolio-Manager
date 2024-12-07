@@ -1,8 +1,10 @@
 # File: views/historical_data_view.py
 
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-                              QHeaderView, QComboBox, QHBoxLayout, QPushButton,
-                              QLabel, QDateEdit, QMessageBox, QAbstractItemView)
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
+                              QTableWidget, QTableWidgetItem, QHeaderView, 
+                              QComboBox, QLabel, QDateEdit, QMessageBox,
+                              QProgressDialog, QFormLayout, QDoubleSpinBox,
+                              QDialogButtonBox, QCheckBox, QAbstractItemView)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
@@ -34,9 +36,29 @@ class HistoricalDataDialog(QDialog):
         """Initialise the user interface components."""
         self.setWindowTitle(f"Historical Data - {self.stock.name} ({self.stock.yahoo_symbol})")
         self.setMinimumWidth(1200)
-        self.setMinimumHeight(800)
+        self.setMinimumHeight(700)
         
         layout = QVBoxLayout(self)
+
+        # Add transaction management buttons
+        transaction_layout = QHBoxLayout()
+        
+        self.add_transaction_btn = QPushButton("Add Transaction")
+        self.add_transaction_btn.clicked.connect(self.add_transaction)
+        transaction_layout.addWidget(self.add_transaction_btn)
+        
+        self.delete_transaction_btn = QPushButton("Delete Selected Transaction")
+        self.delete_transaction_btn.clicked.connect(self.delete_transaction)
+        self.delete_transaction_btn.setEnabled(False)  # Initially disabled
+        transaction_layout.addWidget(self.delete_transaction_btn)
+        
+        # Add update historical data button
+        self.update_historical_btn = QPushButton("Update Historical Data")
+        self.update_historical_btn.clicked.connect(self.update_historical_data)
+        transaction_layout.addWidget(self.update_historical_btn)
+        
+        transaction_layout.addStretch()
+        layout.addLayout(transaction_layout)
 
         # Filter controls
         filter_layout = QHBoxLayout()
@@ -123,7 +145,7 @@ class HistoricalDataDialog(QDialog):
             data = self.db_manager.fetch_all("""
                 WITH RECURSIVE running_totals AS (
                     SELECT 
-                        hp.date,
+                        COALESCE(hp.date, date(t.date)) as date,
                         hp.open_price,
                         hp.high_price,
                         hp.low_price,
@@ -135,7 +157,7 @@ class HistoricalDataDialog(QDialog):
                         t.transaction_type,
                         t.quantity as transaction_quantity,
                         t.price as transaction_price,
-                        hp.stock_id,
+                        COALESCE(hp.stock_id, t.stock_id) as stock_id,
                         COALESCE(
                             CASE 
                                 WHEN t.transaction_type = 'BUY' THEN t.quantity 
@@ -145,14 +167,16 @@ class HistoricalDataDialog(QDialog):
                         , 0) as base_quantity_change,
                         0 as drp_shares,
                         0 as total_quantity_owned,
-                        ROW_NUMBER() OVER (ORDER BY hp.date) as row_num
-                    FROM historical_prices hp
-                    LEFT JOIN transactions t ON hp.stock_id = t.stock_id 
-                        AND hp.date = date(t.date)
-                    LEFT JOIN stock_splits ss ON hp.stock_id = ss.stock_id 
-                        AND hp.date = date(ss.date)
-                    LEFT JOIN stocks s ON hp.stock_id = s.id
-                    WHERE hp.stock_id = ?
+                        ROW_NUMBER() OVER (ORDER BY COALESCE(hp.date, date(t.date))) as row_num
+                    FROM (
+                        SELECT DISTINCT date FROM historical_prices WHERE stock_id = ?
+                        UNION
+                        SELECT DISTINCT date(date) FROM transactions WHERE stock_id = ?
+                    ) dates
+                    LEFT JOIN historical_prices hp ON dates.date = hp.date AND hp.stock_id = ?
+                    LEFT JOIN transactions t ON dates.date = date(t.date) AND t.stock_id = ?
+                    LEFT JOIN stock_splits ss ON dates.date = date(ss.date) AND ss.stock_id = ?
+                    LEFT JOIN stocks s ON hp.stock_id = s.id OR t.stock_id = s.id
                 ),
                 compounded_totals AS (
                     -- Base case: first row
@@ -197,7 +221,7 @@ class HistoricalDataDialog(QDialog):
                         r.base_quantity_change,
                         CASE
                             WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
+                                ROUND(r.dividend * ct.total_quantity_owned / COALESCE(r.close_price, r.transaction_price), 4)
                             ELSE 0
                         END as drp_shares,
                         -- Apply split adjustments to the running total
@@ -207,7 +231,7 @@ class HistoricalDataDialog(QDialog):
                                 (ct.total_quantity_owned * r.split_ratio) + r.base_quantity_change +
                                 CASE
                                     WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                        ROUND(r.dividend * ct.total_quantity_owned * r.split_ratio / r.close_price, 4)
+                                        ROUND(r.dividend * ct.total_quantity_owned * r.split_ratio / COALESCE(r.close_price, r.transaction_price), 4)
                                     ELSE 0
                                 END
                             ELSE
@@ -215,7 +239,7 @@ class HistoricalDataDialog(QDialog):
                                 ct.total_quantity_owned + r.base_quantity_change +
                                 CASE
                                     WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                        ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
+                                        ROUND(r.dividend * ct.total_quantity_owned / COALESCE(r.close_price, r.transaction_price), 4)
                                     ELSE 0
                                 END
                         END as total_quantity_owned,
@@ -239,11 +263,11 @@ class HistoricalDataDialog(QDialog):
                     transaction_quantity,
                     transaction_price,
                     ROUND(total_quantity_owned, 4) as total_quantity_owned,
-                    ROUND(close_price * total_quantity_owned, 2) as market_value,
+                    ROUND(COALESCE(close_price, transaction_price) * total_quantity_owned, 2) as market_value,
                     drp_shares
                 FROM compounded_totals
                 ORDER BY date DESC
-            """, (self.stock.id,))
+            """, (self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id))
 
             self.populate_table(data)
 
@@ -445,3 +469,197 @@ class HistoricalDataDialog(QDialog):
     def reset_filters(self):
         self.event_filter.setCurrentText("All")
         self.load_data()
+
+    def update_button_states(self):
+        """Enable/disable buttons based on selection state."""
+        selected_items = self.table.selectedItems()
+        if selected_items:
+            row = selected_items[0].row()
+            # Only enable delete button if a transaction is selected
+            has_transaction = bool(self.table.item(row, 9).text())  # Check Transaction Type column
+            self.delete_transaction_btn.setEnabled(has_transaction)
+        else:
+            self.delete_transaction_btn.setEnabled(False)
+
+    def add_transaction(self):
+        """Show dialog to add a new transaction."""
+        dialog = AddTransactionDialog(self)
+        if dialog.exec_():
+            try:
+                date, trans_type, quantity, price = dialog.get_transaction_data()
+                
+                # Format the transaction data the same way as the import controller
+                transaction = [
+                    (self.stock.id, date, quantity, price, 
+                    trans_type, quantity, price)  # original_quantity and original_price same as inputs
+                ]
+                
+                # Use the same bulk insert method as the import controller
+                self.db_manager.bulk_insert_transactions(transaction)
+                
+                # Collect historical data if needed
+                if self.stock.yahoo_symbol:
+                    from controllers.import_transactions_controller import ImportTransactionsController
+                    temp_controller = ImportTransactionsController(None, self.db_manager)
+                    temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol)
+                
+                # Refresh the view
+                self.load_data()
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    "Transaction added successfully."
+                )
+                
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to add transaction: {str(e)}"
+                )
+
+    def delete_transaction(self):
+        """Delete the selected transaction."""
+        selected_items = self.table.selectedItems()
+        if not selected_items:
+            return
+            
+        row = selected_items[0].row()
+        date = self.table.item(row, 0).text()
+        trans_type = self.table.item(row, 9).text()
+        quantity = self.table.item(row, 10).text()
+        price = self.table.item(row, 11).text()
+        
+        if not trans_type:  # Not a transaction row
+            return
+            
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to delete this transaction?\n\n"
+            f"Date: {date}\n"
+            f"Type: {trans_type}\n"
+            f"Quantity: {quantity}\n"
+            f"Price: {price}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            try:
+                # Delete transaction from database
+                self.db_manager.execute("""
+                    DELETE FROM transactions 
+                    WHERE stock_id = ? 
+                    AND date = ? 
+                    AND transaction_type = ?
+                    AND quantity = ?
+                    AND price = ?
+                """, (
+                    self.stock.id,
+                    date,
+                    trans_type,
+                    float(quantity),
+                    float(price.replace('$', ''))
+                ))
+                
+                self.db_manager.conn.commit()
+                
+                # Refresh the view
+                self.load_data()
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    "Transaction deleted successfully."
+                )
+                
+            except Exception as e:
+                self.db_manager.conn.rollback()
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to delete transaction: {str(e)}"
+                )
+
+    def update_historical_data(self):
+        """Update historical price data for the stock."""
+        try:
+            from controllers.import_transactions_controller import ImportTransactionsController
+            
+            # Create temporary controller just for historical data collection
+            temp_controller = ImportTransactionsController(None, self.db_manager)
+            temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol)
+            
+            # Refresh the view
+            self.load_data()
+            
+            QMessageBox.information(
+                self,
+                "Success",
+                "Historical data updated successfully."
+            )
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to update historical data: {str(e)}"
+            )
+
+class AddTransactionDialog(QDialog):
+    """
+    Dialog for adding a new transaction to a stock.
+    Allows users to specify transaction date, type, quantity and price.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize the user interface components."""
+        self.setWindowTitle("Add Transaction")
+        layout = QFormLayout(self)
+
+        # Date input
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDate(datetime.now().date())
+        layout.addRow("Date:", self.date_edit)
+
+        # Transaction type
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["BUY", "SELL"])
+        layout.addRow("Type:", self.type_combo)
+
+        # Quantity input
+        self.quantity_spin = QDoubleSpinBox()
+        self.quantity_spin.setRange(0.0001, 1000000)
+        self.quantity_spin.setDecimals(4)
+        self.quantity_spin.setValue(1)
+        layout.addRow("Quantity:", self.quantity_spin)
+
+        # Price input
+        self.price_spin = QDoubleSpinBox()
+        self.price_spin.setRange(0.01, 1000000)
+        self.price_spin.setDecimals(2)
+        self.price_spin.setPrefix("$")
+        self.price_spin.setValue(1.00)
+        layout.addRow("Price:", self.price_spin)
+
+        # Dialog buttons
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addRow(self.button_box)
+
+    def get_transaction_data(self):
+        """Return the transaction data as a tuple."""
+        return (
+            self.date_edit.date().toPython(),
+            self.type_combo.currentText(),
+            self.quantity_spin.value(),
+            self.price_spin.value()
+        )

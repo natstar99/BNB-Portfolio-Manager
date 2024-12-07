@@ -13,10 +13,11 @@ import logging
 class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
 
-    def __init__(self, transactions_data, db_manager, parent=None):
+    def __init__(self, transactions_data, db_manager, portfolio_id, parent=None):
         self.market_names = {}
         super().__init__(parent)
         self.db_manager = db_manager
+        self.portfolio_id = None
         self.transactions_data = transactions_data
         self.market_mappings = {}
         self.stock_data = {}
@@ -732,11 +733,15 @@ class VerifyTransactionsDialog(QDialog):
                         market_or_index=market_or_index
                     )
                 
-                # Save DRP setting
+                
                 if stock_id:
+                    # Save DRP setting
                     drp_checkbox = self.table.cellWidget(row, 6)
                     if drp_checkbox:
                         self.db_manager.update_stock_drp(stock_id, drp_checkbox.isChecked())
+                    if self.portfolio_id:
+                        # Add portfolio association
+                        self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)                    
             
             # Commit all changes
             self.db_manager.conn.commit()
