@@ -488,6 +488,29 @@ class HistoricalDataDialog(QDialog):
             try:
                 date, trans_type, quantity, price = dialog.get_transaction_data()
                 
+                # For SELL orders, verify sufficient shares are available
+                if trans_type == "SELL":
+                    # Get total shares owned as of the selected date
+                    shares_owned = self.db_manager.fetch_one("""
+                        SELECT SUM(CASE 
+                            WHEN transaction_type = 'BUY' THEN quantity
+                            WHEN transaction_type = 'SELL' THEN -quantity
+                        END)
+                        FROM transactions
+                        WHERE stock_id = ?
+                        AND date <= ?
+                    """, (self.stock.id, date))
+                    
+                    total_shares = shares_owned[0] if shares_owned[0] else 0
+                    
+                    if quantity > total_shares:
+                        QMessageBox.warning(
+                            self,
+                            "Invalid Transaction",
+                            f"Cannot sell {quantity} shares. Only {total_shares:.4f} shares owned on {date}."
+                        )
+                        return
+                
                 # Format the transaction data the same way as the import controller
                 transaction = [
                     (self.stock.id, date, quantity, price, 
