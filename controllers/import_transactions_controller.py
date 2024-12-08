@@ -13,7 +13,8 @@ from models.stock import Stock
 from views.import_transactions_view import ImportTransactionsView
 from views.verify_transactions_view import VerifyTransactionsDialog
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class ImportTransactionsController(QObject):
@@ -162,59 +163,79 @@ class ImportTransactionsController(QObject):
     def on_verification_completed(self, verification_results):
         """
         Process verified transactions and collect historical data only for verified stocks.
-        Uses verification status from the verification dialog.
+        Uses verification status from the database to ensure only properly verified stocks are processed.
         """
         try:
             self.market_mappings = verification_results['market_mappings']
             stock_data = verification_results['stock_data']
             drp_settings = verification_results.get('drp_settings', {})
             df = verification_results['transactions_df']
-            verification_status = verification_results['verification_status']
-
+            
+            logger.info("Starting verified transaction processing")
             processed_stocks = set()
-            for instrument_code, group in df.groupby('Instrument Code'):
-                # Get market suffix and create yahoo symbol
-                market_suffix = self.market_mappings.get(instrument_code, '')
-                yahoo_symbol = f"{instrument_code}{market_suffix}" if market_suffix else instrument_code
 
-                # Only process verified stocks
-                row_index = df[df['Instrument Code'] == instrument_code].index[0]
-                if verification_status.get(row_index) == "Verified":
-                    # Create or get stock
-                    stock = Stock.get_by_yahoo_symbol(yahoo_symbol, self.db_manager)
-                    if not stock:
-                        stock_info = stock_data.get(instrument_code, {})
-                        stock = Stock.create(
-                            yahoo_symbol=yahoo_symbol,
-                            instrument_code=instrument_code,
-                            name=stock_info.get('name', ''),
-                            current_price=stock_info.get('price', 0.0),
-                            db_manager=self.db_manager
-                        )
-                        self.portfolio.add_stock(stock)
-
-                    # Update DRP setting
-                    drp_status = drp_settings.get(instrument_code, False)
-                    self.db_manager.update_stock_drp(stock.id, drp_status)
-
-                    # Bulk insert transactions
-                    transactions = [
-                        (stock.id, row['Trade Date'], row['Quantity'], row['Price'],
-                        row['Transaction Type'], row['Quantity'], row['Price'])
-                        for _, row in group.iterrows()
-                    ]
-                    self.db_manager.bulk_insert_transactions(transactions)
+            # First, get all unique instrument codes from the transactions
+            unique_instruments = df['Instrument Code'].unique()
+            
+            for instrument_code in unique_instruments:
+                # Get the stock from database to check its verification status
+                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                
+                logger.info(f"Processing stock {instrument_code}")
+                if stock:
+                    verification_status = stock[8]  # verification_status is at index 8
+                    logger.info(f"Database record for {instrument_code}: {stock}")
+                    logger.info(f"Verification status for {instrument_code}: {verification_status}")
                     
-                    # Collect historical data
-                    if stock.id not in processed_stocks:
-                        self.collect_historical_data(stock.id, yahoo_symbol)
-                        processed_stocks.add(stock.id)
+                    if verification_status == 'Verified':
+                        logger.info(f"Processing verified stock: {instrument_code}")
+                        
+                        stock_id = stock[0]  # ID
+                        yahoo_symbol = stock[1]  # Yahoo symbol
+                        
+                        # Get transactions for this instrument
+                        instrument_transactions = df[df['Instrument Code'] == instrument_code]
+                        
+                        # Update DRP setting
+                        drp_status = drp_settings.get(instrument_code, False)
+                        self.db_manager.update_stock_drp(stock_id, drp_status)
+                        logger.info(f"Updated DRP setting for {instrument_code}: {drp_status}")
 
-            QMessageBox.information(
-                self.view,
-                "Import Successful", 
-                "Transactions and historical data have been imported for verified stocks."
-            )
+                        # Bulk insert transactions
+                        transactions = [
+                            (stock_id, row['Trade Date'], row['Quantity'], row['Price'],
+                            row['Transaction Type'], row['Quantity'], row['Price'])
+                            for _, row in instrument_transactions.iterrows()
+                        ]
+                        self.db_manager.bulk_insert_transactions(transactions)
+                        logger.info(f"Inserted {len(transactions)} transactions for {instrument_code}")
+                        
+                        # Collect historical data
+                        if stock_id not in processed_stocks:
+                            logger.info(f"Collecting historical data for verified stock {instrument_code} (ID: {stock_id})")
+                            self.collect_historical_data(stock_id, yahoo_symbol)
+                            processed_stocks.add(stock_id)
+                    else:
+                        logger.info(f"Skipping unverified stock {instrument_code}: {verification_status}")
+                        continue  # Skip to next stock
+                else:
+                    logger.warning(f"Stock not found in database: {instrument_code}")
+                    continue  # Skip to next stock
+
+            # Show appropriate message based on what was processed
+            if processed_stocks:
+                QMessageBox.information(
+                    self.view,
+                    "Import Successful", 
+                    f"Transactions and historical data have been imported for {len(processed_stocks)} verified stocks."
+                )
+            else:
+                QMessageBox.warning(
+                    self.view,
+                    "No Verified Stocks", 
+                    "No verified stocks were processed. Please verify stocks before importing."
+                )
+                
             self.import_completed.emit()
 
         except Exception as e:

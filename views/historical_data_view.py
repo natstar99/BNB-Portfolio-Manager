@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
 
-logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
+logging.basicConfig(level=logging.DEBUG, filename='historical_data.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

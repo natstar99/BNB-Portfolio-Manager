@@ -100,7 +100,7 @@ class DatabaseManager:
             
             self.log_stock_entry(instrument_code)
 
-    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None):
+    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None, verification_status=None):
         """Add or update a stock."""
         # Get market suffix if market_or_index is provided
         market_suffix = None
@@ -113,15 +113,16 @@ class DatabaseManager:
 
         self.execute("""
             INSERT OR REPLACE INTO stocks 
-            (yahoo_symbol, instrument_code, name, current_price, last_updated, market_or_index, market_suffix)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (yahoo_symbol, instrument_code, name, current_price, last_updated, 
+            market_or_index, market_suffix, verification_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (yahoo_symbol, instrument_code, name, current_price, 
-            datetime.now().replace(microsecond=0), market_or_index, market_suffix))
+            datetime.now().replace(microsecond=0), market_or_index, 
+            market_suffix, verification_status))
         self.conn.commit()
         self.log_stock_entry(instrument_code)  # Log after insert
         return self.cursor.lastrowid
         
-
     def update_stock_price(self, yahoo_symbol, current_price):
         current_time = datetime.now().replace(microsecond=0)
         self.execute("""
@@ -161,12 +162,22 @@ class DatabaseManager:
             tuple: Stock information including market details
         """
         return self.fetch_one("""
-            SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, 
-                s.last_updated, s.market_or_index, s.drp, s.market_suffix
+            SELECT 
+                s.id,
+                s.yahoo_symbol,
+                s.instrument_code,
+                s.name,
+                s.current_price,
+                s.last_updated,
+                s.market_or_index,
+                s.market_suffix,
+                s.verification_status,
+                s.last_verified,
+                s.drp
             FROM stocks s
             WHERE s.instrument_code = ?
         """, (instrument_code,))
-    
+        
     def log_stock_entry(self, instrument_code):
         """Simple method to log stock table entries."""
         result = self.fetch_one("""

@@ -630,12 +630,29 @@ class VerifyTransactionsDialog(QDialog):
         super().accept()
 
     def save_and_update(self):
-        """Save all changes and update stock data if user confirms"""
+        """
+        Save all changes and update stock data if user confirms.
+        First checks for unverified stocks, then asks about historical data collection.
+        """
         try:
+            # Check for unverified stocks first
+            unverified = [row for row, status in self.verification_status.items() 
+                        if status != "Verified"]
+            
+            if unverified:
+                response = QMessageBox.question(
+                    self,
+                    "Unverified Stocks",
+                    "Some stocks haven't been verified. Continue anyway?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if response == QMessageBox.No:
+                    return
+
             # Save current changes
             self.save_changes()
 
-            # Ask about historical data
+            # Now ask about historical data
             response = QMessageBox.question(
                 self,
                 "Historical Data",
@@ -647,6 +664,8 @@ class VerifyTransactionsDialog(QDialog):
             if response == QMessageBox.Yes:
                 # Get list of verified stocks
                 verified_stocks = []
+                logging.info("Starting selection of verified stocks for historical data collection")
+                
                 for row in range(self.table.rowCount()):
                     status_item = self.table.item(row, 7)  # Status column
                     if status_item and status_item.text() == "Verified":
@@ -654,7 +673,13 @@ class VerifyTransactionsDialog(QDialog):
                         yahoo_symbol = self.table.item(row, 2).text()
                         stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
                         if stock:
-                            verified_stocks.append((stock[0], yahoo_symbol))  # stock_id, yahoo_symbol
+                            stock_id = stock[0]
+                            verified_stocks.append((stock_id, yahoo_symbol))
+                            logging.info(f"Added verified stock for historical data collection: {instrument_code} (ID: {stock_id}, Symbol: {yahoo_symbol})")
+                        else:
+                            logging.warning(f"Could not find stock in database: {instrument_code}")
+
+                logging.info(f"Selected {len(verified_stocks)} verified stocks for historical data collection")
 
                 # Create verification results
                 verification_results = {
@@ -668,7 +693,7 @@ class VerifyTransactionsDialog(QDialog):
                 # Emit verification completed signal with results
                 self.verification_completed.emit(verification_results)
 
-            self.accept()
+            super().accept()
 
         except Exception as e:
             logging.error(f"Error saving changes and updating data: {str(e)}")
@@ -684,7 +709,7 @@ class VerifyTransactionsDialog(QDialog):
         self.reject()  # Close dialog with reject (won't trigger verification)
 
     def save_changes(self):
-        """Save the current state of all stocks"""
+        """Save the current state of all stocks to the database."""
         try:
             for row in range(self.table.rowCount()):
                 instrument_code = self.table.item(row, 0).text()
@@ -693,6 +718,8 @@ class VerifyTransactionsDialog(QDialog):
                 name = self.table.item(row, 3).text()
                 current_price = self.table.item(row, 4).text()
                 verification_status = self.table.item(row, 7).text()
+                
+                logging.info(f"Saving stock {instrument_code} with verification status: {verification_status}")
                 
                 # Get or create the stock
                 stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
@@ -704,22 +731,33 @@ class VerifyTransactionsDialog(QDialog):
                         market_or_index = market_combo.currentData()
                         self.db_manager.update_stock_market(instrument_code, market_or_index)
                     
+                    # Explicitly convert current_price to float and handle empty strings
+                    try:
+                        price = float(current_price) if current_price else None
+                    except ValueError:
+                        price = None
+                        logging.warning(f"Invalid price value for {instrument_code}: {current_price}")
+                    
                     self.db_manager.execute("""
                         UPDATE stocks 
                         SET name = ?,
                             current_price = ?,
                             yahoo_symbol = ?,
                             verification_status = ?,
+                            last_verified = ?,
                             last_updated = ?
                         WHERE id = ?
                     """, (
                         name if name else None,
-                        float(current_price) if current_price else None,
+                        price,
                         yahoo_symbol,
-                        verification_status,
+                        verification_status,  # Save the actual verification status
+                        datetime.now().replace(microsecond=0) if verification_status == "Verified" else None,
                         datetime.now().replace(microsecond=0),
                         stock_id
                     ))
+                    
+                    logging.info(f"Updated stock {instrument_code} (ID: {stock_id}) with status: {verification_status}")
                 else:
                     # Create new stock
                     market_or_index = market_combo.currentData() if market_combo.currentIndex() > 0 else None
@@ -730,9 +768,11 @@ class VerifyTransactionsDialog(QDialog):
                         instrument_code=instrument_code,
                         name=name if name else None,
                         current_price=float(current_price) if current_price else None,
-                        market_or_index=market_or_index
+                        market_or_index=market_or_index,
+                        verification_status=verification_status
                     )
-                
+                    
+                    logging.info(f"Created new stock {instrument_code} (ID: {stock_id})")
                 
                 if stock_id:
                     # Save DRP setting
@@ -741,10 +781,11 @@ class VerifyTransactionsDialog(QDialog):
                         self.db_manager.update_stock_drp(stock_id, drp_checkbox.isChecked())
                     if self.portfolio_id:
                         # Add portfolio association
-                        self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)                    
+                        self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
             
             # Commit all changes
             self.db_manager.conn.commit()
+            logging.info("Successfully saved all stock changes to database")
             
         except Exception as e:
             self.db_manager.conn.rollback()
