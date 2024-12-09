@@ -669,32 +669,16 @@ class VerifyTransactionsDialog(QDialog):
             )
 
             if response == QMessageBox.Yes:
-                # Get list of verified stocks
-                verified_stocks = []
-                logging.info("Starting selection of verified stocks for historical data collection")
-                
-                for row in range(self.table.rowCount()):
-                    status_item = self.table.item(row, 7)  # Status column
-                    if status_item and status_item.text() == "Verified":
-                        instrument_code = self.table.item(row, 0).text()
-                        yahoo_symbol = self.table.item(row, 2).text()
-                        stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
-                        if stock:
-                            stock_id = stock[0]
-                            verified_stocks.append((stock_id, yahoo_symbol))
-                            logging.info(f"Added verified stock for historical data collection: {instrument_code} (ID: {stock_id}, Symbol: {yahoo_symbol})")
-                        else:
-                            logging.warning(f"Could not find stock in database: {instrument_code}")
-
-                logging.info(f"Selected {len(verified_stocks)} verified stocks for historical data collection")
-
-                # Create verification results
+                # Prepare verification results with all necessary data
                 verification_results = {
                     'market_mappings': self.market_mappings,
                     'stock_data': self.stock_data,
                     'verification_status': self.verification_status,
                     'transactions_df': self.transactions_data,
-                    'drp_settings': self.drp_settings
+                    'drp_settings': self.drp_settings,
+                    'table_row_count': self.table.rowCount(),
+                    'instrument_codes': [self.table.item(row, 0).text() for row in range(self.table.rowCount())],
+                    'yahoo_symbols': [self.table.item(row, 2).text() for row in range(self.table.rowCount())]
                 }
 
                 # Emit verification completed signal with results

@@ -11,6 +11,7 @@ import logging
 import pandas as pd
 from views.verify_transactions_view import VerifyTransactionsDialog
 from views.historical_data_view import HistoricalDataDialog
+from utils.historical_data_collector import HistoricalDataCollector
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class PortfolioViewController:
         self.db_manager = db_manager
         self.view = MyPortfolioView()
         self.current_portfolio = None
+        self.historical_collector = HistoricalDataCollector(db_manager)
         
         # Connect signals
         self.view.view_history.connect(self.show_history)
@@ -87,6 +89,7 @@ class PortfolioViewController:
             })
             dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
             dialog.portfolio_id = self.current_portfolio.id
+            dialog.verification_completed.connect(self.on_verification_completed)
             if dialog.exec_():
                 # Refresh the portfolio data after dialog closes
                 self.current_portfolio.load_stocks()
@@ -95,3 +98,12 @@ class PortfolioViewController:
     def get_view(self):
         """Return the view instance"""
         return self.view
+    
+    def on_verification_completed(self, verification_results):
+        """Handle verification results and collect historical data."""
+        self.historical_collector.process_verification_results(
+            verification_results, 
+            parent_widget=self.view
+        )
+        self.current_portfolio.load_stocks()
+        self.update_view()

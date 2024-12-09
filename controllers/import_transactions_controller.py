@@ -12,6 +12,7 @@ from models.transaction import Transaction
 from models.stock import Stock
 from views.import_transactions_view import ImportTransactionsView
 from views.verify_transactions_view import VerifyTransactionsDialog
+from utils.historical_data_collector import HistoricalDataCollector
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -19,13 +20,14 @@ logger = logging.getLogger(__name__)
 
 class ImportTransactionsController(QObject):
     import_completed = Signal()
-
+    
     def __init__(self, portfolio, db_manager):
         super().__init__()
         self.portfolio = portfolio
         self.db_manager = db_manager
         self.view = ImportTransactionsView()
         self.market_mappings = {}
+        self.historical_collector = HistoricalDataCollector(db_manager)
 
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
@@ -221,8 +223,8 @@ class ImportTransactionsController(QObject):
                     # Only collect historical data for verified stocks
                     if verification_status == 'Verified' and stock_id not in processed_stocks:
                         logger.info(f"Collecting historical data for verified stock {instrument_code}")
-                        self.collect_historical_data(stock_id, yahoo_symbol)
-                        processed_stocks.add(stock_id)
+                        if self.historical_collector.collect_historical_data(stock_id, yahoo_symbol):
+                            processed_stocks.add(stock_id)
                     else:
                         logger.info(f"Skipping historical data for {instrument_code}: verification_status={verification_status}")
                 else:
@@ -250,9 +252,8 @@ class ImportTransactionsController(QObject):
             self.import_completed.emit()
 
         except Exception as e:
-            error_msg = f"Failed to process transactions: {str(e)}"
-            logger.error(error_msg)
-            QMessageBox.warning(self.view, "Import Failed", error_msg)
+            logger.error(f"Failed to process transactions: {str(e)}")
+            QMessageBox.warning(self.view, "Import Failed", str(e))
 
 
     def provide_template(self):
