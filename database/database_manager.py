@@ -150,16 +150,25 @@ class DatabaseManager:
         ))
         self.conn.commit()
 
-
     def get_stock_by_instrument_code(self, instrument_code):
         """
         Get stock information by instrument code.
         
         Args:
             instrument_code (str): The stock's instrument code
-            
+                
         Returns:
-            tuple: Stock information including market details
+            tuple: Stock information in order:
+                - id (int)                    [0]
+                - yahoo_symbol (str)          [1]
+                - instrument_code (str)       [2]
+                - name (str)                  [3]
+                - current_price (float)       [4]
+                - last_updated (datetime)     [5]
+                - market_or_index (str)       [6]
+                - market_suffix (str)         [7]
+                - verification_status (str)   [8]
+                - drp (int)                   [9]
         """
         return self.fetch_one("""
             SELECT 
@@ -172,7 +181,6 @@ class DatabaseManager:
                 s.market_or_index,
                 s.market_suffix,
                 s.verification_status,
-                s.last_verified,
                 s.drp
             FROM stocks s
             WHERE s.instrument_code = ?
@@ -275,15 +283,31 @@ class DatabaseManager:
 
     def get_stocks_for_portfolio(self, portfolio_id):
         """
-        Get only verified stocks for a portfolio.
-        
-        Args:
-            portfolio_id (int): The ID of the portfolio
-            
-        Returns:
-            list: List of tuples containing stock data for verified stocks
+        Get only verified stocks for a portfolio with detailed logging to debug issues.
         """
-        return self.fetch_all("""
+        # First, check all stocks in the portfolio
+        all_stocks = self.fetch_all("""
+            SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, s.last_updated,
+                s.verification_status, ps.portfolio_id
+            FROM stocks s
+            JOIN portfolio_stocks ps ON s.id = ps.stock_id
+            WHERE ps.portfolio_id = ?
+        """, (portfolio_id,))
+        logger.info(f"All stocks in portfolio: {all_stocks}")
+
+        # Then check verified stocks (without current_price condition)
+        verified_stocks = self.fetch_all("""
+            SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, s.last_updated,
+                s.verification_status
+            FROM stocks s
+            JOIN portfolio_stocks ps ON s.id = ps.stock_id
+            WHERE ps.portfolio_id = ?
+            AND s.verification_status = 'Verified'
+        """, (portfolio_id,))
+        logger.info(f"Verified stocks in portfolio: {verified_stocks}")
+
+        # Finally, check verified stocks with current price
+        final_result = self.fetch_all("""
             SELECT s.id, s.yahoo_symbol, s.instrument_code, s.name, s.current_price, s.last_updated
             FROM stocks s
             JOIN portfolio_stocks ps ON s.id = ps.stock_id
@@ -291,6 +315,9 @@ class DatabaseManager:
             AND s.verification_status = 'Verified'
             AND s.current_price IS NOT NULL
         """, (portfolio_id,))
+        logger.info(f"Final result (verified stocks with price): {final_result}")
+
+        return final_result
 
     # Stock split methods
     def add_stock_split(self, stock_id, date, ratio):

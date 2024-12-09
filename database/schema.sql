@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS stocks (
     market_or_index TEXT,
     market_suffix TEXT,
     verification_status TEXT DEFAULT 'pending', -- tracks verification status (pending, verified, failed)
-    last_verified DATETIME,                    -- when the stock was last verified with Yahoo
     drp INTEGER DEFAULT 0,
     UNIQUE(yahoo_symbol, instrument_code),
     FOREIGN KEY (market_or_index) REFERENCES market_codes(market_or_index)

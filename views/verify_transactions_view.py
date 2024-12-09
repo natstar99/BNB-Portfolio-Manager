@@ -144,7 +144,7 @@ class VerifyTransactionsDialog(QDialog):
             market_codes = self.db_manager.get_all_market_codes()
             
             for row, instrument_code in enumerate(all_instrument_codes):
-                # Initialize all table items first to prevent NoneType errors
+                # Initialise all table items first to prevent NoneType errors
                 for col in range(self.table.columnCount()):
                     self.table.setItem(row, col, QTableWidgetItem(""))
                     
@@ -162,7 +162,14 @@ class VerifyTransactionsDialog(QDialog):
                 self.table.setCellWidget(row, 1, market_combo)
                 
                 if existing_stock:
-                    stock_id, yahoo_symbol, _, name, current_price, _, market_or_index, drp, market_suffix = existing_stock
+                    stock_id = existing_stock[0]
+                    yahoo_symbol = existing_stock[1]
+                    name = existing_stock[3]
+                    current_price = existing_stock[4]
+                    market_or_index = existing_stock[6]
+                    market_suffix = existing_stock[7]
+                    verification_status = existing_stock[8]
+                    drp = existing_stock[9]
                     
                     # Set the market combo box value if we have one
                     if market_or_index:
@@ -197,7 +204,7 @@ class VerifyTransactionsDialog(QDialog):
                         if name == "N/A":
                             self.update_status(row, "Not Found", Qt.red)
                         else:
-                            self.update_status(row, "Verified", Qt.green)
+                            self.update_status(row, verification_status, Qt.green if verification_status == "Verified" else Qt.gray)
                     else:
                         self.update_status(row, "Pending", Qt.gray)
                             
@@ -744,7 +751,6 @@ class VerifyTransactionsDialog(QDialog):
                             current_price = ?,
                             yahoo_symbol = ?,
                             verification_status = ?,
-                            last_verified = ?,
                             last_updated = ?
                         WHERE id = ?
                     """, (
@@ -752,7 +758,6 @@ class VerifyTransactionsDialog(QDialog):
                         price,
                         yahoo_symbol,
                         verification_status,  # Save the actual verification status
-                        datetime.now().replace(microsecond=0) if verification_status == "Verified" else None,
                         datetime.now().replace(microsecond=0),
                         stock_id
                     ))
