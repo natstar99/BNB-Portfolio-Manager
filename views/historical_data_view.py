@@ -602,20 +602,24 @@ class HistoricalDataDialog(QDialog):
     def update_historical_data(self):
         """Update historical price data for the stock."""
         try:
-            from controllers.import_transactions_controller import ImportTransactionsController
+            from utils.historical_data_collector import HistoricalDataCollector
             
-            # Create temporary controller just for historical data collection
-            temp_controller = ImportTransactionsController(None, self.db_manager)
-            temp_controller.collect_historical_data(self.stock.id, self.stock.yahoo_symbol, force_refresh=True)
-            
-            # Refresh the view
-            self.load_data()
-            
-            QMessageBox.information(
-                self,
-                "Success",
-                "Historical data updated successfully."
-            )
+            # Use the collector directly
+            collector = HistoricalDataCollector(self.db_manager)
+            if collector.collect_historical_data(
+                self.stock.id, 
+                self.stock.yahoo_symbol, 
+                force_refresh=True,
+                parent_widget=self
+            ):
+                # Refresh the view
+                self.load_data()
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    "Historical data updated successfully."
+                )
             
         except Exception as e:
             QMessageBox.critical(

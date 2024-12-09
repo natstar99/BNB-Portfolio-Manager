@@ -32,97 +32,6 @@ class ImportTransactionsController(QObject):
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
 
-    def collect_historical_data(self, stock_id, yahoo_symbol, force_refresh=False):
-        """
-        Collect historical data for a stock.
-        
-        Args:
-            stock_id (int): The database ID of the stock
-            yahoo_symbol (str): The Yahoo Finance symbol for the stock
-            force_refresh (bool): If True, re-fetch all data. If False, only fetch new data.
-        """
-        try:
-            logger.info(f"Starting historical data collection for {yahoo_symbol}")
-            
-            if force_refresh:
-                # Get earliest transaction date for full refresh
-                earliest_transaction = self.db_manager.fetch_one(
-                    "SELECT MIN(date) FROM transactions WHERE stock_id = ?", 
-                    (stock_id,)
-                )
-                start_date = pd.to_datetime(earliest_transaction[0])
-                logger.info(f"Forcing full refresh from {start_date}")
-            else:
-                # Get latest historical date if any
-                latest_date = self.db_manager.fetch_one(
-                    "SELECT MAX(date) FROM historical_prices WHERE stock_id = ?", 
-                    (stock_id,)
-                )
-
-                if latest_date and latest_date[0]:
-                    # We have some data - get start date for new data collection
-                    start_date = pd.to_datetime(latest_date[0]) + pd.Timedelta(days=1)
-                    logger.info(f"Found existing data, collecting from {start_date}")
-                else:
-                    # No data - get earliest transaction date
-                    earliest_transaction = self.db_manager.fetch_one(
-                        "SELECT MIN(date) FROM transactions WHERE stock_id = ?", 
-                        (stock_id,)
-                    )
-                    start_date = pd.to_datetime(earliest_transaction[0])
-                    logger.info(f"No existing data, collecting from {start_date}")
-
-            # Only collect if we need new data
-            if start_date < pd.Timestamp.today():
-                ticker = yf.Ticker(yahoo_symbol)
-                
-                if force_refresh:
-                    # Clear existing data first if doing a full refresh
-                    self.db_manager.execute(
-                        "DELETE FROM historical_prices WHERE stock_id = ?",
-                        (stock_id,)
-                    )
-                    self.db_manager.conn.commit()
-                
-                # Get historical data
-                history = ticker.history(
-                    start=start_date,
-                    end=pd.Timestamp.today(),
-                    interval='1d'
-                )
-
-                if not history.empty:
-                    logger.info(f"Retrieved {len(history)} new data points")
-                    
-                    # Prepare bulk insert data
-                    historical_prices = []
-                    for index, row in history.iterrows():
-                        historical_prices.append((
-                            stock_id,
-                            index.strftime('%Y-%m-%d'),
-                            row['Open'],
-                            row['High'],
-                            row['Low'],
-                            row['Close'],
-                            row['Volume'],
-                            row['Close'],  # adjusted_close
-                            row['Close'],  # original_close
-                            False,         # split_adjusted
-                            0.0           # dividend
-                        ))
-                    
-                    # Insert new historical data
-                    self.db_manager.bulk_insert_historical_prices(historical_prices)
-                    logger.info(f"Successfully stored historical data")
-                else:
-                    logger.warning(f"No new historical data found")
-            else:
-                logger.info("Historical data is up to date")
-
-        except Exception as e:
-            logger.error(f"Failed to collect historical data: {str(e)}")
-            raise
-
     def import_transactions(self, file_name, column_mapping):
         """
         Import transactions from a file and collect historical data.
@@ -169,11 +78,7 @@ class ImportTransactionsController(QObject):
         historical data for verified stocks.
         
         Args:
-            verification_results (dict): Contains:
-                - market_mappings: Dict of instrument codes to market suffixes
-                - stock_data: Dict of stock information from verification
-                - drp_settings: Dict of DRP settings for each instrument
-                - transactions_df: DataFrame of transactions to import
+            verification_results (dict): Contains verification data and transaction information
         """
         try:
             self.market_mappings = verification_results['market_mappings']
@@ -223,7 +128,11 @@ class ImportTransactionsController(QObject):
                     # Only collect historical data for verified stocks
                     if verification_status == 'Verified' and stock_id not in processed_stocks:
                         logger.info(f"Collecting historical data for verified stock {instrument_code}")
-                        if self.historical_collector.collect_historical_data(stock_id, yahoo_symbol):
+                        if self.historical_collector.collect_historical_data(
+                            stock_id, 
+                            yahoo_symbol,
+                            parent_widget=self.view
+                        ):
                             processed_stocks.add(stock_id)
                     else:
                         logger.info(f"Skipping historical data for {instrument_code}: verification_status={verification_status}")
