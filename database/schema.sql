@@ -73,18 +73,6 @@ CREATE TABLE IF NOT EXISTS historical_prices (
     UNIQUE(stock_id, date)
 );
 
--- Import_Verification table
-CREATE TABLE IF NOT EXISTS import_verification (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    import_date DATETIME NOT NULL,
-    portfolio_id INTEGER,
-    stock_id INTEGER,
-    verification_status TEXT,
-    verification_notes TEXT,
-    FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE,
-    FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
-);
-
 -- Market_Codes table
 CREATE TABLE IF NOT EXISTS market_codes (
     market_or_index TEXT NOT NULL PRIMARY KEY,
