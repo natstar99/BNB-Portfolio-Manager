@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class HistoricalDataCollector:
     """
-    Centralized utility class for collecting and managing historical price data.
+    Centralised utility class for collecting and managing historical price and dividend data.
     Provides consistent historical data collection across different parts of the application.
     """
     def __init__(self, db_manager):
@@ -18,7 +18,7 @@ class HistoricalDataCollector:
 
     def collect_historical_data(self, stock_id, yahoo_symbol, force_refresh=False, parent_widget=None):
         """
-        Collect historical data for a stock.
+        Collect historical price and dividend data for a stock.
         
         Args:
             stock_id (int): The database ID of the stock
@@ -105,6 +105,9 @@ class HistoricalDataCollector:
                     interval='1d'
                 )
 
+                # Get dividend data
+                dividends = ticker.dividends
+
                 # Update progress
                 if progress_dialog:
                     progress_dialog.setValue(60)
@@ -115,6 +118,9 @@ class HistoricalDataCollector:
                     # Prepare bulk insert data
                     historical_prices = []
                     for index, row in history.iterrows():
+                        # Check if there's a dividend on this date
+                        dividend_amount = dividends[dividends.index == index].iloc[0] if not dividends.empty and index in dividends.index else 0.0
+                        
                         historical_prices.append((
                             stock_id,
                             index.strftime('%Y-%m-%d'),
@@ -126,7 +132,7 @@ class HistoricalDataCollector:
                             row['Close'],  # adjusted_close
                             row['Close'],  # original_close
                             False,         # split_adjusted
-                            0.0           # dividend
+                            dividend_amount
                         ))
                     
                     # Update progress
