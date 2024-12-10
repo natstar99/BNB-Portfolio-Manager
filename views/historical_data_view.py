@@ -2,15 +2,13 @@
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QTableWidget, QTableWidgetItem, QHeaderView, 
-                              QComboBox, QLabel, QDateEdit, QMessageBox,
-                              QProgressDialog, QFormLayout, QDoubleSpinBox,
-                              QDialogButtonBox, QCheckBox, QAbstractItemView)
+                              QLabel, QDateEdit, QDialogButtonBox, QCheckBox,
+                              QAbstractItemView, QComboBox, QMessageBox,
+                              QDoubleSpinBox, QFormLayout)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
 
-logging.basicConfig(level=logging.DEBUG, filename='historical_data.log', filemode='w',
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class HistoricalDataDialog(QDialog):
@@ -78,7 +76,7 @@ class HistoricalDataDialog(QDialog):
         # Event type filter
         filter_layout.addWidget(QLabel("Show:"))
         self.event_filter = QComboBox()
-        self.event_filter.addItems(["All", "Prices Only", "Transactions Only", "Corporate Actions Only"])
+        self.event_filter.addItems(["All", "Prices Only", "Transactions Only", "Dividends Only"])
         filter_layout.addWidget(self.event_filter)
 
         # Apply filters button
@@ -97,8 +95,8 @@ class HistoricalDataDialog(QDialog):
         # Table
         self.table = QTableWidget()
         
-        # Set up table columns based on DRP status
-        columns = [
+        # Set up all columns
+        self.columns = [
             "Date",
             "Open",
             "High",
@@ -108,30 +106,27 @@ class HistoricalDataDialog(QDialog):
             "Volume",
             "Stock Split",
             "Dividend",
+            "Cash Dividend",
+            "DRP Shares",
             "Transaction Type",
             "Quantity",
             "Price",
-            "Total Quantity",
+            "Total Shares",
             "Market Value"
         ]
         
-        if self.drp_enabled:
-            # Insert DRP Shares column before Total Quantity
-            columns.insert(-2, "DRP Shares")
-            
-        self.table.setColumnCount(len(columns))
-        self.table.setHorizontalHeaderLabels(columns)
+        self.table.setColumnCount(len(self.columns))
+        self.table.setHorizontalHeaderLabels(self.columns)
         
         # Enable sorting
         self.table.setSortingEnabled(True)
         
         # Set column resize modes
         header = self.table.horizontalHeader()
-        for i in range(len(columns)):
+        for i in range(len(self.columns)):
             header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
 
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers) # Make the table read-only
-        
+        # Add table to layout
         layout.addWidget(self.table)
 
         # Close button
@@ -139,47 +134,121 @@ class HistoricalDataDialog(QDialog):
         self.close_btn.clicked.connect(self.accept)
         layout.addWidget(self.close_btn)
 
+        # Set the layout
+        self.setLayout(layout)
+
+        # Connect table selection signal
+        self.table.itemSelectionChanged.connect(self.update_button_states)
+
     def load_data(self):
-        try:
-            # Using the recursive CTE query
-            data = self.db_manager.fetch_all("""
-                WITH RECURSIVE running_totals AS (
-                    SELECT 
-                        COALESCE(hp.date, date(t.date)) as date,
-                        hp.open_price,
-                        hp.high_price,
-                        hp.low_price,
-                        hp.close_price,
-                        hp.adjusted_close,
-                        hp.volume,
-                        ss.ratio as split_ratio,
-                        hp.dividend,
-                        t.transaction_type,
-                        t.quantity as transaction_quantity,
-                        t.price as transaction_price,
-                        COALESCE(hp.stock_id, t.stock_id) as stock_id,
-                        COALESCE(
-                            CASE 
-                                WHEN t.transaction_type = 'BUY' THEN t.quantity 
-                                WHEN t.transaction_type = 'SELL' THEN -t.quantity 
-                                ELSE 0 
-                            END
-                        , 0) as base_quantity_change,
-                        0 as drp_shares,
-                        0 as total_quantity_owned,
-                        ROW_NUMBER() OVER (ORDER BY COALESCE(hp.date, date(t.date))) as row_num
-                    FROM (
-                        SELECT DISTINCT date FROM historical_prices WHERE stock_id = ?
-                        UNION
-                        SELECT DISTINCT date(date) FROM transactions WHERE stock_id = ?
-                    ) dates
-                    LEFT JOIN historical_prices hp ON dates.date = hp.date AND hp.stock_id = ?
-                    LEFT JOIN transactions t ON dates.date = date(t.date) AND t.stock_id = ?
-                    LEFT JOIN stock_splits ss ON dates.date = date(ss.date) AND ss.stock_id = ?
-                    LEFT JOIN stocks s ON hp.stock_id = s.id OR t.stock_id = s.id
-                ),
-                compounded_totals AS (
-                    -- Base case: first row
+            try:
+                # Using the recursive CTE query with updated column names
+                data = self.db_manager.fetch_all("""
+                    WITH RECURSIVE running_totals AS (
+                        SELECT 
+                            COALESCE(hp.date, date(t.date)) as date,
+                            hp.open_price,
+                            hp.high_price,
+                            hp.low_price,
+                            hp.close_price,
+                            hp.adjusted_close,
+                            hp.volume,
+                            ss.ratio as split_ratio,
+                            hp.dividend,
+                            t.transaction_type,
+                            t.quantity as transaction_quantity,
+                            t.price as transaction_price,
+                            COALESCE(hp.stock_id, t.stock_id) as stock_id,
+                            COALESCE(
+                                CASE 
+                                    WHEN t.transaction_type = 'BUY' THEN t.quantity 
+                                    WHEN t.transaction_type = 'SELL' THEN -t.quantity 
+                                    ELSE 0 
+                                END
+                            , 0) as base_quantity_change,
+                            0 as drp_shares,
+                            0 as total_shares,
+                            ROW_NUMBER() OVER (ORDER BY COALESCE(hp.date, date(t.date))) as row_num
+                        FROM (
+                            SELECT DISTINCT date FROM historical_prices WHERE stock_id = ?
+                            UNION
+                            SELECT DISTINCT date(date) FROM transactions WHERE stock_id = ?
+                        ) dates
+                        LEFT JOIN historical_prices hp ON dates.date = hp.date AND hp.stock_id = ?
+                        LEFT JOIN transactions t ON dates.date = date(t.date) AND t.stock_id = ?
+                        LEFT JOIN stock_splits ss ON dates.date = date(ss.date) AND ss.stock_id = ?
+                        LEFT JOIN stocks s ON hp.stock_id = s.id OR t.stock_id = s.id
+                    ),
+                    compounded_totals AS (
+                        -- Base case: first row
+                        SELECT 
+                            date,
+                            open_price,
+                            high_price,
+                            low_price,
+                            close_price,
+                            adjusted_close,
+                            volume,
+                            split_ratio,
+                            dividend,
+                            transaction_type,
+                            transaction_quantity,
+                            transaction_price,
+                            stock_id,
+                            base_quantity_change,
+                            0 as drp_shares,
+                            base_quantity_change as total_shares,
+                            row_num
+                        FROM running_totals 
+                        WHERE row_num = 1
+
+                        UNION ALL
+
+                        -- Recursive case
+                        SELECT 
+                            r.date,
+                            r.open_price,
+                            r.high_price,
+                            r.low_price,
+                            r.close_price,
+                            r.adjusted_close,
+                            r.volume,
+                            r.split_ratio,
+                            r.dividend,
+                            r.transaction_type,
+                            r.transaction_quantity,
+                            r.transaction_price,
+                            r.stock_id,
+                            r.base_quantity_change,
+                            CASE
+                                WHEN s.drp = 1 AND r.dividend > 0 THEN
+                                    ROUND(r.dividend * ct.total_shares / COALESCE(r.close_price, r.transaction_price), 4)
+                                ELSE 0
+                            END as drp_shares,
+                            -- Apply split adjustments to the running total
+                            CASE
+                                WHEN r.split_ratio IS NOT NULL THEN
+                                    -- When a split occurs, multiply existing shares by the split ratio
+                                    (ct.total_shares * r.split_ratio) + r.base_quantity_change +
+                                    CASE
+                                        WHEN s.drp = 1 AND r.dividend > 0 THEN
+                                            ROUND(r.dividend * ct.total_shares * r.split_ratio / COALESCE(r.close_price, r.transaction_price), 4)
+                                        ELSE 0
+                                    END
+                                ELSE
+                                    -- No split, just add new quantities
+                                    ct.total_shares + r.base_quantity_change +
+                                    CASE
+                                        WHEN s.drp = 1 AND r.dividend > 0 THEN
+                                            ROUND(r.dividend * ct.total_shares / COALESCE(r.close_price, r.transaction_price), 4)
+                                        ELSE 0
+                                    END
+                            END as total_shares,
+                            r.row_num
+                        FROM running_totals r
+                        JOIN compounded_totals ct ON r.row_num = ct.row_num + 1
+                        JOIN stocks s ON r.stock_id = s.id
+                    )
                     SELECT 
                         date,
                         open_price,
@@ -190,280 +259,210 @@ class HistoricalDataDialog(QDialog):
                         volume,
                         split_ratio,
                         dividend,
+                        CASE
+                            WHEN s.drp = 0 AND dividend > 0 
+                            THEN dividend * total_shares
+                            ELSE 0
+                        END as cash_dividend,
+                        CASE
+                            WHEN s.drp = 1 AND dividend > 0
+                            THEN drp_shares
+                            ELSE 0
+                        END as drp_shares,
                         transaction_type,
                         transaction_quantity,
                         transaction_price,
-                        stock_id,
-                        base_quantity_change,
-                        0 as drp_shares,
-                        base_quantity_change as total_quantity_owned,
-                        row_num
-                    FROM running_totals 
-                    WHERE row_num = 1
+                        ROUND(total_shares, 4) as total_shares,
+                        ROUND(COALESCE(close_price, transaction_price) * total_shares, 2) as market_value
+                    FROM compounded_totals
+                    JOIN stocks s ON s.id = ?
+                    ORDER BY date DESC
+                """, (self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id))
 
-                    UNION ALL
+                self.populate_table(data)
 
-                    -- Recursive case
-                    SELECT 
-                        r.date,
-                        r.open_price,
-                        r.high_price,
-                        r.low_price,
-                        r.close_price,
-                        r.adjusted_close,
-                        r.volume,
-                        r.split_ratio,
-                        r.dividend,
-                        r.transaction_type,
-                        r.transaction_quantity,
-                        r.transaction_price,
-                        r.stock_id,
-                        r.base_quantity_change,
-                        CASE
-                            WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                ROUND(r.dividend * ct.total_quantity_owned / COALESCE(r.close_price, r.transaction_price), 4)
-                            ELSE 0
-                        END as drp_shares,
-                        -- Apply split adjustments to the running total
-                        CASE
-                            WHEN r.split_ratio IS NOT NULL THEN
-                                -- When a split occurs, multiply existing shares by the split ratio
-                                (ct.total_quantity_owned * r.split_ratio) + r.base_quantity_change +
-                                CASE
-                                    WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                        ROUND(r.dividend * ct.total_quantity_owned * r.split_ratio / COALESCE(r.close_price, r.transaction_price), 4)
-                                    ELSE 0
-                                END
-                            ELSE
-                                -- No split, just add new quantities
-                                ct.total_quantity_owned + r.base_quantity_change +
-                                CASE
-                                    WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                        ROUND(r.dividend * ct.total_quantity_owned / COALESCE(r.close_price, r.transaction_price), 4)
-                                    ELSE 0
-                                END
-                        END as total_quantity_owned,
-                        r.row_num
-                    FROM running_totals r
-                    JOIN compounded_totals ct ON r.row_num = ct.row_num + 1
-                    JOIN stocks s ON r.stock_id = s.id
+            except Exception as e:
+                logger.error(f"Error loading historical data: {str(e)}")
+                QMessageBox.warning(
+                    self,
+                    "Error Loading Data",
+                    f"Failed to load historical data: {str(e)}"
                 )
 
-                SELECT 
-                    date,
-                    open_price,
-                    high_price,
-                    low_price,
-                    close_price,
-                    adjusted_close,
-                    volume,
-                    split_ratio,
-                    dividend,
-                    transaction_type,
-                    transaction_quantity,
-                    transaction_price,
-                    ROUND(total_quantity_owned, 4) as total_quantity_owned,
-                    ROUND(COALESCE(close_price, transaction_price) * total_quantity_owned, 2) as market_value,
-                    drp_shares
-                FROM compounded_totals
-                ORDER BY date DESC
-            """, (self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id))
-
-            self.populate_table(data)
-
-        except Exception as e:
-            logger.error(f"Error loading historical data: {str(e)}")
-            QMessageBox.warning(
-                self,
-                "Error Loading Data",
-                f"Failed to load historical data: {str(e)}"
-            )
-
     def populate_table(self, data):
-        """Refresh the table with current data."""
-        self.table.setRowCount(len(data))
-        
-        for row, record in enumerate(data):
-            col = 0  # Use running column counter for cleaner code
+            """Refresh the table with current data."""
+            self.table.setRowCount(len(data))
             
-            # Date
-            self.table.setItem(row, col, QTableWidgetItem(record[0]))
-            col += 1
+            # Dictionary to track which columns should be visible
+            columns_with_data = {col: False for col in range(len(self.columns))}
+            columns_with_data[0] = True  # Date column always visible
+            columns_with_data[14] = True  # Total Shares always visible
+            columns_with_data[15] = True  # Market Value always visible
             
-            # Price data (Open, High, Low, Close, Adjusted Close)
-            for i in range(1, 6):
-                value = record[i]
-                if value is not None:
-                    self.table.setItem(row, col, QTableWidgetItem(f"{value:.2f}"))
-                else:
+            for row, record in enumerate(data):
+                # Date (always shown)
+                self.table.setItem(row, 0, QTableWidgetItem(record[0]))
+                
+                # Price data (Open through Volume)
+                for col in range(1, 7):
+                    value = record[col]
                     self.table.setItem(row, col, QTableWidgetItem(""))
-                col += 1
+                    if value is not None:
+                        self.table.item(row, col).setText(f"{value:,.2f}")
+                        columns_with_data[col] = True
 
-            # Volume
-            self.table.setItem(row, col, QTableWidgetItem(str(record[6]) if record[6] else ""))
-            col += 1
+                # Stock Split
+                split_ratio = record[7]
+                self.table.setItem(row, 7, QTableWidgetItem(""))
+                if split_ratio:
+                    split_item = QTableWidgetItem(f"{split_ratio}:1")
+                    split_item.setBackground(Qt.blue)
+                    split_item.setForeground(Qt.white)
+                    self.table.setItem(row, 7, split_item)
+                    columns_with_data[7] = True
 
-            # Stock Split
-            split_ratio = record[7]
-            if split_ratio:
-                split_item = QTableWidgetItem(f"{split_ratio}:1")
-                split_item.setBackground(Qt.blue)
-                self.table.setItem(row, col, split_item)
-            else:
-                self.table.setItem(row, col, QTableWidgetItem(""))
-            col += 1
+                # Dividend
+                dividend = record[8]
+                self.table.setItem(row, 8, QTableWidgetItem(""))
+                if dividend and dividend > 0:
+                    dividend_item = QTableWidgetItem(f"${dividend:,.4f}")
+                    dividend_item.setForeground(Qt.darkGreen)
+                    self.table.setItem(row, 8, dividend_item)
+                    columns_with_data[8] = True
 
-            # Dividend
-            dividend_value = record[8]
-            if dividend_value and dividend_value > 0:
-                dividend_item = QTableWidgetItem(f"{dividend_value:.4f}")
-                dividend_item.setBackground(Qt.green)
-                self.table.setItem(row, col, dividend_item)
-            else:
-                self.table.setItem(row, col, QTableWidgetItem(""))
-            col += 1
+                # Cash Dividend
+                cash_dividend = record[9]
+                self.table.setItem(row, 9, QTableWidgetItem(""))
+                if cash_dividend and cash_dividend > 0:
+                    cash_item = QTableWidgetItem(f"${cash_dividend:,.2f}")
+                    cash_item.setForeground(Qt.darkGreen)
+                    self.table.setItem(row, 9, cash_item)
+                    columns_with_data[9] = True
 
-            # Transaction Type, Quantity, Price
-            self.table.setItem(row, col, QTableWidgetItem(record[9] if record[9] else ""))
-            col += 1
-            self.table.setItem(row, col, QTableWidgetItem(str(record[10]) if record[10] else ""))
-            col += 1
-            self.table.setItem(row, col, QTableWidgetItem(f"{record[11]:.2f}" if record[11] else ""))
-            col += 1
-
-            # DRP Shares (only if DRP is enabled)
-            if self.drp_enabled:
-                drp_shares = record[14]  # index 14 is drp_shares
+                # DRP Shares
+                drp_shares = record[10]
+                self.table.setItem(row, 10, QTableWidgetItem(""))
                 if drp_shares and drp_shares > 0:
-                    drp_item = QTableWidgetItem(f"+{drp_shares:.4f}")
-                    drp_item.setBackground(Qt.green)
-                    self.table.setItem(row, col, drp_item)
-                else:
+                    drp_item = QTableWidgetItem(f"+{drp_shares:,.4f}")
+                    drp_item.setForeground(Qt.blue)
+                    self.table.setItem(row, 10, drp_item)
+                    columns_with_data[10] = True
+
+                # Transaction Type, Quantity, Price
+                for col in range(11, 14):
+                    value = record[col]
                     self.table.setItem(row, col, QTableWidgetItem(""))
-                col += 1
+                    if value:
+                        if col == 13:  # Price column
+                            self.table.item(row, col).setText(f"${value:,.2f}")
+                        else:
+                            self.table.item(row, col).setText(str(value))
+                        self.table.item(row, col).setBackground(Qt.lightGray)
+                        columns_with_data[col] = True
 
-            # Total Quantity
-            total_qty = record[12]
-            if total_qty is not None:
-                total_qty_item = QTableWidgetItem(f"{total_qty:.4f}")
-                self.table.setItem(row, col, total_qty_item)
-            else:
-                self.table.setItem(row, col, QTableWidgetItem(""))
-            col += 1
+                # Total Shares
+                total_shares = record[14]
+                self.table.setItem(row, 14, QTableWidgetItem(""))
+                if total_shares is not None:
+                    self.table.item(row, 14).setText(f"{total_shares:,.4f}")
 
-            # Market Value
-            market_value = record[13]
-            if market_value is not None:
-                market_value_item = QTableWidgetItem(f"${market_value:.2f}")
-                self.table.setItem(row, col, market_value_item)
-            else:
-                self.table.setItem(row, col, QTableWidgetItem(""))
+                # Market Value
+                market_value = record[15]
+                self.table.setItem(row, 15, QTableWidgetItem(""))
+                if market_value is not None:
+                    self.table.item(row, 15).setText(f"${market_value:,.2f}")
 
-            # Color coding for transactions
-            if record[9]:  # If there's a transaction
-                for transaction_col in range(9, 12):  # Transaction columns
-                    item = self.table.item(row, transaction_col)
-                    if item:
-                        item.setBackground(Qt.lightGray)
+            # Hide empty columns
+            for col in range(len(self.columns)):
+                self.table.setColumnHidden(col, not columns_with_data[col])
+
+            # Auto-resize visible columns
+            self.table.resizeColumnsToContents()
 
     def apply_filters(self):
+        """Apply date and type filters to the data."""
         date_from = self.date_from.date().toString("yyyy-MM-dd")
         date_to = self.date_to.date().toString("yyyy-MM-dd")
         filter_type = self.event_filter.currentText()
 
-        # Base CTE query with date filter
+        # Use the same query structure as load_data, but with date filters
         query = """
-        WITH RECURSIVE running_totals AS (
-            SELECT 
-                hp.date,
-                hp.open_price,
-                hp.high_price,
-                hp.low_price,
-                hp.close_price,
-                hp.adjusted_close,
-                hp.volume,
-                ss.ratio as split_ratio,
-                hp.dividend,
-                t.transaction_type,
-                t.quantity as transaction_quantity,
-                t.price as transaction_price,
-                COALESCE(
-                    CASE 
-                        WHEN t.transaction_type = 'BUY' THEN t.quantity 
-                        WHEN t.transaction_type = 'SELL' THEN -t.quantity 
-                        ELSE 0 
-                    END
-                , 0) as base_quantity_change,
-                0 as drp_shares,
-                0 as total_quantity_owned,
-                ROW_NUMBER() OVER (ORDER BY hp.date) as row_num
-            FROM historical_prices hp
-            LEFT JOIN transactions t ON hp.stock_id = t.stock_id 
-                AND hp.date = date(t.date)
-            LEFT JOIN stock_splits ss ON hp.stock_id = ss.stock_id 
-                AND hp.date = date(ss.date)
-            LEFT JOIN stocks s ON hp.stock_id = s.id
-            WHERE hp.stock_id = ?
-            AND hp.date BETWEEN ? AND ?
+            WITH RECURSIVE daily_data AS (
+                SELECT 
+                    d.date,
+                    t.transaction_type,
+                    t.quantity as transaction_quantity,
+                    t.price as transaction_price,
+                    SUM(COALESCE(
+                        CASE 
+                            WHEN t.transaction_type = 'BUY' THEN t.quantity 
+                            WHEN t.transaction_type = 'SELL' THEN -t.quantity 
+                            ELSE 0 
+                        END
+                    , 0)) OVER (ORDER BY d.date) as running_shares
+                FROM (
+                    SELECT DISTINCT date FROM historical_prices 
+                    WHERE stock_id = ? AND date BETWEEN ? AND ?
+                    UNION
+                    SELECT DISTINCT date(date) FROM transactions 
+                    WHERE stock_id = ? AND date BETWEEN ? AND ?
+                ) d
+                LEFT JOIN transactions t ON date(t.date) = d.date AND t.stock_id = ?
+            ),
+            full_data AS (
+                SELECT 
+                    dd.date,
+                    hp.open_price,
+                    hp.high_price,
+                    hp.low_price,
+                    hp.close_price,
+                    hp.adjusted_close,
+                    hp.volume,
+                    ss.ratio as split_ratio,
+                    hp.dividend,
+                    CASE
+                        WHEN s.drp = 0 THEN hp.dividend * dd.running_shares
+                        ELSE 0
+                    END as cash_dividend,
+                    CASE
+                        WHEN s.drp = 1 AND hp.dividend > 0 AND hp.close_price > 0
+                        THEN (hp.dividend * dd.running_shares) / hp.close_price
+                        ELSE 0
+                    END as drp_shares,
+                    dd.transaction_type,
+                    dd.transaction_quantity,
+                    dd.transaction_price,
+                    dd.running_shares as total_shares,
+                    COALESCE(hp.close_price, dd.transaction_price) * dd.running_shares as market_value
+                FROM daily_data dd
+                LEFT JOIN historical_prices hp ON dd.date = hp.date AND hp.stock_id = ?
+                LEFT JOIN stock_splits ss ON dd.date = date(ss.date) AND ss.stock_id = ?
+                JOIN stocks s ON s.id = ?
+                WHERE 1=1
         """
 
         # Add filter conditions
         if filter_type == "Transactions Only":
-            query += " AND t.transaction_type IS NOT NULL"
-        elif filter_type == "Corporate Actions Only":
-            query += " AND (ss.ratio IS NOT NULL OR hp.dividend > 0)"
+            query += " AND dd.transaction_type IS NOT NULL"
+        elif filter_type == "Prices Only":
+            query += " AND dd.transaction_type IS NULL"
+        elif filter_type == "Dividends Only":
+            query += " AND (hp.dividend > 0)"
 
-        # Complete the CTE query
         query += """
-            ),
-            compounded_totals AS (
-                SELECT 
-                    *,
-                    base_quantity_change as total_quantity_owned
-                FROM running_totals 
-                WHERE row_num = 1
-
-                UNION ALL
-
-                SELECT 
-                    r.*,
-                    CASE
-                        WHEN s.drp = 1 AND r.dividend > 0 THEN
-                            ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
-                        ELSE 0
-                    END as drp_shares,
-                    ct.total_quantity_owned + r.base_quantity_change + 
-                    CASE
-                        WHEN s.drp = 1 AND r.dividend > 0 THEN
-                            ROUND(r.dividend * ct.total_quantity_owned / r.close_price, 4)
-                        ELSE 0
-                    END as total_quantity_owned
-                FROM running_totals r
-                JOIN compounded_totals ct ON r.row_num = ct.row_num + 1
-                JOIN stocks s ON r.stock_id = s.id
             )
-
-            SELECT 
-                date,
-                open_price,
-                high_price,
-                low_price,
-                close_price,
-                adjusted_close,
-                volume,
-                split_ratio,
-                dividend,
-                transaction_type,
-                transaction_quantity,
-                transaction_price,
-                total_quantity_owned,
-                ROUND(close_price * total_quantity_owned, 2) as market_value,
-                drp_shares
-            FROM compounded_totals
+            SELECT * FROM full_data
             ORDER BY date DESC
         """
 
-        data = self.db_manager.fetch_all(query, (self.stock.id, date_from, date_to))
+        # Update parameters to include date range
+        data = self.db_manager.fetch_all(query, (
+            self.stock.id, date_from, date_to,  # For first date filter
+            self.stock.id, date_from, date_to,  # For second date filter
+            self.stock.id,                      # For transactions join
+            self.stock.id, self.stock.id, self.stock.id  # For final joins
+        ))
+        
         self.populate_table(data)
 
     def reset_filters(self):
@@ -476,7 +475,7 @@ class HistoricalDataDialog(QDialog):
         if selected_items:
             row = selected_items[0].row()
             # Only enable delete button if a transaction is selected
-            has_transaction = bool(self.table.item(row, 9).text())  # Check Transaction Type column
+            has_transaction = bool(self.table.item(row, 11).text()) # Check Transaction Type column
             self.delete_transaction_btn.setEnabled(has_transaction)
         else:
             self.delete_transaction_btn.setEnabled(False)
@@ -544,9 +543,9 @@ class HistoricalDataDialog(QDialog):
             
         row = selected_items[0].row()
         date = self.table.item(row, 0).text()
-        trans_type = self.table.item(row, 9).text()
-        quantity = self.table.item(row, 10).text()
-        price = self.table.item(row, 11).text()
+        trans_type = self.table.item(row, 11).text()  # Updated column index
+        quantity = self.table.item(row, 12).text()    # Updated column index
+        price = self.table.item(row, 13).text()       # Updated column index
         
         if not trans_type:  # Not a transaction row
             return

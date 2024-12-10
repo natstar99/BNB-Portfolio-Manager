@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import List
 from .transaction import Transaction
+import logging
 
 class Stock:
     def __init__(self, id: int, yahoo_symbol: str, instrument_code: str, name: str, current_price: float, last_updated: datetime, db_manager):
@@ -41,8 +42,11 @@ class Stock:
 
     def calculate_total_shares(self) -> float:
         """Calculate the current total number of shares held."""
-        return sum(t.quantity if t.transaction_type == 'BUY' else -t.quantity 
+        total_shares = sum(t.quantity if t.transaction_type == 'BUY' else -t.quantity 
                   for t in self.transactions)
+        if total_shares < 0.000001: # Threshold shares for rounding errors
+            total_shares = 0
+        return total_shares
 
     def calculate_cost_basis(self) -> float:
         """
@@ -71,12 +75,18 @@ class Stock:
     def calculate_average_cost(self) -> float:
         """
         Calculate the average cost per share of current holdings.
-        Returns 0 if no shares are held.
         """
-        total_shares = self.calculate_total_shares()
-        if total_shares > 0:
-            return self.calculate_cost_basis() / total_shares
-        return 0
+        total_cost = 0
+        total_quantity = 0
+
+        # Sort transactions by date to process them chronologically
+        sorted_transactions = sorted(self.transactions, key=lambda x: x.date)
+
+        for transaction in sorted_transactions:
+            if transaction.transaction_type == 'BUY':
+                total_cost += transaction.quantity * transaction.price
+                total_quantity += transaction.quantity
+        return total_cost/total_quantity
 
     def calculate_market_value(self) -> float:
         """Calculate the current market value of holdings."""
@@ -196,3 +206,112 @@ class Stock:
                 db_manager=db_manager
             )
         return None
+    
+    def calculate_total_dividends(self) -> float:
+        """
+        Calculate total dividends received (cash payments for non-DRP holdings).
+        Only counts dividends when stock was not enrolled in DRP.
+        """
+        try:
+            result = self.db_manager.fetch_all("""
+                SELECT date, dividend
+                FROM historical_prices
+                WHERE stock_id = ? AND dividend > 0
+                ORDER BY date
+            """, (self.id,))
+            
+            total_dividends = 0
+            
+            for date_str, dividend in result:
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                # Get shares held on dividend date
+                shares_held = self.calculate_shares_on_date(date)
+                # Get DRP status at that time (implementation needed in database)
+                was_drp = self.was_drp_on_date(date)
+                
+                if shares_held > 0 and not was_drp:
+                    total_dividends += shares_held * dividend
+                    
+            return total_dividends
+        except Exception as e:
+            logging.error(f"Error calculating total dividends: {str(e)}")
+            return 0
+
+    def calculate_drp_shares(self) -> float:
+        """
+        Calculate total shares received through DRP.
+        """
+        try:
+            result = self.db_manager.fetch_all("""
+                SELECT date, dividend, close_price
+                FROM historical_prices
+                WHERE stock_id = ? AND dividend > 0
+                ORDER BY date
+            """, (self.id,))
+            
+            total_drp_shares = 0
+            
+            for date_str, dividend, price in result:
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                shares_held = self.calculate_shares_on_date(date)
+                was_drp = self.was_drp_on_date(date)
+                
+                if shares_held > 0 and was_drp and price > 0:
+                    drp_shares = (shares_held * dividend) / price
+                    total_drp_shares += drp_shares
+                    
+            return total_drp_shares
+        except Exception as e:
+            logging.error(f"Error calculating DRP shares: {str(e)}")
+            return 0
+
+    def calculate_drp_value(self) -> float:
+        """
+        Calculate current value of shares received through DRP.
+        """
+        drp_shares = self.calculate_drp_shares()
+        return drp_shares * self.current_price
+
+    def calculate_shares_on_date(self, date) -> float:
+        """
+        Calculate how many shares were held on a specific date.
+        """
+        shares = 0
+        for transaction in self.transactions:
+            if transaction.date.date() <= date:
+                if transaction.transaction_type == 'BUY':
+                    shares += transaction.quantity
+                else:
+                    shares -= transaction.quantity
+        return shares
+
+    def was_drp_on_date(self, date) -> bool:
+        """
+        Check if the stock was enrolled in DRP on a specific date.
+        """
+        try:
+            result = self.db_manager.fetch_one("""
+                SELECT drp FROM stocks WHERE id = ?
+            """, (self.id,))
+            return bool(result[0]) if result else False
+        except Exception as e:
+            logging.error(f"Error checking DRP status: {str(e)}")
+            return False
+
+    def calculate_total_return(self) -> float:
+        """
+        Calculate total return including capital gains and dividends.
+        """
+        return (self.calculate_total_pl() + 
+                self.calculate_total_dividends() + 
+                self.calculate_drp_value())
+
+    def calculate_total_return_percentage(self) -> float:
+        """
+        Calculate total return percentage including capital gains and dividends.
+        """
+        cost_basis = self.calculate_cost_basis()
+        if cost_basis > 0.0001: # Threshold the cost basis for silly decimal places
+            total_return = self.calculate_total_return()
+            return (total_return / cost_basis) * 100
+        return 0
