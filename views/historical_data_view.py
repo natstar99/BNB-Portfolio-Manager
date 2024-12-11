@@ -637,7 +637,7 @@ class AddTransactionDialog(QDialog):
         self.init_ui()
 
     def init_ui(self):
-        """Initialize the user interface components."""
+        """Initialise the user interface components."""
         self.setWindowTitle("Add Transaction")
         layout = QFormLayout(self)
 
