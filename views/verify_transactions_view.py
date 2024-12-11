@@ -213,7 +213,7 @@ class VerifyTransactionsDialog(QDialog):
                     # Set empty Yahoo Symbol (will be updated when market is selected)
                     self.table.item(row, 2).setText(instrument_code)
                     
-                    # Initialize other columns as empty
+                    # Initialise other columns as empty
                     self.table.item(row, 3).setText("")  # Name
                     self.table.item(row, 4).setText("")  # Price
                     self.table.item(row, 5).setText("")  # Splits
@@ -525,7 +525,7 @@ class VerifyTransactionsDialog(QDialog):
                 market_combo.addItem(market_or_index, market_or_index)
             self.table.setCellWidget(current_row, 1, market_combo)
             
-            # Initialize other columns
+            # Initialise other columns
             for col in range(2, 7):
                 self.table.setItem(current_row, col, QTableWidgetItem(""))
                 
@@ -810,7 +810,7 @@ class StockSplitsDialog(QDialog):
         self.load_splits()
 
     def init_ui(self):
-        """Initialize the user interface components."""
+        """Initialise the user interface components."""
         self.setWindowTitle(f"Manage Stock Splits - {self.instrument_code}")
         layout = QVBoxLayout(self)
 

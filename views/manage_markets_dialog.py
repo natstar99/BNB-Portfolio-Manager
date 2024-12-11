@@ -20,7 +20,7 @@ class ManageMarketsDialog(QDialog):
         self.load_market_codes()
         
     def init_ui(self):
-        """Initialize the user interface components."""
+        """Initialise the user interface components."""
         self.setWindowTitle("Manage Market Codes")
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)

@@ -142,7 +142,10 @@ class MyPortfolioView(QWidget):
         for row, (yahoo_symbol, stock) in enumerate(portfolio.stocks.items()):
             # Calculate values
             shares = stock.calculate_total_shares()
-            avg_cost = stock.calculate_average_cost()
+            try:
+                avg_cost = stock.calculate_average_cost()
+            except:
+                avg_cost = 0.0    
             cost_basis = stock.calculate_cost_basis()
             current_value = stock.calculate_market_value()
             realised_pl = stock.calculate_realised_pl()
@@ -202,8 +205,8 @@ class MyPortfolioView(QWidget):
 
             # Total Return
             total_return_item = QTableWidgetItem(f"${total_return:,.2f}") if abs(total_return) > 0.001 else None
-            if total_return is not None:
-                total_return_item.setForeground(Qt.darkGreen if total_return >= 0 else Qt.red)
+            if total_return_item is not None:
+                total_return_item.setForeground(Qt.darkGreen if total_return >= 0.001 else Qt.red)
             self.stocks_table.setItem(row, 11, total_return_item)
 
             # Total Return Percentage

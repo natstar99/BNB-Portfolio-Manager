@@ -7,6 +7,10 @@ from PySide6.QtCore import Qt
 
 from controllers.portfolio_controller import PortfolioController
 from controllers.portfolio_view_controller import PortfolioViewController
+from controllers.market_analysis_controller import MarketAnalysisController
+from controllers.portfolio_study_controller import PortfolioStudyController
+from views.portfolio_study_view import PortfolioStudyView
+from views.market_analysis_view import MarketAnalysisView
 
 class MainWindow(QMainWindow):
     def __init__(self, db_manager):
@@ -40,7 +44,13 @@ class MainWindow(QMainWindow):
 
         # Add navigation buttons
         self.nav_buttons = []
-        for button_text in ["Manage Portfolios", "My Portfolio", "Analyse Portfolio", "Settings"]:
+        for button_text in [
+            "Manage Portfolios", 
+            "My Portfolio",
+            "Study Portfolio",
+            "Study Market",
+            "Settings"
+        ]:
             button = QPushButton(button_text)
             button.clicked.connect(lambda checked, text=button_text: self.on_nav_button_clicked(text))
             sidebar_layout.addWidget(button)
@@ -51,9 +61,18 @@ class MainWindow(QMainWindow):
         # Create stacked widget for main content
         self.content_widget = QStackedWidget()
 
-        # Create controllers
+        # Create controllers and views
         self.portfolio_controller = PortfolioController(self.db_manager)
         self.portfolio_view_controller = PortfolioViewController(self.db_manager)
+        self.portfolio_study_controller = PortfolioStudyController(self.db_manager)
+        self.market_analysis_controller = MarketAnalysisController(self.db_manager)
+
+        # Set up views
+        self.portfolio_study_view = PortfolioStudyView()
+        self.portfolio_study_controller.set_view(self.portfolio_study_view)
+
+        self.market_analysis_view = MarketAnalysisView()
+        self.market_analysis_controller.set_view(self.market_analysis_view)
 
         # Connect signals
         self.portfolio_controller.view.select_portfolio.connect(self.on_portfolio_selected)
@@ -61,7 +80,8 @@ class MainWindow(QMainWindow):
         # Add pages to stacked widget
         self.content_widget.addWidget(self.portfolio_controller.get_view())
         self.content_widget.addWidget(self.portfolio_view_controller.get_view())
-        self.content_widget.addWidget(QLabel("Analyse Portfolio Page"))
+        self.content_widget.addWidget(self.portfolio_study_controller.get_view())
+        self.content_widget.addWidget(self.market_analysis_controller.get_view())
         self.content_widget.addWidget(QLabel("Settings Page"))
 
         # Add sidebar and content to main layout
@@ -72,7 +92,13 @@ class MainWindow(QMainWindow):
         self.portfolio_controller.load_portfolios()
 
     def on_nav_button_clicked(self, button_text):
-        index = ["Manage Portfolios", "My Portfolio", "Analyse Portfolio", "Market Codes", "Settings"].index(button_text)
+        index = [
+            "Manage Portfolios",
+            "My Portfolio",
+            "Study Portfolio",
+            "Study Market",
+            "Settings"
+        ].index(button_text)
         self.content_widget.setCurrentIndex(index)
         for button in self.nav_buttons:
             button.setStyleSheet("")
@@ -82,5 +108,7 @@ class MainWindow(QMainWindow):
         portfolio = self.portfolio_controller.get_portfolio_by_name(portfolio_name)
         if portfolio:
             self.portfolio_view_controller.set_portfolio(portfolio)
-            self.content_widget.setCurrentIndex(1)  # Switch to "My Portfolio" view
+            self.portfolio_study_controller.set_portfolio(portfolio)
+            self.market_analysis_controller.set_portfolio(portfolio)
+            self.content_widget.setCurrentIndex(1)
             self.nav_buttons[1].setStyleSheet("background-color: #ddd;")
