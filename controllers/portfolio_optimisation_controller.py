@@ -55,7 +55,7 @@ class PortfolioOptimisationController:
             data = yf.download(tickers, start=start_date, end=datetime.now())['Adj Close']
             returns = data.pct_change().dropna()
             
-            # initialise optimisation parameters
+            # Initialise optimisation parameters
             num_assets = len(tickers)
             init_guess = np.array(num_assets * [1. / num_assets])
             bounds = tuple((0, 1) for _ in range(num_assets))
@@ -73,10 +73,11 @@ class PortfolioOptimisationController:
                     method, returns, init_guess, bounds, constraints)
                 weights_data[method] = weights
                 
-                # Calculate portfolio statistics
-                stats = self.calculate_portfolio_statistics(weights, returns)
+                # Generate detailed analysis report for each optimisation method
+                analysis_report = self.generate_analysis_report(weights, returns, tickers)
                 
-                for stat_name, value in stats.items():
+                # Add report statistics to statistics_data
+                for stat_name, value in analysis_report['statistics'].items():
                     if stat_name not in statistics_data:
                         statistics_data[stat_name] = []
                     statistics_data[stat_name].append(value)
@@ -85,11 +86,14 @@ class PortfolioOptimisationController:
                 vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
                 ret = np.dot(weights, returns.mean()) * 252
                 optimal_points[method] = (vol, ret)
+                
+                # Store the full analysis report
+                weights_data[f"{method}_report"] = analysis_report
             
             # Generate efficient frontier data
             ef_returns, ef_volatilities = self.generate_efficient_frontier(returns)
             
-            # Update view with results
+            # Update view with results including the analysis reports
             self.view.update_results(
                 weights_data,
                 statistics_data,
@@ -100,7 +104,7 @@ class PortfolioOptimisationController:
             logger.error(f"Error in portfolio optimisation: {str(e)}")
             QMessageBox.warning(
                 self.view,
-                "optimisation Error",
+                "Optimisation Error",
                 f"Failed to optimise portfolio: {str(e)}"
             )
     
@@ -140,10 +144,11 @@ class PortfolioOptimisationController:
         }
     
     def calculate_sharpe_ratio(self, weights, returns):
-        """Calculate the Sharpe ratio."""
+        """Calculate the Sharpe ratio with configurable risk-free rate."""
+        risk_free_rate = 0.02
         portfolio_return = np.dot(weights, returns.mean()) * 252
         portfolio_std = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-        return portfolio_return / portfolio_std if portfolio_std > 0 else 0
+        return (portfolio_return - risk_free_rate) / portfolio_std if portfolio_std > 0 else 0
     
     def calculate_cvar(self, weights, returns):
         """Calculate the Conditional Value at Risk."""

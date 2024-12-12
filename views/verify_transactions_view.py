@@ -200,11 +200,13 @@ class VerifyTransactionsDialog(QDialog):
                     self.drp_settings[instrument_code] = bool(drp)
                     
                     # Set verification status (Column 7)
-                    if name:
+                    if verification_status == "Delisted":
+                        self.update_status(row, "Delisted", Qt.black)
+                    elif name:
                         if name == "N/A":
                             self.update_status(row, "Not Found", Qt.red)
                         else:
-                            self.update_status(row, verification_status, Qt.green if verification_status == "Verified" else Qt.gray)
+                            self.update_status(row, verification_status, Qt.darkGreen if verification_status == "Verified" else Qt.gray)
                     else:
                         self.update_status(row, "Pending", Qt.gray)
                             
@@ -326,11 +328,12 @@ class VerifyTransactionsDialog(QDialog):
         progress.setWindowModality(Qt.WindowModal)
         
         for row in range(self.table.rowCount()):
-            if progress.wasCanceled():
-                break
-                
-            self.verify_stock(row)
-            progress.setValue(row + 1)
+            if self.table.item(row, 7).text() != "Delisted":
+                if progress.wasCanceled():
+                    break
+                    
+                self.verify_stock(row)
+                progress.setValue(row + 1)
         
         progress.close()
 
@@ -363,7 +366,7 @@ class VerifyTransactionsDialog(QDialog):
             
             # Update verification status based on name
             if name and name != "N/A":
-                self.update_status(row, "Verified", Qt.green)
+                self.update_status(row, "Verified", Qt.darkGreen)
             else:
                 self.update_status(row, "Not Found", Qt.red)
             
@@ -411,7 +414,7 @@ class VerifyTransactionsDialog(QDialog):
                 'price': price,
                 'symbol': yahoo_symbol,
                 'market_or_index': market_or_index,
-                'market_suffix': market_suffix,  # Add market_suffix to stored data
+                'market_suffix': market_suffix,
                 'drp': self.drp_settings.get(instrument_code, False)
             }
 
@@ -436,7 +439,16 @@ class VerifyTransactionsDialog(QDialog):
             self.table.setItem(row, 7, status_item)
         
         status_item.setText(status)
-        status_item.setForeground(color)
+        
+        # Special handling for delisted status
+        if status == "Delisted":
+            font = status_item.font()
+            font.setBold(True)
+            status_item.setFont(font)
+            status_item.setForeground(Qt.black)
+        else:
+            status_item.setForeground(color)
+        
         self.verification_status[row] = status
 
     def show_actions_menu(self, row):
@@ -444,6 +456,9 @@ class VerifyTransactionsDialog(QDialog):
         
         verify_action = menu.addAction("Verify with Yahoo")
         verify_action.triggered.connect(lambda: self.verify_stock(row))
+        
+        delist_action = menu.addAction("Mark as Delisted")
+        delist_action.triggered.connect(lambda: self.mark_as_delisted(row))
         
         manage_splits_action = menu.addAction("Manage Splits")
         manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
@@ -481,6 +496,63 @@ class VerifyTransactionsDialog(QDialog):
             manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
             
             menu.exec_(self.table.viewport().mapToGlobal(position))
+
+    def mark_as_delisted(self, row):
+        """Mark a stock as delisted and update its status."""
+        try:
+            # Get current stock information
+            instrument_code = self.table.item(row, 0).text()
+            
+            # Confirm action with user
+            confirm = QMessageBox.question(
+                self,
+                "Confirm Delisting",
+                f"Are you sure you want to mark {instrument_code} as delisted?\n"
+                "This will preserve the stock's historical data but mark it as no longer trading.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if confirm == QMessageBox.Yes:
+                # Update the status in the table
+                status_item = QTableWidgetItem("Delisted")
+                font = status_item.font()
+                font.setBold(True)
+                status_item.setFont(font)
+                status_item.setForeground(Qt.black)
+                self.table.setItem(row, 7, status_item)
+                
+                # Update verification status in memory
+                self.verification_status[row] = "Delisted"
+                
+                # Update the stock data dictionary
+                if instrument_code in self.stock_data:
+                    self.stock_data[instrument_code]['verification_status'] = "Delisted"
+                
+                # If the stock exists in the database, update it immediately
+                stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if stock:
+                    stock_id = stock[0]
+                    self.db_manager.execute("""
+                        UPDATE stocks 
+                        SET verification_status = 'Delisted',
+                            last_updated = ?
+                        WHERE id = ?
+                    """, (datetime.now().replace(microsecond=0), stock_id))
+                    self.db_manager.conn.commit()
+                
+                QMessageBox.information(
+                    self,
+                    "Stock Delisted",
+                    f"{instrument_code} has been marked as delisted."
+                )
+                
+        except Exception as e:
+            logging.error(f"Error marking stock as delisted: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to mark stock as delisted: {str(e)}"
+            )
 
     def update_button_states(self):
         """Enable/disable buttons based on selection state."""
@@ -610,16 +682,25 @@ class VerifyTransactionsDialog(QDialog):
                     f"Failed to remove stocks: {str(e)}"
                 )
 
+    def _get_unverified_stocks(self):
+        """
+        Helper method to get list of unverified stocks.
+        Returns list of row numbers for stocks that are neither verified nor delisted.
+        """
+        return [
+            row for row, status in self.verification_status.items() 
+            if status not in ["Verified", "Delisted"]
+        ]
+
     def accept(self):
-        # Check if all stocks have been verified
-        unverified = [row for row, status in self.verification_status.items() 
-                     if status != "Verified"]
+        # Check if all stocks have been verified or delisted
+        unverified = self._get_unverified_stocks()
         
         if unverified:
             response = QMessageBox.question(
                 self,
                 "Unverified Stocks",
-                "Some stocks haven't been verified. Continue anyway?",
+                "Some stocks haven't been verified or marked as delisted. Continue anyway?",
                 QMessageBox.Yes | QMessageBox.No
             )
             if response == QMessageBox.No:
@@ -643,14 +724,13 @@ class VerifyTransactionsDialog(QDialog):
         """
         try:
             # Check for unverified stocks first
-            unverified = [row for row, status in self.verification_status.items() 
-                        if status != "Verified"]
+            unverified = self._get_unverified_stocks()
             
             if unverified:
                 response = QMessageBox.question(
                     self,
                     "Unverified Stocks",
-                    "Some stocks haven't been verified. Continue anyway?",
+                    "Some stocks haven't been verified or marked as delisted. Continue anyway?",
                     QMessageBox.Yes | QMessageBox.No
                 )
                 if response == QMessageBox.No:
@@ -771,6 +851,14 @@ class VerifyTransactionsDialog(QDialog):
                     if self.portfolio_id:
                         # Add portfolio association
                         self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
+
+                    # Save splits if they exist in stock_data
+                    if instrument_code in self.stock_data and 'splits' in self.stock_data[instrument_code]:
+                        splits = self.stock_data[instrument_code]['splits']
+                        self.db_manager.bulk_insert_stock_splits([
+                            (stock_id, date.strftime('%Y-%m-%d'), ratio, 'yahoo', datetime.now())
+                            for date, ratio in splits.items()
+                        ])
             
             # Commit all changes
             self.db_manager.conn.commit()
