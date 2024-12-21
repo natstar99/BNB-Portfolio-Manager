@@ -73,6 +73,7 @@ python main.py
 ```
 
 ### Project Structure
+```
 BNB/
 ├── config.py                        # Core configuration settings
 ├── config.yaml                      # User configuration file
@@ -116,6 +117,7 @@ BNB/
    ├── portfolio_study_view.py      # Portfolio analysis interface
    ├── portfolio_visualisation_view.py # Portfolio visualisation interface
    └── verify_transactions_view.py  # Transaction verification interface
+```
 
 ## Current Status
 
