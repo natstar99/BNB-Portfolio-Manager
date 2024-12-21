@@ -4,38 +4,50 @@
 
 # Bear No Bears - Portfolio Manager (BNB)
 
-## Version 2.X Development Branch
-This branch (v2.X) is a major architectural overhaul focusing on:
-- SQLite database integration for reliable data storage
-- Model-View-Controller (MVC) pattern for better code organisation
-- Better support for international markets
-- Improved transaction management
-- Automated data verification
-- More user control over database settings
+## Version 3.0 Release
+Version 3.0 represents a significant evolution with enhanced portfolio analysis capabilities and improved data management:
+- Advanced portfolio metrics calculation and storage
+- Sophisticated visualisation tools for portfolio analysis
+- Enhanced historical data management
+- Improved transaction processing with FIFO/LIFO/HIFO support
+- Better service architecture and code organisation
+- Refined user interface with interactive charts
 
 ## Core Features
 
 ### Portfolio Management
 - Create and manage multiple investment portfolios
 - Import transactions from CSV/Excel files
-- Track stocks across 60+ global exchanges (Pretty much any stock that is available on yahoo finance)
-- Automatic stock verification against Yahoo Finance
+- Track stocks across 60+ global exchanges (Any stock available on Yahoo Finance)
+- Intelligent stock verification against Yahoo Finance
 - Real-time price updates
-- Historical price data tracking
+- Comprehensive historical data tracking
+- Advanced portfolio metrics calculation
 
 ### Transaction Handling
-- Secure local SQLite database
+- Secure local SQLite database with optimized schema
 - Support for buy/sell transactions
-- Dividend tracking
+- Advanced dividend tracking and analysis
 - Automated dividend reinvestment plan (DRP) calculations
-- Stock split management and verification
+- Sophisticated stock split management and verification
+- FIFO/LIFO/HIFO calculation support for realised tax 
 - Historical transaction analysis
+
+### Portfolio Analysis
+- Interactive portfolio performance visualisation
+- Multiple chart types (line, area, pie charts)
+- Profitability analysis (percentage and dollar values)
+- Market value tracking
+- Dividend performance analysis
+- Portfolio distribution insights
+- Custom date range analysis
 
 ### Market Support
 - Built-in support for major international exchanges
-- Automatic market code handling
-- Manual override options for special cases (To handle situations where yahoo finance is missing data)
-- Yahoo Finance integration for real-time data
+- Intelligent market code handling
+- Manual override options for data gaps
+- Enhanced Yahoo Finance integration
+- Improved historical data collection
 
 ## Technical Details
 
@@ -44,6 +56,8 @@ This branch (v2.X) is a major architectural overhaul focusing on:
 - PySide6 (Qt for Python)
 - pandas
 - yfinance
+- matplotlib
+- numpy
 
 ### Installation
 ```bash
@@ -56,30 +70,52 @@ pip install -r requirements.txt
 
 # Run the application
 python main.py
-```
 
 ### Project Structure
 ```
 BNB/
-├── config.py                # Application configuration
-├── main.py                  # Entry point
-├── controllers/             # Application logic
-│   ├── import_transactions_controller.py
-│   ├── portfolio_controller.py
-│   └── portfolio_view_controller.py
-├── models/                  # Data models
-│   ├── portfolio.py
-│   ├── stock.py
-│   └── transaction.py
-├── views/                   # User interface
-│   ├── import_transactions_view.py
-│   ├── manage_portfolios_view.py
-│   └── my_portfolio_view.py
-├── database/               # Database management
-│   ├── database_manager.py
-│   └── schema.sql
-└── utils/                  # Utility functions
-    └── stock_symbol_manager.py
+├── config.py                        # Core configuration settings
+├── config.yaml                      # User configuration file
+├── main.py                          # Application entry point
+│
+├── controllers/                              # Application logic controllers
+│   ├── import_transactions_controller.py     # Handles importing of transaction data
+│   ├── market_analysis_controller.py         # Controls market analysis features
+│   ├── portfolio_controller.py               # Core portfolio operations controller
+│   ├── portfolio_optimisation_controller.py  # Portfolio optimisation features
+│   ├── portfolio_study_controller.py         # Controls portfolio analysis and visualisation
+│   ├── portfolio_view_controller.py          # Manages portfolio view and interactions
+│   └── portfolio_visualisation_controller.py # Manages portfolio view and interactions
+│
+├── database/                        # Database related files
+│   ├── database_manager.py          # Core database operations manager
+│   ├── portfolio_metrics.sql        # SQL for portfolio metrics calculations
+│   ├── portfolio_metrics_manager.py # Manages portfolio metrics calculations
+│   └── schema.sql                   # Main database schema
+│
+├── models/                          # Data models
+│   ├── portfolio.py                 # Portfolio data model
+│   ├── stock.py                     # Stock data model
+│   └── transaction.py               # Transaction data model
+│
+├── utils/                           # Utility functions
+│   ├── date_utils.py                # Date handling utilities
+│   ├── fifo_hifo_lifo_calculator.py # Tax lot calculation utilities
+│   ├── historical_data_collector.py # Historical data collection utilities
+│   └── yahoo_finance_service.py     # Yahoo Finance API service wrapper
+│
+└── views/                           # User interface views
+   ├── historical_data_view.py      # Historical data display view
+   ├── import_transactions_view.py  # Transaction import interface
+   ├── main_window.py              # Main application window
+   ├── manage_markets_dialog.py     # Market settings management dialog
+   ├── manage_portfolios_view.py    # Portfolio management interface
+   ├── market_analysis_view.py      # Market analysis interface
+   ├── my_portfolio_view.py         # Individual portfolio view
+   ├── portfolio_optimisation_view.py # Portfolio optimisation interface
+   ├── portfolio_study_view.py      # Portfolio analysis interface
+   ├── portfolio_visualisation_view.py # Portfolio visualisation interface
+   └── verify_transactions_view.py  # Transaction verification interface
 ```
 
 ## Current Status
@@ -94,17 +130,41 @@ BNB/
 - Basic portfolio analysis
 - Yahoo Finance integration
 
-### Under Development
-V2.X is still under development and not ready for release.
-- V2.X is primarily focused on portfolio set up, database management and validation, along with error handling. 
-V3.X will include many of the graphs, settings,
-V4.X will include deeper stock market analysis such as machine learning/neural network integration, portfolio health checks and asset correlation matrices.
+### Future Development
+V3.X will focus on:
+- Improving the asset correlation matrices and risk analysis (Sharpe ratio, beta, etc.)
+- Improving the portfolio optimisation features
+- UI improvements
+- Bug fixes and data fidelity
+- Better support for different tax calculation methods
+- Custom benchmark comparisons
+- Tax optimisation strategies for realised profit/loss
+V4.X+ will focus on:
+- Initial .exe release with:
+ - Automated updates
+ - Installation wizard
+ - User preferences persistence
+- Machine learning/neural network integration:
+ - Portfolio risk prediction
+ - Market trend analysis
+ - Anomaly detection
+ - Price movement forecasting
+ - Investment pattern recognition
+- Market intelligence features:
+ - Automated news aggregation and sentiment analysis
+ - Real-time market trend detection
+ - Company financial health monitoring
+ - Sector performance analysis
+ - Social media sentiment tracking
+- Personal finance integratoin:
+ - Budgeting and expense tracking
+ - Net worth monitoring
+ - Income and expense categorisation
+ - Property portfolio tracking
 
 ### Known Limitations
-- Manual price refresh required
-- Limited charting capabilities
-- Basic reporting only
-- Some market data may be delayed
+- International currency conversion still in development
+- Limited to Yahoo Finance data availability
 
 ## Contributing
 BNB is an open-source project and welcomes contributions from the community. Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.

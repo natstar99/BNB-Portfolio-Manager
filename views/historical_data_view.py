@@ -1,62 +1,81 @@
 # File: views/historical_data_view.py
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                              QTableWidget, QTableWidgetItem, QHeaderView, 
+                              QTableWidget, QTableWidgetItem, QGroupBox, 
                               QLabel, QDateEdit, QDialogButtonBox, QCheckBox,
                               QAbstractItemView, QComboBox, QMessageBox,
-                              QDoubleSpinBox, QFormLayout)
+                              QDoubleSpinBox, QFormLayout, QSpinBox, QHeaderView,
+                              QApplication)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
+from utils.historical_data_collector import HistoricalDataCollector
+import yaml
+import os
 
 logger = logging.getLogger(__name__)
 
 class HistoricalDataDialog(QDialog):
     def __init__(self, stock, db_manager, parent=None):
+        super().__init__(parent)
         self.stock = stock
         self.db_manager = db_manager
-        super().__init__(parent)
-        
-        # Get DRP status before initialising UI
-        self.drp_enabled = self.get_drp_status()
+        self.config = self.load_view_config()  # Load configuration
+        self.current_view_mode = "Simple"  # Default to Simple view
+        self.visible_columns = self.get_columns_for_view_mode(self.current_view_mode)
         self.init_ui()
         self.load_data()
 
-    def get_drp_status(self):
-        """Get the DRP status for the current stock."""
-        result = self.db_manager.fetch_one(
-            "SELECT drp FROM stocks WHERE id = ?",
-            (self.stock.id,)
-        )
-        return bool(result[0]) if result else False
-
     def init_ui(self):
         """Initialise the user interface components."""
-        self.setWindowTitle(f"Historical Data - {self.stock.name} ({self.stock.yahoo_symbol})")
-        self.setMinimumWidth(1200)
-        self.setMinimumHeight(700)
-        
-        layout = QVBoxLayout(self)
+        self.setWindowTitle("View Historical Data")
+        screen = QApplication.primaryScreen().geometry()
+        self.setGeometry(0.1*screen.width(), 0.1*screen.height(), 0.8*screen.width(), 0.8*screen.height())
 
-        # Add transaction management buttons
-        transaction_layout = QHBoxLayout()
+        layout = QVBoxLayout(self)
         
-        self.add_transaction_btn = QPushButton("Add Transaction")
-        self.add_transaction_btn.clicked.connect(self.add_transaction)
-        transaction_layout.addWidget(self.add_transaction_btn)
+        # Add title with stock information
+        title = QLabel(f"Historical Data - {self.stock.name} ({self.stock.yahoo_symbol})")
+        title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(title)
+
+        # Create toolbar
+        toolbar = QHBoxLayout()
         
-        self.delete_transaction_btn = QPushButton("Delete Selected Transaction")
-        self.delete_transaction_btn.clicked.connect(self.delete_transaction)
-        self.delete_transaction_btn.setEnabled(False)  # Initially disabled
-        transaction_layout.addWidget(self.delete_transaction_btn)
+        # View mode selector
+        toolbar.addWidget(QLabel("View Mode:"))
+        self.view_mode_combo = QComboBox()
+        self.view_mode_combo.addItems(["Simple", "Detailed", "Custom"])
+        self.view_mode_combo.currentTextChanged.connect(self.on_view_mode_changed)
+        toolbar.addWidget(self.view_mode_combo)
         
-        # Add update historical data button
-        self.update_historical_btn = QPushButton("Update Historical Data")
-        self.update_historical_btn.clicked.connect(self.update_historical_data)
-        transaction_layout.addWidget(self.update_historical_btn)
+        # Group visibility toggles
+        self.group_toggles = {}
+        for group_name in self.config['column_groups'].keys():
+            display_name = group_name.replace('_', ' ').title()
+            checkbox = QCheckBox(display_name)
+            checkbox.setChecked(True)
+            checkbox.stateChanged.connect(self.on_group_visibility_changed)
+            self.group_toggles[group_name] = checkbox
+            toolbar.addWidget(checkbox)
+
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        # Transaction management buttons
+        button_bar = QHBoxLayout()
         
-        transaction_layout.addStretch()
-        layout.addLayout(transaction_layout)
+        # Left side buttons
+        self.manage_data_btn = QPushButton("Manage Historical Data")
+        self.manage_data_btn.clicked.connect(self.show_manage_dialog)
+        button_bar.addWidget(self.manage_data_btn)
+
+        # Right side buttons
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self.show_settings_dialog)
+        button_bar.addWidget(settings_btn)
+        
+        layout.addLayout(button_bar)
 
         # Filter controls
         filter_layout = QHBoxLayout()
@@ -73,12 +92,6 @@ class HistoricalDataDialog(QDialog):
         self.date_to.setDate(QDate.currentDate())
         filter_layout.addWidget(self.date_to)
 
-        # Event type filter
-        filter_layout.addWidget(QLabel("Show:"))
-        self.event_filter = QComboBox()
-        self.event_filter.addItems(["All", "Prices Only", "Transactions Only", "Dividends Only"])
-        filter_layout.addWidget(self.event_filter)
-
         # Apply filters button
         self.apply_filter_btn = QPushButton("Apply Filters")
         self.apply_filter_btn.clicked.connect(self.apply_filters)
@@ -89,381 +102,580 @@ class HistoricalDataDialog(QDialog):
         self.reset_filter_btn.clicked.connect(self.reset_filters)
         filter_layout.addWidget(self.reset_filter_btn)
 
-        filter_layout.addStretch()
         layout.addLayout(filter_layout)
 
-        # Table
+        # Main table
         self.table = QTableWidget()
-        
-        # Set up all columns
-        self.columns = [
-            "Date",
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Adjusted Close",
-            "Volume",
-            "Stock Split",
-            "Dividend",
-            "Cash Dividend",
-            "DRP Shares",
-            "Transaction Type",
-            "Quantity",
-            "Price",
-            "Total Shares",
-            "Market Value"
-        ]
-        
-        self.table.setColumnCount(len(self.columns))
-        self.table.setHorizontalHeaderLabels(self.columns)
-        
-        # Enable sorting
         self.table.setSortingEnabled(True)
-        
-        # Set column resize modes
-        header = self.table.horizontalHeader()
-        for i in range(len(self.columns)):
-            header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-
-        # Add table to layout
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.table)
 
-        # Close button
-        self.close_btn = QPushButton("Close")
-        self.close_btn.clicked.connect(self.accept)
-        layout.addWidget(self.close_btn)
-
-        # Set the layout
         self.setLayout(layout)
-
-        # Connect table selection signal
-        self.table.itemSelectionChanged.connect(self.update_button_states)
+        self.resize(1200, 800)
 
     def load_data(self):
-            try:
-                # Using the recursive CTE query with updated column names
-                data = self.db_manager.fetch_all("""
-                    WITH RECURSIVE running_totals AS (
-                        SELECT 
-                            COALESCE(hp.date, date(t.date)) as date,
-                            hp.open_price,
-                            hp.high_price,
-                            hp.low_price,
-                            hp.close_price,
-                            hp.adjusted_close,
-                            hp.volume,
-                            ss.ratio as split_ratio,
-                            hp.dividend,
-                            t.transaction_type,
-                            t.quantity as transaction_quantity,
-                            t.price as transaction_price,
-                            COALESCE(hp.stock_id, t.stock_id) as stock_id,
-                            COALESCE(
-                                CASE 
-                                    WHEN t.transaction_type = 'BUY' THEN t.quantity 
-                                    WHEN t.transaction_type = 'SELL' THEN -t.quantity 
-                                    ELSE 0 
-                                END
-                            , 0) as base_quantity_change,
-                            0 as drp_shares,
-                            0 as total_shares,
-                            ROW_NUMBER() OVER (ORDER BY COALESCE(hp.date, date(t.date))) as row_num
-                        FROM (
-                            SELECT DISTINCT date FROM historical_prices WHERE stock_id = ?
-                            UNION
-                            SELECT DISTINCT date(date) FROM transactions WHERE stock_id = ?
-                        ) dates
-                        LEFT JOIN historical_prices hp ON dates.date = hp.date AND hp.stock_id = ?
-                        LEFT JOIN transactions t ON dates.date = date(t.date) AND t.stock_id = ?
-                        LEFT JOIN stock_splits ss ON dates.date = date(ss.date) AND ss.stock_id = ?
-                        LEFT JOIN stocks s ON hp.stock_id = s.id OR t.stock_id = s.id
-                    ),
-                    compounded_totals AS (
-                        -- Base case: first row
-                        SELECT 
-                            date,
-                            open_price,
-                            high_price,
-                            low_price,
-                            close_price,
-                            adjusted_close,
-                            volume,
-                            split_ratio,
-                            dividend,
-                            transaction_type,
-                            transaction_quantity,
-                            transaction_price,
-                            stock_id,
-                            base_quantity_change,
-                            0 as drp_shares,
-                            base_quantity_change as total_shares,
-                            row_num
-                        FROM running_totals 
-                        WHERE row_num = 1
+        """Fetch and display historical data combining prices, transactions and metrics."""
+        try:
+            # First, let's get the ordered fields from our visible columns
+            fields = []
+            for col in self.visible_columns:
+                field = col['field']
+                # Determine table prefix based on the field
+                if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
+                    fields.append(f"hp.{field}")
+                elif field in ['transaction_type', 'price', 'quantity']:
+                    fields.append(f"t.{field}")
+                else:
+                    fields.append(f"pm.{field}")
 
-                        UNION ALL
+            logger.debug(f"Selected fields in order: {fields}")
 
-                        -- Recursive case
-                        SELECT 
-                            r.date,
-                            r.open_price,
-                            r.high_price,
-                            r.low_price,
-                            r.close_price,
-                            r.adjusted_close,
-                            r.volume,
-                            r.split_ratio,
-                            r.dividend,
-                            r.transaction_type,
-                            r.transaction_quantity,
-                            r.transaction_price,
-                            r.stock_id,
-                            r.base_quantity_change,
-                            CASE
-                                WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                    ROUND(r.dividend * ct.total_shares / COALESCE(r.close_price, r.transaction_price), 4)
-                                ELSE 0
-                            END as drp_shares,
-                            -- Apply split adjustments to the running total
-                            CASE
-                                WHEN r.split_ratio IS NOT NULL THEN
-                                    -- When a split occurs, multiply existing shares by the split ratio
-                                    (ct.total_shares * r.split_ratio) + r.base_quantity_change +
-                                    CASE
-                                        WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                            ROUND(r.dividend * ct.total_shares * r.split_ratio / COALESCE(r.close_price, r.transaction_price), 4)
-                                        ELSE 0
-                                    END
-                                ELSE
-                                    -- No split, just add new quantities
-                                    ct.total_shares + r.base_quantity_change +
-                                    CASE
-                                        WHEN s.drp = 1 AND r.dividend > 0 THEN
-                                            ROUND(r.dividend * ct.total_shares / COALESCE(r.close_price, r.transaction_price), 4)
-                                        ELSE 0
-                                    END
-                            END as total_shares,
-                            r.row_num
-                        FROM running_totals r
-                        JOIN compounded_totals ct ON r.row_num = ct.row_num + 1
-                        JOIN stocks s ON r.stock_id = s.id
-                    )
-                    SELECT 
-                        date,
-                        open_price,
-                        high_price,
-                        low_price,
-                        close_price,
-                        adjusted_close,
-                        volume,
-                        split_ratio,
-                        dividend,
-                        CASE
-                            WHEN s.drp = 0 AND dividend > 0 
-                            THEN dividend * total_shares
-                            ELSE 0
-                        END as cash_dividend,
-                        CASE
-                            WHEN s.drp = 1 AND dividend > 0
-                            THEN drp_shares
-                            ELSE 0
-                        END as drp_shares,
-                        transaction_type,
-                        transaction_quantity,
-                        transaction_price,
-                        ROUND(total_shares, 4) as total_shares,
-                        ROUND(COALESCE(close_price, transaction_price) * total_shares, 2) as market_value
-                    FROM compounded_totals
-                    JOIN stocks s ON s.id = ?
-                    ORDER BY date DESC
-                """, (self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id, self.stock.id))
+            # Build query using the ordered fields
+            query = f"""
+                SELECT 
+                    {', '.join(fields)}
+                FROM historical_prices hp
+                LEFT JOIN transactions t 
+                    ON hp.stock_id = t.stock_id 
+                    AND date(hp.date) = date(t.date)
+                LEFT JOIN portfolio_metrics pm 
+                    ON hp.stock_id = pm.stock_id 
+                    AND hp.date = pm.date
+                WHERE hp.stock_id = ?
+                ORDER BY hp.date DESC
+            """
 
+            logger.debug(f"Executing query with fields: {fields}")
+            data = self.db_manager.fetch_all(query, (self.stock.id,))
+
+            if data:
+                # Log first row of data for debugging
+                logger.debug(f"First row of data: {data[0]}")
+                logger.debug(f"Number of columns in data: {len(data[0])}")
+                logger.debug(f"Number of visible columns: {len(self.visible_columns)}")
                 self.populate_table(data)
-
-            except Exception as e:
-                logger.error(f"Error loading historical data: {str(e)}")
+            else:
+                logger.warning(f"No historical data found for stock_id {self.stock.id}")
                 QMessageBox.warning(
                     self,
-                    "Error Loading Data",
-                    f"Failed to load historical data: {str(e)}"
+                    "No Data",
+                    "No historical data available for this stock."
                 )
 
-    def populate_table(self, data):
-            """Refresh the table with current data."""
-            self.table.setRowCount(len(data))
-            
-            # Dictionary to track which columns should be visible
-            columns_with_data = {col: False for col in range(len(self.columns))}
-            columns_with_data[0] = True  # Date column always visible
-            columns_with_data[14] = True  # Total Shares always visible
-            columns_with_data[15] = True  # Market Value always visible
-            
-            for row, record in enumerate(data):
-                # Date (always shown)
-                self.table.setItem(row, 0, QTableWidgetItem(record[0]))
-                
-                # Price data (Open through Volume)
-                for col in range(1, 7):
-                    value = record[col]
-                    self.table.setItem(row, col, QTableWidgetItem(""))
-                    if value is not None:
-                        self.table.item(row, col).setText(f"{value:,.2f}")
-                        columns_with_data[col] = True
+        except Exception as e:
+            logger.error(f"Error loading historical data: {str(e)}")
+            logger.exception("Detailed traceback:")
+            QMessageBox.warning(
+                self,
+                "Error Loading Data",
+                f"Failed to load historical data: {str(e)}"
+            )
 
-                # Stock Split
-                split_ratio = record[7]
-                self.table.setItem(row, 7, QTableWidgetItem(""))
-                if split_ratio:
-                    split_item = QTableWidgetItem(f"{split_ratio}:1")
-                    split_item.setBackground(Qt.blue)
-                    split_item.setForeground(Qt.white)
-                    self.table.setItem(row, 7, split_item)
-                    columns_with_data[7] = True
+    def load_view_config(self):
+        """Load view configuration from YAML file."""
+        try:
+            import yaml
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+            print(config_path)
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)['historical_data_view']
+        except Exception as e:
+            logger.error(f"Error loading view configuration: {str(e)}")
+            return None
 
-                # Dividend
-                dividend = record[8]
-                self.table.setItem(row, 8, QTableWidgetItem(""))
-                if dividend and dividend > 0:
-                    dividend_item = QTableWidgetItem(f"${dividend:,.4f}")
-                    dividend_item.setForeground(Qt.darkGreen)
-                    self.table.setItem(row, 8, dividend_item)
-                    columns_with_data[8] = True
-
-                # Cash Dividend
-                cash_dividend = record[9]
-                self.table.setItem(row, 9, QTableWidgetItem(""))
-                if cash_dividend and cash_dividend > 0:
-                    cash_item = QTableWidgetItem(f"${cash_dividend:,.2f}")
-                    cash_item.setForeground(Qt.darkGreen)
-                    self.table.setItem(row, 9, cash_item)
-                    columns_with_data[9] = True
-
-                # DRP Shares
-                drp_shares = record[10]
-                self.table.setItem(row, 10, QTableWidgetItem(""))
-                if drp_shares and drp_shares > 0:
-                    drp_item = QTableWidgetItem(f"+{drp_shares:,.4f}")
-                    drp_item.setForeground(Qt.blue)
-                    self.table.setItem(row, 10, drp_item)
-                    columns_with_data[10] = True
-
-                # Transaction Type, Quantity, Price
-                for col in range(11, 14):
-                    value = record[col]
-                    self.table.setItem(row, col, QTableWidgetItem(""))
-                    if value:
-                        if col == 13:  # Price column
-                            self.table.item(row, col).setText(f"${value:,.2f}")
-                        else:
-                            self.table.item(row, col).setText(str(value))
-                        self.table.item(row, col).setBackground(Qt.lightGray)
-                        columns_with_data[col] = True
-
-                # Total Shares
-                total_shares = record[14]
-                self.table.setItem(row, 14, QTableWidgetItem(""))
-                if total_shares is not None:
-                    self.table.item(row, 14).setText(f"{total_shares:,.4f}")
-
-                # Market Value
-                market_value = record[15]
-                self.table.setItem(row, 15, QTableWidgetItem(""))
-                if market_value is not None:
-                    self.table.item(row, 15).setText(f"${market_value:,.2f}")
-
-            # Hide empty columns
-            for col in range(len(self.columns)):
-                self.table.setColumnHidden(col, not columns_with_data[col])
-
-            # Auto-resize visible columns
-            self.table.resizeColumnsToContents()
+    def get_columns_for_view_mode(self, mode):
+        """Get list of visible columns based on view mode."""
+        columns = []
+        for group in self.config['column_groups'].values():
+            for column in group:
+                if mode == "Detailed" or (mode == "Simple" and column['simple_view']):
+                    columns.append(column)
+        return columns
 
     def apply_filters(self):
-        """Apply date and type filters to the data."""
-        date_from = self.date_from.date().toString("yyyy-MM-dd")
-        date_to = self.date_to.date().toString("yyyy-MM-dd")
-        filter_type = self.event_filter.currentText()
+        """Apply date and view mode filters to the data."""
+        try:
+            date_from = self.date_from.date().toString("yyyy-MM-dd")
+            date_to = self.date_to.date().toString("yyyy-MM-dd")
+            
+            # Build column list based on visible columns
+            visible_columns = []
+            for column in self.visible_columns:
+                field = column['field']
+                # Determine which table the field comes from
+                if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
+                    visible_columns.append(f"hp.{field}")
+                elif field in ['transaction_type', 'price', 'quantity']:
+                    visible_columns.append(f"t.{field}")
+                else:
+                    visible_columns.append(f"pm.{field}")
 
-        # Use the same query structure as load_data, but with date filters
-        query = """
-            WITH RECURSIVE daily_data AS (
-                SELECT 
-                    d.date,
-                    t.transaction_type,
-                    t.quantity as transaction_quantity,
-                    t.price as transaction_price,
-                    SUM(COALESCE(
-                        CASE 
-                            WHEN t.transaction_type = 'BUY' THEN t.quantity 
-                            WHEN t.transaction_type = 'SELL' THEN -t.quantity 
-                            ELSE 0 
-                        END
-                    , 0)) OVER (ORDER BY d.date) as running_shares
-                FROM (
-                    SELECT DISTINCT date FROM historical_prices 
-                    WHERE stock_id = ? AND date BETWEEN ? AND ?
-                    UNION
-                    SELECT DISTINCT date(date) FROM transactions 
-                    WHERE stock_id = ? AND date BETWEEN ? AND ?
-                ) d
-                LEFT JOIN transactions t ON date(t.date) = d.date AND t.stock_id = ?
-            ),
-            full_data AS (
-                SELECT 
-                    dd.date,
-                    hp.open_price,
-                    hp.high_price,
-                    hp.low_price,
-                    hp.close_price,
-                    hp.adjusted_close,
-                    hp.volume,
-                    ss.ratio as split_ratio,
-                    hp.dividend,
-                    CASE
-                        WHEN s.drp = 0 THEN hp.dividend * dd.running_shares
-                        ELSE 0
-                    END as cash_dividend,
-                    CASE
-                        WHEN s.drp = 1 AND hp.dividend > 0 AND hp.close_price > 0
-                        THEN (hp.dividend * dd.running_shares) / hp.close_price
-                        ELSE 0
-                    END as drp_shares,
-                    dd.transaction_type,
-                    dd.transaction_quantity,
-                    dd.transaction_price,
-                    dd.running_shares as total_shares,
-                    COALESCE(hp.close_price, dd.transaction_price) * dd.running_shares as market_value
-                FROM daily_data dd
-                LEFT JOIN historical_prices hp ON dd.date = hp.date AND hp.stock_id = ?
-                LEFT JOIN stock_splits ss ON dd.date = date(ss.date) AND ss.stock_id = ?
-                JOIN stocks s ON s.id = ?
-                WHERE 1=1
-        """
+            # Build query dynamically
+            query = f"""
+                SELECT {', '.join(visible_columns)}
+                FROM historical_prices hp
+                LEFT JOIN transactions t 
+                    ON hp.stock_id = t.stock_id 
+                    AND date(hp.date) = date(t.date)
+                LEFT JOIN portfolio_metrics pm 
+                    ON hp.stock_id = pm.stock_id 
+                    AND hp.date = pm.date
+                WHERE hp.stock_id = ? 
+                AND hp.date BETWEEN ? AND ?
+                ORDER BY hp.date DESC
+            """
 
-        # Add filter conditions
-        if filter_type == "Transactions Only":
-            query += " AND dd.transaction_type IS NOT NULL"
-        elif filter_type == "Prices Only":
-            query += " AND dd.transaction_type IS NULL"
-        elif filter_type == "Dividends Only":
-            query += " AND (hp.dividend > 0)"
+            data = self.db_manager.fetch_all(query, (self.stock.id, date_from, date_to))
+            self.populate_table(data)
 
-        query += """
+        except Exception as e:
+            logger.error(f"Error applying filters: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Filter Error",
+                f"Failed to apply filters: {str(e)}"
             )
-            SELECT * FROM full_data
-            ORDER BY date DESC
-        """
 
-        # Update parameters to include date range
-        data = self.db_manager.fetch_all(query, (
-            self.stock.id, date_from, date_to,  # For first date filter
-            self.stock.id, date_from, date_to,  # For second date filter
-            self.stock.id,                      # For transactions join
-            self.stock.id, self.stock.id, self.stock.id  # For final joins
-        ))
+    def populate_table(self, data):
+        """
+        Populate the table with formatted data.
         
-        self.populate_table(data)
+        Args:
+            data: Raw data to display in the table
+        """
+        try:
+            self.table.clear()
+            self.table.setColumnCount(len(self.visible_columns))
+            headers = [col['name'] for col in self.visible_columns]
+            self.table.setHorizontalHeaderLabels(headers)
+
+            if not data:
+                self.table.setRowCount(0)
+                return
+
+            self.table.setRowCount(len(data))
+            
+            for row in range(len(data)):
+                for col in range(len(self.visible_columns)):
+                    if col < len(data[row]):
+                        value = data[row][col]
+                        if value is not None:
+                            column_info = self.visible_columns[col]
+                            formatted_value = self.format_value(value, column_info)
+                            item = QTableWidgetItem(formatted_value)
+                            
+                            # Set alignment for numeric values
+                            if isinstance(value, (int, float)):
+                                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                            
+                            # Set colors for P/L and Return values
+                            if isinstance(value, (int, float)) and ('P/L' in column_info['name'] or 'Return' in column_info['name']):
+                                color = Qt.darkGreen if value >= 0 else Qt.red
+                                item.setForeground(color)
+                            
+                            self.table.setItem(row, col, item)
+
+            # Auto-hide empty columns if enabled
+            if self.config.get('auto_hide_empty_columns', True):
+                self.hide_empty_columns()
+
+            # Resize columns to content
+            self.table.resizeColumnsToContents()
+
+        except Exception as e:
+            logger.error(f"Error populating table: {str(e)}")
+            logger.error(f"Visible columns: {len(self.visible_columns)}, Data columns: {len(data[0]) if data else 0}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to populate table: {str(e)}"
+            )
+
+    def format_value(self, value, column_info):
+        """
+        Format a value based on column type and settings.
+        
+        Args:
+            value: The value to format
+            column_info: Dictionary containing column information
+            
+        Returns:
+            str: Formatted value string
+        """
+        if value is None:
+            return ""
+
+        # Handle non-numeric values
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        
+        if not isinstance(value, (int, float)):
+            return str(value)
+
+        try:
+            # Determine column type and get corresponding format
+            column_name = column_info['name']
+            
+            # Get format settings - add debug logging
+            formats = self.config.get('column_formats', {})
+            logger.debug(f"Current formats config: {formats}")
+            
+            # Determine format type and apply formatting
+            if any(text in column_name for text in ['Open', 'High', 'Low', 'Close', 'Price',
+                                                'Value', 'P/L', 'Cost', 'Dividend', 'DRP',
+                                                'Total Return']):
+                format_config = formats.get('price_formats', {'default': '.2f'})
+                decimals = int(format_config['default'].split('.')[1][0])
+                return f"${value:.{decimals}f}"
+                
+            elif '%' in column_name:
+                format_config = formats.get('percentage_formats', {'default': '.2f'})
+                decimals = int(format_config['default'].split('.')[1][0])
+                return f"{value:.{decimals}f}%"
+                
+            else:  # Quantity format for all other numeric values
+                format_config = formats.get('quantity_formats', {'default': '.4f'})
+                decimals = int(format_config['default'].split('.')[1][0])
+                return f"{value:.{decimals}f}"
+                
+        except Exception as e:
+            logger.error(f"Error formatting value {value} for column {column_info['name']}: {str(e)}")
+            logger.exception("Detailed traceback:")  # Add full traceback
+            return str(value)
+
+    def hide_empty_columns(self):
+        """Hide columns that are empty or contain all zeros/ones based on settings."""
+        for col in range(self.table.columnCount()):
+            hide_column = True
+            has_non_zero = False
+            has_non_one = False
+            
+            for row in range(self.table.rowCount()):
+                item = self.table.item(row, col)
+                if item and item.text().strip():
+                    hide_column = False
+                    value_str = item.text().replace('$', '').replace(',', '').replace('%', '')
+                    try:
+                        value = float(value_str)
+                        if value != 0:
+                            has_non_zero = True
+                        if value != 1:
+                            has_non_one = True
+                    except ValueError:
+                        has_non_zero = True
+                        has_non_one = True
+
+            # Apply hiding rules
+            if (hide_column or 
+                (self.config.get('hide_all_zero_columns', True) and not has_non_zero) or
+                (self.config.get('hide_all_one_columns', True) and not has_non_one)):
+                self.table.hideColumn(col)
+
+    def on_view_mode_changed(self, mode):
+        """Handle changes to the view mode."""
+        try:
+            self.current_view_mode = mode
+            self.visible_columns = self.get_columns_for_view_mode(mode)
+            
+            # If switching to custom mode, show the column selector dialog
+            if mode == "Custom":
+                self.show_column_selector()
+            else:
+                # Refresh the table with new column configuration
+                self.apply_filters()
+                
+        except Exception as e:
+            logger.error(f"Error changing view mode: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to change view mode: {str(e)}"
+            )
+
+    def on_group_visibility_changed(self):
+        """Handle changes to group visibility toggles."""
+        try:
+            visible_groups = [
+                group_name for group_name, checkbox in self.group_toggles.items()
+                if checkbox.isChecked()
+            ]
+            
+            # Update visible columns based on checked groups
+            if self.current_view_mode != "Custom":
+                self.visible_columns = [
+                    column for group_name in visible_groups 
+                    for column in self.config['column_groups'][group_name]
+                    if self.current_view_mode == "Detailed" or column['simple_view']
+                ]
+                
+                # Refresh the table
+                self.apply_filters()
+                
+        except Exception as e:
+            logger.error(f"Error updating group visibility: {str(e)}")
+
+    def show_manage_dialog(self):
+        """Show the manage historical data dialog."""
+        dialog = ManageHistoricalDataDialog(self.stock, self.db_manager, self)
+        if dialog.exec_():
+            self.load_data()  # Refresh main view after managing data
+
+    def show_settings_dialog(self):
+        """Show dialog for configuring view settings."""
+        try:
+            dialog = ColumnSettingsDialog(self.config, self.visible_columns, self)
+            if dialog.exec_():
+                if dialog.save_settings_to_config():
+                    # Update settings
+                    self.config.update(dialog.get_settings())
+                    # Refresh the view
+                    self.apply_filters()
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        "Settings have been saved and applied."
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Warning",
+                        "Failed to save settings to config file."
+                    )
+        except Exception as e:
+            logger.error(f"Error showing settings dialog: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to update settings: {str(e)}"
+            )
+
+    def reset_filters(self):
+        """Reset all filters to default values."""
+        try:
+            # Reset date range to defaults
+            min_date = self.get_earliest_date()
+            if min_date:
+                self.date_from.setDate(min_date)
+            self.date_to.setDate(QDate.currentDate())
+
+            # Reset view mode to Simple
+            self.view_mode_combo.setCurrentText("Simple")
+
+            # Reset all group toggles to checked
+            for checkbox in self.group_toggles.values():
+                checkbox.setChecked(True)
+
+            # Refresh the data
+            self.apply_filters()
+
+        except Exception as e:
+            logger.error(f"Error resetting filters: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to reset filters: {str(e)}"
+            )
+
+    def get_earliest_date(self):
+        """Get the earliest date from transactions or historical data."""
+        try:
+            result = self.db_manager.fetch_one("""
+                SELECT MIN(date) FROM (
+                    SELECT MIN(date) as date FROM transactions WHERE stock_id = ?
+                    UNION
+                    SELECT MIN(date) FROM historical_prices WHERE stock_id = ?
+                )
+            """, (self.stock.id, self.stock.id))
+            
+            if result and result[0]:
+                return QDate.fromString(result[0].split()[0], "yyyy-MM-dd")
+            return QDate.currentDate()
+
+        except Exception as e:
+            logger.error(f"Error getting earliest date: {str(e)}")
+            return QDate.currentDate()
+    
+    def show_column_selector(self):
+        """Show dialog for selecting custom columns."""
+        try:
+            dialog = ColumnSelectorDialog(self.config, self.visible_columns, self)
+            if dialog.exec_():
+                self.visible_columns = dialog.get_selected_columns()
+                self.apply_filters()
+                
+        except Exception as e:
+            logger.error(f"Error showing column selector: {str(e)}")
+
+class ColumnSettingsDialog(QDialog):
+    """
+    Dialog for managing column display settings and formats.
+    Combines both general settings and column-specific format settings in one dialog.
+    """
+    def __init__(self, config, visible_columns, parent=None):
+        super().__init__(parent)
+        self.config = config.copy()
+        self.visible_columns = visible_columns
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setWindowTitle("Column Settings")
+        self.setMinimumWidth(800)
+        layout = QVBoxLayout(self)
+
+        # Auto-hide settings
+        auto_hide_group = QGroupBox("Display Settings")
+        auto_hide_layout = QVBoxLayout()
+        
+        self.hide_empty = QCheckBox("Hide empty columns")
+        self.hide_empty.setChecked(self.config.get('auto_hide_empty_columns', True))
+        
+        self.hide_zeros = QCheckBox("Hide columns with all zeros")
+        self.hide_zeros.setChecked(self.config.get('hide_all_zero_columns', True))
+        
+        self.hide_ones = QCheckBox("Hide columns with all ones")
+        self.hide_ones.setChecked(self.config.get('hide_all_one_columns', True))
+        
+        auto_hide_layout.addWidget(self.hide_empty)
+        auto_hide_layout.addWidget(self.hide_zeros)
+        auto_hide_layout.addWidget(self.hide_ones)
+        auto_hide_group.setLayout(auto_hide_layout)
+        layout.addWidget(auto_hide_group)
+
+        # Column formats table
+        format_group = QGroupBox("Column Format Settings")
+        format_layout = QVBoxLayout()
+        
+        # Help text
+        help_text = QLabel("Set decimal places for each column type. Changes apply to all columns of the same type.")
+        help_text.setWordWrap(True)
+        format_layout.addWidget(help_text)
+        
+        # Simple format settings table
+        self.format_table = QTableWidget()
+        self.format_table.setColumnCount(2)
+        self.format_table.setHorizontalHeaderLabels(["Column Type", "Decimal Places"])
+        
+        # Add rows for each format type
+        self.format_table.setRowCount(3)
+        types = ["Price", "Percentage", "Quantity"]
+        
+        for i, type_name in enumerate(types):
+            # Column type
+            type_item = QTableWidgetItem(type_name)
+            self.format_table.setItem(i, 0, type_item)
+            
+            # Decimal places spinbox
+            decimals = QSpinBox()
+            decimals.setRange(0, 8)
+            
+            # Get current default format
+            format_key = f"{type_name.lower()}_formats"
+            current_format = self.config.get('column_formats', {}).get(format_key, {}).get('default', '.2f')
+            current_decimals = int(current_format.split('.')[1][0])
+            decimals.setValue(current_decimals)
+            
+            self.format_table.setCellWidget(i, 1, decimals)
+        
+        self.format_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        format_layout.addWidget(self.format_table)
+        format_group.setLayout(format_layout)
+        layout.addWidget(format_group)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_settings(self):
+        """Return the current settings."""
+        # General settings
+        settings = {
+            'auto_hide_empty_columns': self.hide_empty.isChecked(),
+            'hide_all_zero_columns': self.hide_zeros.isChecked(),
+            'hide_all_one_columns': self.hide_ones.isChecked()
+        }
+        
+        # Format settings
+        column_formats = {}
+        format_types = ["price", "percentage", "quantity"]
+        
+        for i, format_type in enumerate(format_types):
+            decimals = self.format_table.cellWidget(i, 1).value()
+            column_formats[f"{format_type}_formats"] = {
+                'default': f".{decimals}f",
+                'custom': {}  # Simplified to use only default formats
+            }
+        
+        settings['column_formats'] = column_formats
+        return settings
+
+    def save_settings_to_config(self):
+        """Save settings directly to config file."""
+        try:
+            settings = self.get_settings()
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+            
+            # Load existing config
+            with open(config_path, 'r') as f:
+                full_config = yaml.safe_load(f)
+            
+            # Update historical_data_view settings
+            full_config['historical_data_view'].update(settings)
+            
+            # Write back to file
+            with open(config_path, 'w') as f:
+                yaml.dump(full_config, f, default_flow_style=False, sort_keys=False)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving settings to config: {str(e)}")
+            return False
+
+class ColumnSelectorDialog(QDialog):
+    """Dialog for selecting custom columns."""
+    def __init__(self, config, current_columns, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.current_columns = current_columns
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setWindowTitle("Select Columns")
+        layout = QVBoxLayout(self)
+        
+        # Create a group box for each column group
+        self.column_checks = {}
+        for group_name, columns in self.config['column_groups'].items():
+            group = QGroupBox(group_name.replace('_', ' ').title())
+            group_layout = QVBoxLayout()
+            
+            for column in columns:
+                checkbox = QCheckBox(column['name'])
+                checkbox.setChecked(column in self.current_columns)
+                self.column_checks[column['name']] = (checkbox, column)
+                group_layout.addWidget(checkbox)
+                
+            group.setLayout(group_layout)
+            layout.addWidget(group)
+        
+        # Dialog buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def get_selected_columns(self):
+        """Return the list of selected columns."""
+        return [
+            column for _, (checkbox, column) in self.column_checks.items()
+            if checkbox.isChecked()
+        ]
 
     def reset_filters(self):
         self.event_filter.setCurrentText("All")
@@ -480,24 +692,209 @@ class HistoricalDataDialog(QDialog):
         else:
             self.delete_transaction_btn.setEnabled(False)
 
-    def add_transaction(self):
+
+class ManageHistoricalDataDialog(QDialog):
+    """
+    Dialog for managing historical data including transactions and data updates.
+    Provides functionality to add/delete transactions and update historical data.
+    """
+    def __init__(self, stock, db_manager, parent=None):
+        super().__init__(parent)
+        self.stock = stock
+        self.db_manager = db_manager
+        self.init_ui()
+        self.load_data()
+
+    def init_ui(self):
+        """Initialise the user interface."""
+        self.setWindowTitle(f"Manage Historical Data - {self.stock.yahoo_symbol}")
+        self.setMinimumWidth(800)
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        instructions = QLabel(
+            "Manage historical data and transactions for this stock.\n"
+            "• Add or delete transactions\n"
+            "• Update historical price data from Yahoo Finance\n"
+            "• View transaction history"
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        # Transactions section
+        trans_group = QGroupBox("Transactions")
+        trans_layout = QVBoxLayout()
+
+        # Transactions table
+        self.trans_table = QTableWidget()
+        self.trans_table.setColumnCount(5)
+        self.trans_table.setHorizontalHeaderLabels([
+            "Date", "Type", "Quantity", "Price", "Value"
+        ])
+        self.trans_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.trans_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.trans_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.trans_table.itemSelectionChanged.connect(self.update_button_states)
+        trans_layout.addWidget(self.trans_table)
+
+        # Transaction buttons
+        button_layout = QHBoxLayout()
+        
+        self.add_trans_btn = QPushButton("Add Transaction")
+        self.add_trans_btn.clicked.connect(self.add_transaction)
+        button_layout.addWidget(self.add_trans_btn)
+
+        self.delete_trans_btn = QPushButton("Delete Transaction")
+        self.delete_trans_btn.clicked.connect(self.delete_transaction)
+        self.delete_trans_btn.setEnabled(False)
+        button_layout.addWidget(self.delete_trans_btn)
+
+        trans_layout.addLayout(button_layout)
+        trans_group.setLayout(trans_layout)
+        layout.addWidget(trans_group)
+
+        # Historical data section
+        data_group = QGroupBox("Historical Data")
+        data_layout = QVBoxLayout()
+
+        # Last update info
+        self.last_update_label = QLabel()
+        data_layout.addWidget(self.last_update_label)
+
+        # Update button
+        self.update_data_btn = QPushButton("Update Historical Data from Yahoo")
+        self.update_data_btn.clicked.connect(self.update_historical_data)
+        data_layout.addWidget(self.update_data_btn)
+
+        data_group.setLayout(data_layout)
+        layout.addWidget(data_group)
+
+        # Dialog buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+    def load_data(self):
+        """Load transaction data into the table."""
+        try:
+            transactions = self.db_manager.get_transactions_for_stock(self.stock.id)
+            self.trans_table.setRowCount(len(transactions))
+
+            for row, trans in enumerate(transactions):
+                # Date
+                date_item = QTableWidgetItem(trans[1].split()[0])  # Get date part only
+                self.trans_table.setItem(row, 0, date_item)
+
+                # Type
+                type_item = QTableWidgetItem(trans[4])
+                self.trans_table.setItem(row, 1, type_item)
+
+                # Quantity
+                quantity = float(trans[2])
+                quantity_item = QTableWidgetItem(f"{quantity:,.4f}")
+                quantity_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trans_table.setItem(row, 2, quantity_item)
+
+                # Price
+                price = float(trans[3])
+                price_item = QTableWidgetItem(f"${price:,.2f}")
+                price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trans_table.setItem(row, 3, price_item)
+
+                # Value
+                value = quantity * price
+                value_item = QTableWidgetItem(f"${value:,.2f}")
+                value_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trans_table.setItem(row, 4, value_item)
+
+            # Update last update info
+            last_price = self.db_manager.fetch_one("""
+                SELECT date FROM historical_prices 
+                WHERE stock_id = ? 
+                ORDER BY date DESC LIMIT 1
+            """, (self.stock.id,))
+            
+            if last_price:
+                self.last_update_label.setText(f"Last data update: {last_price[0]}")
+            else:
+                self.last_update_label.setText("No historical data available")
+
+        except Exception as e:
+            logger.error(f"Error loading transaction data: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to load transaction data: {str(e)}"
+            )
+
+    def update_button_states(self):
+        """Enable/disable buttons based on selection state."""
+        self.delete_trans_btn.setEnabled(bool(self.trans_table.selectedItems()))
+
+    def show_add_transaction_dialog(self):
         """Show dialog to add a new transaction."""
-        dialog = AddTransactionDialog(self)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add New Transaction")
+        layout = QFormLayout(dialog)
+
+        # Date input
+        date_edit = QDateEdit()
+        date_edit.setCalendarPopup(True)
+        date_edit.setDate(datetime.now().date())
+        layout.addRow("Date:", date_edit)
+
+        # Transaction type
+        type_combo = QComboBox()
+        type_combo.addItems(["BUY", "SELL"])
+        layout.addRow("Type:", type_combo)
+
+        # Quantity input
+        quantity_spin = QDoubleSpinBox()
+        quantity_spin.setRange(0.0001, 1000000)
+        quantity_spin.setDecimals(4)
+        quantity_spin.setValue(1)
+        layout.addRow("Quantity:", quantity_spin)
+
+        # Price input
+        price_spin = QDoubleSpinBox()
+        price_spin.setRange(0.01, 1000000)
+        price_spin.setDecimals(2)
+        price_spin.setPrefix("$")
+        price_spin.setValue(1.00)
+        layout.addRow("Price:", price_spin)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
         if dialog.exec_():
+            return (
+                date_edit.date().toPython(),
+                type_combo.currentText(),
+                quantity_spin.value(),
+                price_spin.value()
+            )
+        return None
+    
+    def add_transaction(self):
+        """Handle adding a new transaction."""
+        result = self.show_add_transaction_dialog()
+        if result:
+            date, trans_type, quantity, price = result
             try:
-                date, trans_type, quantity, price = dialog.get_transaction_data()
-                
-                # For SELL orders, verify sufficient shares are available
+                # Verify sufficient shares for sells
                 if trans_type == "SELL":
-                    # Get total shares owned as of the selected date
                     shares_owned = self.db_manager.fetch_one("""
                         SELECT SUM(CASE 
-                            WHEN transaction_type = 'BUY' THEN quantity
-                            WHEN transaction_type = 'SELL' THEN -quantity
+                            WHEN transaction_type = 'BUY' THEN quantity 
+                            WHEN transaction_type = 'SELL' THEN -quantity 
                         END)
                         FROM transactions
-                        WHERE stock_id = ?
-                        AND date <= ?
+                        WHERE stock_id = ? AND date <= ?
                     """, (self.stock.id, date))
                     
                     total_shares = shares_owned[0] if shares_owned[0] else 0
@@ -509,177 +906,82 @@ class HistoricalDataDialog(QDialog):
                             f"Cannot sell {quantity} shares. Only {total_shares:.4f} shares owned on {date}."
                         )
                         return
-                
-                # Format the transaction data the same way as the import controller
-                transaction = [
-                    (self.stock.id, date, quantity, price, 
-                    trans_type, quantity, price)  # original_quantity and original_price same as inputs
-                ]
-                
-                # Use the same bulk insert method as the import controller
+
+                # Add transaction
+                transaction = [(self.stock.id, date, quantity, price, trans_type)]
                 self.db_manager.bulk_insert_transactions(transaction)
                 
-                # Refresh the view to show new transaction
+                # Refresh display
                 self.load_data()
-                
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    "Transaction added successfully."
-                )
+                QMessageBox.information(self, "Success", "Transaction added successfully.")
                 
             except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Failed to add transaction: {str(e)}"
-                )
-                
+                QMessageBox.critical(self, "Error", f"Failed to add transaction: {str(e)}")
+
     def delete_transaction(self):
         """Delete the selected transaction."""
-        selected_items = self.table.selectedItems()
-        if not selected_items:
+        selected_row = self.trans_table.currentRow()
+        if selected_row < 0:
             return
-            
-        row = selected_items[0].row()
-        date = self.table.item(row, 0).text()
-        trans_type = self.table.item(row, 11).text()  # Updated column index
-        quantity = self.table.item(row, 12).text()    # Updated column index
-        price = self.table.item(row, 13).text()       # Updated column index
-        
-        if not trans_type:  # Not a transaction row
-            return
-            
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Deletion",
-            f"Are you sure you want to delete this transaction?\n\n"
-            f"Date: {date}\n"
-            f"Type: {trans_type}\n"
-            f"Quantity: {quantity}\n"
-            f"Price: {price}",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
-        if confirm == QMessageBox.Yes:
-            try:
-                # Delete transaction from database
+
+        try:
+            date = self.trans_table.item(selected_row, 0).text()
+            trans_type = self.trans_table.item(selected_row, 1).text()
+            quantity = float(self.trans_table.item(selected_row, 2).text().replace(',', ''))
+            price = float(self.trans_table.item(selected_row, 3).text().replace('$', '').replace(',', ''))
+
+            confirm = QMessageBox.question(
+                self,
+                "Confirm Deletion",
+                f"Delete this transaction?\n\n"
+                f"Date: {date}\n"
+                f"Type: {trans_type}\n"
+                f"Quantity: {quantity:,.4f}\n"
+                f"Price: ${price:,.2f}",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if confirm == QMessageBox.Yes:
                 self.db_manager.execute("""
                     DELETE FROM transactions 
-                    WHERE stock_id = ? 
-                    AND date = ? 
-                    AND transaction_type = ?
-                    AND quantity = ?
-                    AND price = ?
-                """, (
-                    self.stock.id,
-                    date,
-                    trans_type,
-                    float(quantity),
-                    float(price.replace('$', ''))
-                ))
+                    WHERE stock_id = ? AND date = ? AND transaction_type = ?
+                    AND quantity = ? AND price = ?
+                """, (self.stock.id, date, trans_type, quantity, price))
                 
                 self.db_manager.conn.commit()
-                
-                # Refresh the view
                 self.load_data()
-                
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    "Transaction deleted successfully."
-                )
-                
-            except Exception as e:
-                self.db_manager.conn.rollback()
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Failed to delete transaction: {str(e)}"
-                )
+                QMessageBox.information(self, "Success", "Transaction deleted successfully.")
+
+        except Exception as e:
+            self.db_manager.conn.rollback()
+            QMessageBox.critical(self, "Error", f"Failed to delete transaction: {str(e)}")
 
     def update_historical_data(self):
-        """Update historical price data for the stock."""
+        """Update historical price data from Yahoo Finance."""
         try:
-            from utils.historical_data_collector import HistoricalDataCollector
+            result = HistoricalDataCollector.process_and_store_historical_data(
+                self.db_manager,
+                self.stock.id,
+                self.stock.yahoo_symbol
+            )
             
-            # Use the collector directly
-            collector = HistoricalDataCollector(self.db_manager)
-            if collector.collect_historical_data(
-                self.stock.id, 
-                self.stock.yahoo_symbol, 
-                force_refresh=True,
-                parent_widget=self
-            ):
-                # Refresh the view
+            if result:
                 self.load_data()
-                
                 QMessageBox.information(
                     self,
                     "Success",
                     "Historical data updated successfully."
                 )
-            
+            else:
+                QMessageBox.warning(
+                    self,
+                    "No Updates",
+                    "No new historical data was available."
+                )
+                
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Error",
                 f"Failed to update historical data: {str(e)}"
             )
-
-class AddTransactionDialog(QDialog):
-    """
-    Dialog for adding a new transaction to a stock.
-    Allows users to specify transaction date, type, quantity and price.
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.init_ui()
-
-    def init_ui(self):
-        """Initialise the user interface components."""
-        self.setWindowTitle("Add Transaction")
-        layout = QFormLayout(self)
-
-        # Date input
-        self.date_edit = QDateEdit()
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDate(datetime.now().date())
-        layout.addRow("Date:", self.date_edit)
-
-        # Transaction type
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(["BUY", "SELL"])
-        layout.addRow("Type:", self.type_combo)
-
-        # Quantity input
-        self.quantity_spin = QDoubleSpinBox()
-        self.quantity_spin.setRange(0.0001, 1000000)
-        self.quantity_spin.setDecimals(4)
-        self.quantity_spin.setValue(1)
-        layout.addRow("Quantity:", self.quantity_spin)
-
-        # Price input
-        self.price_spin = QDoubleSpinBox()
-        self.price_spin.setRange(0.01, 1000000)
-        self.price_spin.setDecimals(2)
-        self.price_spin.setPrefix("$")
-        self.price_spin.setValue(1.00)
-        layout.addRow("Price:", self.price_spin)
-
-        # Dialog buttons
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-        layout.addRow(self.button_box)
-
-    def get_transaction_data(self):
-        """Return the transaction data as a tuple."""
-        return (
-            self.date_edit.date().toPython(),
-            self.type_combo.currentText(),
-            self.quantity_spin.value(),
-            self.price_spin.value()
-        )

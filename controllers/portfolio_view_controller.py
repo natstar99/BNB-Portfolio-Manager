@@ -20,7 +20,7 @@ class PortfolioViewController:
         self.db_manager = db_manager
         self.view = MyPortfolioView()
         self.current_portfolio = None
-        self.historical_collector = HistoricalDataCollector(db_manager)
+        self.historical_collector = HistoricalDataCollector()
         
         # Connect signals
         self.view.view_history.connect(self.show_history)

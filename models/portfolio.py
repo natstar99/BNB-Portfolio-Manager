@@ -11,6 +11,7 @@ class Portfolio:
         self.stocks: Dict[str, Stock] = {}
 
     def load_stocks(self):
+        """Load all stocks in the portfolio with their current data."""
         stocks_data = self.db_manager.get_stocks_for_portfolio(self.id)
         for stock_data in stocks_data:
             stock = Stock(
@@ -22,7 +23,6 @@ class Portfolio:
                 last_updated=stock_data[5],
                 db_manager=self.db_manager
             )
-            stock.load_transactions()
             self.stocks[stock.yahoo_symbol] = stock
 
     def add_stock(self, stock: Stock):

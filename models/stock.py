@@ -1,12 +1,22 @@
 # File: models/stock.py
 
 from datetime import datetime
-from typing import List
-from .transaction import Transaction
+from typing import List, Dict, Optional
+from database.portfolio_metrics_manager import PortfolioMetricsManager
+from models.transaction import Transaction
+from database.portfolio_metrics_manager import METRICS_COLUMNS
 import logging
 
+logger = logging.getLogger(__name__)
+
 class Stock:
-    def __init__(self, id: int, yahoo_symbol: str, instrument_code: str, name: str, current_price: float, last_updated: datetime, db_manager):
+    """
+    Represents a stock holding with real-time metrics tracking.
+    Uses pre-calculated metrics for efficient access to position data.
+    """
+    def __init__(self, id: int, yahoo_symbol: str, instrument_code: str, 
+                 name: str, current_price: float, last_updated: datetime, 
+                 db_manager) -> None:
         self.id = id
         self.yahoo_symbol = yahoo_symbol
         self.instrument_code = instrument_code
@@ -14,173 +24,142 @@ class Stock:
         self.current_price = current_price
         self.last_updated = last_updated
         self.db_manager = db_manager
-        self.transactions: List[Transaction] = []
+        self.metrics_manager = PortfolioMetricsManager(db_manager)
+        
+        # Cache latest metrics
+        self._latest_metrics = None
+        
+        # Load transactions immediately on initialisation
+        self.transactions = self.get_transactions()
 
-    def load_transactions(self):
-        """Load all transactions for this stock from the database."""
-        transactions_data = self.db_manager.get_transactions_for_stock(self.id)
-        self.transactions = [
-            Transaction(
-                id=t[0],
-                date=self.parse_date(t[1]),
-                quantity=t[2],
-                price=t[3],
-                transaction_type=t[4],
-                db_manager=self.db_manager
-            ) for t in transactions_data
-        ]
-
-    @staticmethod
-    def parse_date(date_string: str) -> datetime:
+    def get_transactions(self):
+        """
+        Get all transactions for this stock.
+        Returns a list of Transaction objects ordered by date.
+        """
         try:
-            return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            try:
-                return datetime.strptime(date_string, '%Y-%m-%d')
-            except ValueError:
-                raise ValueError(f"Unable to parse date string: {date_string}")
+            # Get raw transaction data from database
+            transactions_data = self.db_manager.get_transactions_for_stock(self.id)
+            
+            # Convert tuple data into Transaction objects
+            transactions = []
+            for trans_data in transactions_data:
+                transaction = Transaction(
+                    id=trans_data[0],
+                    date=trans_data[1],
+                    quantity=trans_data[2],
+                    price=trans_data[3],
+                    transaction_type=trans_data[4],
+                    db_manager=self.db_manager
+                )
+                transactions.append(transaction)
+                
+            return transactions
+        except Exception as e:
+            logger.error(f"Error getting transactions for stock {self.yahoo_symbol}: {str(e)}")
+            return []
+    
+    def refresh_metrics(self) -> None:
+        """
+        Update all metrics for this stock.
+        Called after transactions, prices, or DRP settings change.
+        """
+        try:
+            self.metrics_manager.update_metrics_for_stock(self.id)
+            self._latest_metrics = None  # Reset cache
+            logger.info(f"Refreshed metrics for {self.yahoo_symbol}")
+        except Exception as e:
+            logger.error(f"Failed to refresh metrics for {self.yahoo_symbol}: {str(e)}")
+            raise
 
+    def get_metrics_in_range(self, start_date: Optional[datetime] = None, 
+                   end_date: Optional[datetime] = None) -> List[Dict]:
+        """Get metrics for a date range for plotting/analysis."""
+        return self.metrics_manager.get_metrics_in_range(self.id, start_date, end_date)
+
+    def update_metrics(self):
+        """Update metrics after any change."""
+        metrics_manager = PortfolioMetricsManager(self.db_manager)
+        metrics_manager.update_metrics_for_stock(self.id)
+
+    @property
+    def latest_metrics(self) -> Dict:
+        """Get latest position metrics with caching."""
+        if self._latest_metrics is None:
+            metrics_tuple = self.metrics_manager.get_latest_metrics(self.id)
+            if metrics_tuple:
+                # Simply zip the column names with the values
+                self._latest_metrics = dict(zip(METRICS_COLUMNS, metrics_tuple))
+                logger.debug(f"Converted metrics dict for {self.yahoo_symbol}")
+            else:
+                self._latest_metrics = None
+                logger.debug(f"No metrics found for {self.yahoo_symbol}")
+                    
+        return self._latest_metrics
+
+    # Position information - all use cached metrics
     def calculate_total_shares(self) -> float:
-        """Calculate the current total number of shares held."""
-        total_shares = sum(t.quantity if t.transaction_type == 'BUY' else -t.quantity 
-                  for t in self.transactions)
-        if total_shares < 0.000001: # Threshold shares for rounding errors
-            total_shares = 0
-        return total_shares
+        """Get current total shares held."""
+        metrics = self.latest_metrics
+        return metrics['total_shares_owned'] if metrics else 0.0
 
     def calculate_cost_basis(self) -> float:
-        """
-        Calculate the total cost basis of current holdings.
-        This represents the total amount spent on purchases, adjusted for sales.
-        """
-        total_cost = 0
-        remaining_shares = 0
-        
-        # Sort transactions by date to process them chronologically
-        sorted_transactions = sorted(self.transactions, key=lambda x: x.date)
-        
-        for transaction in sorted_transactions:
-            if transaction.transaction_type == 'BUY':
-                total_cost += transaction.quantity * transaction.price
-                remaining_shares += transaction.quantity
-            elif transaction.transaction_type == 'SELL':
-                # Calculate the proportion of cost basis to remove
-                if remaining_shares > 0:
-                    cost_per_share = total_cost / remaining_shares
-                    total_cost -= transaction.quantity * cost_per_share
-                    remaining_shares -= transaction.quantity
-        
-        return total_cost
-
-    def calculate_average_cost(self) -> float:
-        """
-        Calculate the average cost per share of current holdings.
-        """
-        total_cost = 0
-        total_quantity = 0
-
-        # Sort transactions by date to process them chronologically
-        sorted_transactions = sorted(self.transactions, key=lambda x: x.date)
-
-        for transaction in sorted_transactions:
-            if transaction.transaction_type == 'BUY':
-                total_cost += transaction.quantity * transaction.price
-                total_quantity += transaction.quantity
-        return total_cost/total_quantity
+        """Get current cost basis."""
+        metrics = self.latest_metrics
+        return metrics['cost_basis'] if metrics else 0.0
 
     def calculate_market_value(self) -> float:
-        """Calculate the current market value of holdings."""
-        return self.calculate_total_shares() * self.current_price
+        """Get current market value."""
+        metrics = self.latest_metrics
+        return metrics['market_value'] if metrics else 0.0
 
     def calculate_realised_pl(self) -> float:
-        """
-        Calculate realised profit/loss from completed sales.
-        Uses FIFO (First In, First Out) method for calculating cost basis of sold shares.
-        """
-        realised_pl = 0
-        buy_queue = []  # [(quantity, price)]
-        
-        # Sort transactions by date
-        sorted_transactions = sorted(self.transactions, key=lambda x: x.date)
-        
-        for transaction in sorted_transactions:
-            if transaction.transaction_type == 'BUY':
-                buy_queue.append((transaction.quantity, transaction.price))
-            elif transaction.transaction_type == 'SELL':
-                remaining_to_sell = transaction.quantity
-                while remaining_to_sell > 0 and buy_queue:
-                    buy_quantity, buy_price = buy_queue[0]
-                    
-                    # Calculate how many shares we can sell from this buy lot
-                    shares_sold = min(remaining_to_sell, buy_quantity)
-                    
-                    # Calculate P/L for this portion
-                    pl = shares_sold * (transaction.price - buy_price)
-                    realised_pl += pl
-                    
-                    # Update the buy queue
-                    if shares_sold == buy_quantity:
-                        buy_queue.pop(0)
-                    else:
-                        buy_queue[0] = (buy_quantity - shares_sold, buy_price)
-                    
-                    remaining_to_sell -= shares_sold
-        
-        return realised_pl
+        """Get realised profit/loss including dividends."""
+        metrics = self.latest_metrics
+        return metrics['realised_pl'] if metrics else 0.0
 
     def calculate_unrealised_pl(self) -> float:
-        """Calculate unrealised profit/loss based on current market price."""
-        return self.calculate_market_value() - self.calculate_cost_basis()
+        """Get unrealised profit/loss."""
+        metrics = self.latest_metrics
+        return metrics['unrealised_pl'] if metrics else 0.0
 
-    def calculate_total_pl(self) -> float:
-        """Calculate total profit/loss (realised + unrealised)."""
-        return self.calculate_realised_pl() + self.calculate_unrealised_pl()
+    def calculate_total_return(self) -> float:
+        """Get total return including all components."""
+        metrics = self.latest_metrics
+        return metrics['total_return'] if metrics else 0.0
 
-    def calculate_percentage_change(self) -> float:
-        """
-        Calculate the total percentage change including realised and unrealised P/L.
-        Returns 0 if there's no cost basis to avoid division by zero.
-        """
-        cost_basis = self.calculate_cost_basis()
-        if cost_basis > 0:
-            total_pl = self.calculate_total_pl()
-            return (total_pl / cost_basis) * 100
-        return 0
+    def calculate_total_return_pct(self) -> float:
+        """Get total return percentage."""
+        metrics = self.latest_metrics
+        return metrics['total_return_pct'] if metrics else 0.0
 
-    def update_price(self):
-        """Update the current price in the database."""
+    def calculate_weighted_avg_purchase_price(self) -> Optional[float]:
+        """Get weighted average purchase price."""
+        metrics = self.latest_metrics
+        return metrics['weighted_avg_purchase_price'] if metrics else None
+
+    def calculate_weighted_avg_sale_price(self) -> Optional[float]:
+        """Get weighted average sale price."""
+        metrics = self.latest_metrics
+        return metrics['weighted_avg_sale_price'] if metrics else None
+
+    def update_price(self, new_price: float) -> None:
+        """Update current price and metrics."""
+        self.current_price = new_price
         self.last_updated = datetime.now().replace(microsecond=0)
-        self.db_manager.update_stock_price(self.yahoo_symbol, self.current_price)
-
-    def add_transaction(self, transaction: Transaction):
-        """Add a new transaction to this stock."""
-        self.db_manager.add_transaction(
-            stock_id=self.id,
-            date=transaction.date,
-            quantity=transaction.quantity,
-            price=transaction.price,
-            transaction_type=transaction.transaction_type
-        )
-        self.transactions.append(transaction)
+        self.db_manager.update_stock_price(self.yahoo_symbol, new_price)
+        self.refresh_metrics()  # Recalculate metrics with new price
 
     @classmethod
-    def create(cls, yahoo_symbol: str, instrument_code: str, name: str, current_price: float, db_manager):
+    def create(cls, yahoo_symbol: str, instrument_code: str, name: str, 
+              current_price: float, db_manager) -> 'Stock':
         """Create a new stock instance."""
-        # First check if stock exists and get its market data
-        existing_stock = db_manager.get_stock_by_instrument_code(instrument_code)
-        market_or_index = None
-        if existing_stock:
-            _, _, _, _, _, _, market_or_index, _, market_suffix = existing_stock
-
-        # Create or update the stock, preserving market data
         stock_id = db_manager.add_stock(
             yahoo_symbol=yahoo_symbol,
             instrument_code=instrument_code,
             name=name,
-            current_price=current_price,
-            market_or_index=market_or_index
+            current_price=current_price
         )
-        
         return cls(
             id=stock_id,
             yahoo_symbol=yahoo_symbol,
@@ -190,128 +169,3 @@ class Stock:
             last_updated=datetime.now().replace(microsecond=0),
             db_manager=db_manager
         )
-
-    @classmethod
-    def get_by_yahoo_symbol(cls, yahoo_symbol: str, db_manager):
-        """Get a stock instance by its Yahoo symbol."""
-        stock_data = db_manager.get_stock(yahoo_symbol)
-        if stock_data:
-            return cls(
-                id=stock_data[0],
-                yahoo_symbol=stock_data[1],
-                instrument_code=stock_data[2],
-                name=stock_data[3],
-                current_price=stock_data[4],
-                last_updated=cls.parse_date(stock_data[5]),
-                db_manager=db_manager
-            )
-        return None
-    
-    def calculate_total_dividends(self) -> float:
-        """
-        Calculate total dividends received (cash payments for non-DRP holdings).
-        Only counts dividends when stock was not enrolled in DRP.
-        """
-        try:
-            result = self.db_manager.fetch_all("""
-                SELECT date, dividend
-                FROM historical_prices
-                WHERE stock_id = ? AND dividend > 0
-                ORDER BY date
-            """, (self.id,))
-            
-            total_dividends = 0
-            
-            for date_str, dividend in result:
-                date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                # Get shares held on dividend date
-                shares_held = self.calculate_shares_on_date(date)
-                # Get DRP status at that time (implementation needed in database)
-                was_drp = self.was_drp_on_date(date)
-                
-                if shares_held > 0 and not was_drp:
-                    total_dividends += shares_held * dividend
-                    
-            return total_dividends
-        except Exception as e:
-            logging.error(f"Error calculating total dividends: {str(e)}")
-            return 0
-
-    def calculate_drp_shares(self) -> float:
-        """
-        Calculate total shares received through DRP.
-        """
-        try:
-            result = self.db_manager.fetch_all("""
-                SELECT date, dividend, close_price
-                FROM historical_prices
-                WHERE stock_id = ? AND dividend > 0
-                ORDER BY date
-            """, (self.id,))
-            
-            total_drp_shares = 0
-            
-            for date_str, dividend, price in result:
-                date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                shares_held = self.calculate_shares_on_date(date)
-                was_drp = self.was_drp_on_date(date)
-                
-                if shares_held > 0 and was_drp and price > 0:
-                    drp_shares = (shares_held * dividend) / price
-                    total_drp_shares += drp_shares
-                    
-            return total_drp_shares
-        except Exception as e:
-            logging.error(f"Error calculating DRP shares: {str(e)}")
-            return 0
-
-    def calculate_drp_value(self) -> float:
-        """
-        Calculate current value of shares received through DRP.
-        """
-        drp_shares = self.calculate_drp_shares()
-        return drp_shares * self.current_price
-
-    def calculate_shares_on_date(self, date) -> float:
-        """
-        Calculate how many shares were held on a specific date.
-        """
-        shares = 0
-        for transaction in self.transactions:
-            if transaction.date.date() <= date:
-                if transaction.transaction_type == 'BUY':
-                    shares += transaction.quantity
-                else:
-                    shares -= transaction.quantity
-        return shares
-
-    def was_drp_on_date(self, date) -> bool:
-        """
-        Check if the stock was enrolled in DRP on a specific date.
-        """
-        try:
-            result = self.db_manager.fetch_one("""
-                SELECT drp FROM stocks WHERE id = ?
-            """, (self.id,))
-            return bool(result[0]) if result else False
-        except Exception as e:
-            logging.error(f"Error checking DRP status: {str(e)}")
-            return False
-
-    def calculate_total_return(self) -> float:
-        """
-        Calculate total return including capital gains and dividends.
-        """
-        return (self.calculate_total_pl() + 
-                self.calculate_total_dividends() + 
-                self.calculate_drp_value())
-
-    def calculate_total_return_percentage(self) -> float:
-        """
-        Calculate total return percentage including capital gains and dividends.
-        """
-        cost_basis = self.calculate_cost_basis()
-        if cost_basis > 0.0001: # Threshold the cost basis for silly decimal places
-            total_return = self.calculate_total_return()
-            return (total_return / cost_basis) * 100
-        return 0

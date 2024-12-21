@@ -13,6 +13,10 @@ from models.stock import Stock
 from views.import_transactions_view import ImportTransactionsView
 from views.verify_transactions_view import VerifyTransactionsDialog
 from utils.historical_data_collector import HistoricalDataCollector
+from database.portfolio_metrics_manager import PortfolioMetricsManager
+from utils.fifo_hifo_lifo_calculator import RealisedPLCalculator, process_stock_matches, MatchingMethod
+import yaml
+
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -27,10 +31,20 @@ class ImportTransactionsController(QObject):
         self.db_manager = db_manager
         self.view = ImportTransactionsView()
         self.market_mappings = {}
-        self.historical_collector = HistoricalDataCollector(db_manager)
+        self.historical_collector = HistoricalDataCollector()
+        self.config = self.load_config()
 
         self.view.import_transactions.connect(self.import_transactions)
         self.view.get_template.connect(self.provide_template)
+
+    def load_config(self):
+        """Load configuration from config.yaml."""
+        try:
+            with open('config.yaml', 'r') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            return {"profit_loss_calculations": {"default_method": "fifo"}}
 
     def import_transactions(self, file_name, column_mapping):
         """
@@ -73,7 +87,7 @@ class ImportTransactionsController(QObject):
 
     def on_verification_completed(self, verification_results):
         """
-        Process verified transactions and collect historical data for verified stocks.
+        Process verified transactions and update metrics.
         Imports all transactions regardless of verification status, but only collects
         historical data for verified stocks.
         
@@ -82,86 +96,110 @@ class ImportTransactionsController(QObject):
         """
         try:
             self.market_mappings = verification_results['market_mappings']
-            stock_data = verification_results['stock_data']
-            drp_settings = verification_results.get('drp_settings', {})
+            self.stock_data = verification_results['stock_data']
+            self.drp_settings = verification_results.get('drp_settings', {})
             df = verification_results['transactions_df']
-            
-            logger.info("Starting transaction processing")
-            processed_stocks = set()
 
-            # First, get all unique instrument codes from the transactions
+            # Get calculation method from config
+            pl_method = self.config.get('profit_loss_calculations', {}).get('default_method', 'fifo')
+            calculation_method = MatchingMethod[pl_method.upper()]
+            
+            # Process each unique instrument
             unique_instruments = df['Instrument Code'].unique()
             
             for instrument_code in unique_instruments:
-                # Get the stock from database to check its verification status
+                # Get the stock to check its verification status
                 stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
                 
                 logger.info(f"Processing stock {instrument_code}")
                 if stock:
                     stock_id = stock[0]  # ID
-                    yahoo_symbol = stock[1]  # Yahoo symbol
                     verification_status = stock[8]  # verification_status is at index 8
-                    logger.info(f"Database record for {instrument_code}: {stock}")
-                    logger.info(f"Verification status for {instrument_code}: {verification_status}")
                     
-                    # Add stock to portfolio regardless of verification status
+                    # Add stock to portfolio regardless of verification
                     self.db_manager.add_stock_to_portfolio(self.portfolio.id, stock_id)
                     logger.info(f"Added stock {instrument_code} to portfolio {self.portfolio.id}")
                     
                     # Get transactions for this instrument
                     instrument_transactions = df[df['Instrument Code'] == instrument_code]
-                    
-                    # Update DRP setting
-                    drp_status = drp_settings.get(instrument_code, False)
-                    self.db_manager.update_stock_drp(stock_id, drp_status)
-                    logger.info(f"Updated DRP setting for {instrument_code}: {drp_status}")
 
-                    # Bulk insert transactions regardless of verification status
+                    # Convert transactions to calculator format (for realised_pl calcuations)
+                    calculator_transactions = []
+                    for _, row in instrument_transactions.iterrows():
+                        calc_trans = RealisedPLCalculator(
+                            id=None,  # Will be set after database insert
+                            stock_id=stock_id,
+                            date=row['Trade Date'],
+                            quantity=row['Quantity'],
+                            price=row['Price'],
+                            type=row['Transaction Type']
+                        )
+                        calculator_transactions.append(calc_trans)
+                    
+                    # Bulk insert transactions first
                     transactions = [
                         (stock_id, row['Trade Date'], row['Quantity'], row['Price'],
-                        row['Transaction Type'], row['Quantity'], row['Price'])
+                        row['Transaction Type'])
                         for _, row in instrument_transactions.iterrows()
                     ]
                     self.db_manager.bulk_insert_transactions(transactions)
                     logger.info(f"Inserted {len(transactions)} transactions for {instrument_code}")
-                    
-                    # Only collect historical data for verified stocks
-                    if verification_status == 'Verified' and stock_id not in processed_stocks:
-                        logger.info(f"Collecting historical data for verified stock {instrument_code}")
-                        if self.historical_collector.collect_historical_data(
-                            stock_id, 
-                            yahoo_symbol,
-                            parent_widget=self.view
-                        ):
-                            processed_stocks.add(stock_id)
-                    else:
-                        logger.info(f"Skipping historical data for {instrument_code}: verification_status={verification_status}")
-                else:
-                    logger.warning(f"Stock not found in database: {instrument_code}")
-                    continue
 
-            # Show completion message with appropriate details
-            if processed_stocks:
-                verified_count = len(processed_stocks)
-                total_count = len(unique_instruments)
-                QMessageBox.information(
-                    self.view,
-                    "Import Successful", 
-                    f"Transactions have been imported for all {total_count} stocks.\n"
-                    f"Historical data has been collected for {verified_count} verified stocks."
-                )
-            else:
-                QMessageBox.warning(
-                    self.view,
-                    "Import Completed", 
-                    "Transactions have been imported, but no stocks were verified for historical data collection.\n"
-                    "You can verify stocks later through the portfolio manager."
-                )
+                    # Get all transactions for this stock (including existing ones)
+                    all_transactions = self.db_manager.get_transactions_for_stock(stock_id)
+                    all_calculator_transactions = [
+                        RealisedPLCalculator(
+                            id=trans[0],
+                            stock_id=stock_id,
+                            date=trans[1],
+                            quantity=trans[2],
+                            price=trans[3],
+                            type=trans[4]
+                        )
+                        for trans in all_transactions
+                    ]
+                    
+                    # Process matches using specified method
+                    matches = process_stock_matches(all_calculator_transactions, calculation_method)
+                    
+                    # Clear existing matches for this stock
+                    self.db_manager.execute(
+                        "DELETE FROM realised_pl WHERE stock_id = ?",
+                        (stock_id,)
+                    )
+                    
+                    # Bulk insert new matches
+                    self.db_manager.cursor.executemany("""
+                        INSERT INTO realised_pl (
+                            sell_id, buy_id, stock_id, matched_units,
+                            buy_price, sell_price, realised_pl,
+                            trade_date, method
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, [
+                        (m['sell_id'], m['buy_id'], m['stock_id'], m['matched_units'],
+                            m['buy_price'], m['sell_price'], m['realised_pl'],
+                            m['trade_date'], m['method'])
+                        for m in matches
+                    ])
+                    
+                    # Update metrics for verified stocks only
+                    if verification_status == "Verified":
+                        metrics_manager = PortfolioMetricsManager(self.db_manager)
+                        metrics_manager.update_metrics_for_stock(stock_id)
+                        logger.info(f"Updated metrics for verified stock {instrument_code}")
                 
+            # Show completion message
+            QMessageBox.information(
+                self.view,
+                "Import Successful", 
+                f"Transactions have been imported for all stocks."
+            )
+            
             self.import_completed.emit()
 
         except Exception as e:
             logger.error(f"Failed to process transactions: {str(e)}")
+            logger.exception("Detailed traceback:")
             QMessageBox.warning(self.view, "Import Failed", str(e))
 
 

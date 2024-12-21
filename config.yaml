@@ -1,0 +1,116 @@
+historical_data_view:
+  auto_hide_empty_columns: true
+  hide_all_zero_columns: true
+  hide_all_one_columns: true
+  column_groups:
+    price_data:
+    - name: Date
+      field: date
+      simple_view: true
+    - name: Open
+      field: open_price
+      simple_view: false
+    - name: High
+      field: high_price
+      simple_view: false
+    - name: Low
+      field: low_price
+      simple_view: false
+    - name: Close
+      field: close_price
+      simple_view: true
+    - name: Volume
+      field: volume
+      simple_view: false
+    transaction_data:
+    - name: Type
+      field: transaction_type
+      simple_view: true
+    - name: Price
+      field: price
+      simple_view: true
+    - name: Quantity
+      field: quantity
+      simple_view: true
+    position_metrics:
+    - name: Total Shares
+      field: total_shares_owned
+      simple_view: true
+    - name: Avg Buy Price
+      field: weighted_avg_purchase_price
+      simple_view: false
+    - name: Avg Sale Price
+      field: weighted_avg_sale_price
+      simple_view: false
+    - name: Total Buys
+      field: cumulative_buy_value
+      simple_view: false
+    - name: Total Sales
+      field: cumulative_sell_value
+      simple_view: false
+    - name: Cost Basis
+      field: cost_basis
+      simple_view: true
+    performance_metrics:
+    - name: Dividend
+      field: dividend
+      simple_view: true
+    - name: Cash Dividend
+      field: cash_dividend
+      simple_view: false
+    - name: Total Cash Dividends
+      field: cash_dividends_total
+      simple_view: false
+    - name: DRP Shares
+      field: drp_share
+      simple_view: false
+    - name: Total DRP Shares
+      field: drp_shares_total
+      simple_view: false
+    - name: Market Value
+      field: market_value
+      simple_view: true
+    - name: Daily P/L
+      field: daily_pl
+      simple_view: false
+    - name: Daily P/L %
+      field: daily_pl_pct
+      simple_view: false
+    - name: Realised P/L
+      field: realised_pl
+      simple_view: false
+    - name: Unrealised P/L
+      field: unrealised_pl
+      simple_view: false
+    - name: Total Return
+      field: total_return
+      simple_view: true
+    - name: Total Return %
+      field: total_return_pct
+      simple_view: true
+    corporate_actions:
+    - name: DRP
+      field: drp_flag
+      simple_view: true
+    - name: Split Ratio
+      field: split_ratio
+      simple_view: true
+    - name: Cumulative Split
+      field: cumulative_split_ratio
+      simple_view: true
+  column_formats:
+    price_formats:
+      default: .2f
+      custom: {}
+    percentage_formats:
+      default: .2f
+      custom: {}
+    quantity_formats:
+      default: .2f
+      custom: {}
+  profit_loss_calculations:
+    default_method: fifo  # Default method
+    available_methods:
+      - fifo
+      - lifo
+      - hifo

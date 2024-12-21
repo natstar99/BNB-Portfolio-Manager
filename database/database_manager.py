@@ -4,6 +4,9 @@ import sqlite3
 from datetime import datetime
 import os
 import logging
+import pandas as pd
+import numpy as np
+from database.portfolio_metrics_manager import METRICS_COLUMNS, PortfolioMetricsManager
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -132,24 +135,6 @@ class DatabaseManager:
     def get_stock(self, yahoo_symbol):
         return self.fetch_one("SELECT * FROM stocks WHERE yahoo_symbol = ?", (yahoo_symbol,))
 
-    def update_stock_info(self, stock_id, name, current_price, yahoo_symbol):
-        """Update stock information in the database"""
-        self.execute("""
-            UPDATE stocks 
-            SET name = ?,
-                current_price = ?,
-                last_updated = ?,
-                yahoo_symbol = ?
-            WHERE id = ?
-        """, (
-            name,
-            current_price,
-            datetime.now().replace(microsecond=0),
-            yahoo_symbol,
-            stock_id
-        ))
-        self.conn.commit()
-
     def get_stock_by_instrument_code(self, instrument_code):
         """
         Get stock information by instrument code.
@@ -227,14 +212,20 @@ class DatabaseManager:
     def bulk_insert_transactions(self, transactions):
         """
         Bulk insert transactions.
-        transactions: list of tuples (stock_id, date, quantity, price, type, original_quantity, original_price)
+        
+        Args:
+            transactions: list of tuples (stock_id, date, quantity, price, transaction_type)
         """
-        self.cursor.executemany("""
-            INSERT INTO transactions 
-            (stock_id, date, quantity, price, transaction_type, original_quantity, original_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, transactions)
-        self.conn.commit()
+        try:
+            self.cursor.executemany("""
+                INSERT INTO transactions 
+                (stock_id, date, quantity, price, transaction_type)
+                VALUES (?, ?, ?, ?, ?)
+            """, transactions)
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in bulk_insert_transactions: {str(e)}")
+            raise
 
     def bulk_insert_stock_splits(self, splits):
         """
@@ -248,25 +239,77 @@ class DatabaseManager:
         """, splits)
         self.conn.commit()
 
-    def bulk_insert_historical_prices(self, prices):
+    def bulk_insert_historical_prices(self, records):
+        """Bulk insert historical prices with raw data only."""
+        self.cursor.executemany("""
+            INSERT OR REPLACE INTO historical_prices 
+            (stock_id, date, open_price, high_price, low_price, 
+            close_price, volume, dividend, split_ratio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, records)
+        self.conn.commit()
+
+    def get_existing_yahoo_data(self, stock_id: int) -> pd.DataFrame:
         """
-        Bulk insert historical prices.
+        Retrieve existing Yahoo Finance data from the historical_prices table.
         
         Args:
-            prices: list of tuples (stock_id, date, open, high, low, close, volume, 
-                                adjusted_close, original_close, split_adjusted, dividend)
+            stock_id (int): The database ID of the stock
+            
+        Returns:
+            pd.DataFrame: DataFrame containing historical price data with columns:
+                - Date
+                - Open
+                - High
+                - Low
+                - Close
+                - Volume
+                - Dividends
+                - Stock Splits
         """
         try:
-            self.cursor.executemany("""
-                INSERT OR REPLACE INTO historical_prices 
-                (stock_id, date, open_price, high_price, low_price, close_price, volume, 
-                adjusted_close, original_close, split_adjusted, dividend)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, prices)
-            self.conn.commit()
+            # Fetch the historical data from the database
+            results = self.fetch_all("""
+                SELECT 
+                    date AS Date,
+                    open_price AS Open,
+                    high_price AS High,
+                    low_price AS Low,
+                    close_price AS Close,
+                    volume AS Volume,
+                    dividend AS Dividends,
+                    split_ratio AS 'Stock Splits'
+                FROM historical_prices
+                WHERE stock_id = ?
+                ORDER BY date
+            """, (stock_id,))
+            
+            if not results:
+                logger.info(f"No existing Yahoo data found for stock_id {stock_id}")
+                return pd.DataFrame()
+                
+            # Convert to DataFrame
+            df = pd.DataFrame(results, columns=[
+                'Date', 'Open', 'High', 'Low', 'Close', 
+                'Volume', 'Dividends', 'Stock Splits'
+            ])
+            
+            # Convert date strings to datetime objects
+            df['Date'] = pd.to_datetime(df['Date'])
+            
+            # Ensure numeric columns have correct types
+            numeric_columns = ['Open', 'High', 'Low', 'Close', 'Dividends', 'Stock Splits']
+            df[numeric_columns] = df[numeric_columns].apply(pd.to_numeric)
+            
+            # Ensure Volume is integer type
+            df['Volume'] = df['Volume'].fillna(0).astype(np.int64)
+            
+            return df
+            
         except Exception as e:
-            logger.error(f"Error in bulk_insert_historical_prices: {str(e)}")
-            raise
+            logger.error(f"Error retrieving existing Yahoo data for stock_id {stock_id}: {str(e)}")
+            logger.exception("Detailed traceback:")
+            return pd.DataFrame()
 
     # Portfolio-Stock relationship methods
     def add_stock_to_portfolio(self, portfolio_id, stock_id):
@@ -327,8 +370,18 @@ class DatabaseManager:
         """, (stock_id, date, ratio))
 
     def get_stock_splits(self, stock_id):
+        """
+        Get all stock splits for a given stock.
+        
+        Args:
+            stock_id: The database ID of the stock
+            
+        Returns:
+            List of tuples (date, ratio, verified_source)
+        """
         return self.fetch_all("""
-            SELECT date, ratio FROM stock_splits
+            SELECT date, ratio, verified_source 
+            FROM stock_splits
             WHERE stock_id = ?
             ORDER BY date
         """, (stock_id,))
@@ -368,7 +421,8 @@ class DatabaseManager:
 
     def get_all_stocks(self):
         return self.fetch_all("""
-            SELECT id, yahoo_symbol, instrument_code, name, current_price, last_updated, market_suffix, drp
+            SELECT id, yahoo_symbol, instrument_code, name, current_price, 
+                last_updated, market_or_index, market_suffix, verification_status, drp
             FROM stocks
         """)
     
@@ -378,3 +432,65 @@ class DatabaseManager:
             FROM stocks
             WHERE instrument_code = ?
         """, (instrument_code,))
+
+    # For interacting with the portfolio_metrics table:
+
+    def execute_with_params(self, sql, params=None):
+        """Execute SQL with named parameters."""
+        if params is None:
+            self.cursor.execute(sql)
+        else:
+            self.cursor.execute(sql, params)
+        self.conn.commit()
+
+    def fetch_all_with_params(self, sql, params=None):
+        """Fetch all results with named parameters."""
+        if params is None:
+            self.cursor.execute(sql)
+        else:
+            self.cursor.execute(sql, params)
+        return self.cursor.fetchall()
+
+    def fetch_one_with_params(self, sql, params=None):
+        """Fetch one result with named parameters."""
+        if params is None:
+            self.cursor.execute(sql)
+        else:
+            self.cursor.execute(sql, params)
+        return self.cursor.fetchone()
+
+    def bulk_update_stock_metrics(self, metrics_list):
+        """
+        Bulk update or insert metrics for multiple records at once.
+        
+        Args:
+            metrics_list: List of dictionaries containing metrics data
+        """
+        try:
+            # Convert metrics to tuples in correct column order
+            batch_data = [
+                tuple(metrics.get(col) for col in METRICS_COLUMNS)
+                for metrics in metrics_list
+            ]
+
+            self.cursor.executemany(PortfolioMetricsManager.get_insert_sql(), batch_data)
+            self.conn.commit()
+            logger.debug(f"Bulk updated {len(batch_data)} metrics records")
+                
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Error in bulk_update_stock_metrics: {str(e)}")
+            raise
+
+    def update_stock_metrics(self, stock_id: int, metrics_data: dict):
+        """Update metrics for a single stock."""
+        try:
+            # Create tuple of values in correct column order
+            values = tuple(metrics_data.get(col) for col in METRICS_COLUMNS)
+            
+            self.execute(PortfolioMetricsManager.get_insert_sql(), values)
+            logger.debug(f"Successfully updated metrics for stock {stock_id}")
+            
+        except Exception as e:
+            logger.error(f"Error updating metrics for stock {stock_id}: {str(e)}")
+            raise

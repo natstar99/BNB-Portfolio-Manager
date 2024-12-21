@@ -4,11 +4,17 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QTableWidget, QTableWidgetItem, QHeaderView,
                               QComboBox, QMessageBox, QLabel, QProgressDialog,
                               QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox,
-                              QCheckBox, QAbstractItemView, QLineEdit)
+                              QCheckBox, QAbstractItemView, QLineEdit, QApplication)
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
 import logging
+import pandas as pd
+from utils.historical_data_collector import HistoricalDataCollector
+from utils.yahoo_finance_service import YahooFinanceService
+from database.portfolio_metrics_manager import PortfolioMetricsManager
+
+logger = logging.getLogger(__name__)
 
 class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
@@ -27,8 +33,8 @@ class VerifyTransactionsDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("Verify Imported Transactions")
-        self.setMinimumWidth(1350)
-        self.setMinimumHeight(600)
+        screen = QApplication.primaryScreen().geometry()
+        self.setGeometry(0.1*screen.width(), 0.1*screen.height(), 0.8*screen.width(), 0.8*screen.height())
         
         layout = QVBoxLayout(self)
         
@@ -349,6 +355,12 @@ class VerifyTransactionsDialog(QDialog):
             self.drp_settings[instrument_code] = is_checked
 
     def verify_stock(self, row):
+        """
+        Verify stock using Yahoo Finance service.
+        
+        Args:
+            row (int): The row number in the table to verify
+        """
         instrument_code = self.table.item(row, 0).text()
         yahoo_symbol = self.table.item(row, 2).text()
         
@@ -357,78 +369,51 @@ class VerifyTransactionsDialog(QDialog):
             return
         
         try:
-            ticker = yf.Ticker(yahoo_symbol)
-            info = ticker.info
+            # Use YahooFinanceService to verify stock
+            result = YahooFinanceService.verify_stock(yahoo_symbol)
+            
+            if result['error']:
+                self.update_status(row, "Failed", Qt.red)
+                logger.error(f"Error verifying {yahoo_symbol}: {result['error']}")
+                return
             
             # Update stock name
-            name = info.get('longName', 'N/A')
-            self.table.item(row, 3).setText(name)
+            self.table.item(row, 3).setText(result['name'])
             
-            # Update verification status based on name
-            if name and name != "N/A":
+            # Update verification status
+            if result['exists']:
                 self.update_status(row, "Verified", Qt.darkGreen)
             else:
                 self.update_status(row, "Not Found", Qt.red)
             
             # Update latest price
-            price = (
-                info.get('currentPrice', 0.0) or           # Try currentPrice first
-                info.get('regularMarketPrice', 0.0) or     # Then regularMarketPrice
-                info.get('previousClose', 0.0) or          # Then previousClose
-                info.get('lastPrice', 0.0) or              # Then lastPrice
-                info.get('regularMarketPreviousClose', 0.0) # Finally try regularMarketPreviousClose
-
-            )
-            # If we still don't have a price, try getting it from history
-            if price == 0:
-                try:
-                    # Get the most recent day's data
-                    hist = ticker.history(period="1d")
-                    if not hist.empty:
-                        price = hist['Close'].iloc[-1]  # Get the last closing price
-                except Exception as e:
-                    print(f"Error getting historical price for {yahoo_symbol}: {str(e)}")
-
-            # If we still don't have a price, log it
-            if price == 0:
-                print(f"Warning: Could not get price for {yahoo_symbol}")
-
-            self.table.item(row, 4).setText(str(price))
-
-            # Get current market settings from the combo box
+            self.table.item(row, 4).setText(str(result['current_price']))
+            
+            # Get market settings
             market_combo = self.table.cellWidget(row, 1)
             market_or_index = market_combo.currentData()
-            
-            # Get market suffix from database
-            market_suffix = None
-            if market_or_index:
-                result = self.db_manager.fetch_one(
-                    "SELECT market_suffix FROM market_codes WHERE market_or_index = ?",
-                    (market_or_index,)
-                )
-                market_suffix = result[0] if result else ""
+            market_suffix = self.db_manager.get_market_code_suffix(market_or_index) if market_or_index else ""
             
             # Store the verified data
             self.stock_data[instrument_code] = {
-                'name': name,
-                'price': price,
+                'name': result['name'],
+                'price': result['current_price'],
                 'symbol': yahoo_symbol,
                 'market_or_index': market_or_index,
                 'market_suffix': market_suffix,
                 'drp': self.drp_settings.get(instrument_code, False)
             }
 
-            # Get splits and update indicator
-            splits = ticker.splits
-            if not splits.empty:
+            # Add splits if any found
+            if result['splits'] is not None:
                 self.table.item(row, 5).setText("✓")
-                self.stock_data[instrument_code]['splits'] = splits
+                self.stock_data[instrument_code]['splits'] = result['splits']
             else:
                 self.table.item(row, 5).setText("")
                 
         except Exception as e:
             self.update_status(row, "Failed", Qt.red)
-            print(f"Error verifying {yahoo_symbol}: {str(e)}")
+            logger.error(f"Error verifying {yahoo_symbol}: {str(e)}")
 
     def update_status(self, row, status, color):
         """Update the verification status for a given row."""
@@ -718,70 +703,120 @@ class VerifyTransactionsDialog(QDialog):
         super().accept()
 
     def save_and_update(self):
-        """
-        Save all changes and update stock data if user confirms.
-        First checks for unverified stocks, then asks about historical data collection.
-        """
+        """Get fresh Yahoo data, calculate metrics, save to db."""
         try:
-            # Check for unverified stocks first
-            unverified = self._get_unverified_stocks()
-            
-            if unverified:
-                response = QMessageBox.question(
-                    self,
-                    "Unverified Stocks",
-                    "Some stocks haven't been verified or marked as delisted. Continue anyway?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if response == QMessageBox.No:
-                    return
-
-            # Save current changes
             self.save_changes()
-
-            # Now ask about historical data
-            response = QMessageBox.question(
-                self,
-                "Historical Data",
-                "Would you like to collect historical price data for verified stocks?\n"
-                "This process might take several minutes.",
-                QMessageBox.Yes | QMessageBox.No
+            
+            progress = QProgressDialog(
+                "Updating with fresh Yahoo data...",
+                "Cancel",
+                0,
+                self.table.rowCount(),
+                self
             )
+            progress.setWindowModality(Qt.WindowModal)
 
-            if response == QMessageBox.Yes:
-                # Prepare verification results with all necessary data
-                verification_results = {
-                    'market_mappings': self.market_mappings,
-                    'stock_data': self.stock_data,
-                    'verification_status': self.verification_status,
-                    'transactions_df': self.transactions_data,
-                    'drp_settings': self.drp_settings,
-                    'table_row_count': self.table.rowCount(),
-                    'instrument_codes': [self.table.item(row, 0).text() for row in range(self.table.rowCount())],
-                    'yahoo_symbols': [self.table.item(row, 2).text() for row in range(self.table.rowCount())]
-                }
+            for row in range(self.table.rowCount()):
+                if progress.wasCanceled():
+                    break
 
-                # Emit verification completed signal with results
-                self.verification_completed.emit(verification_results)
+                verification_status = self.table.item(row, 7).text()
+                if verification_status == "Verified":
+                    instrument_code = self.table.item(row, 0).text()
+                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                    
+                    if stock and stock[0]:
+                        # stock[0] is id, stock[1] is yahoo_symbol
+                        HistoricalDataCollector.process_and_store_historical_data(
+                            db_manager=self.db_manager,
+                            stock_id=stock[0],
+                            yahoo_symbol=stock[1]
+                        )
 
-            super().accept()
+                progress.setValue(row + 1)
+
+            progress.close()
+            self.reject()
 
         except Exception as e:
-            logging.error(f"Error saving changes and updating data: {str(e)}")
+            logger.error(f"Error in save_and_update: {str(e)}")
+            logger.exception("Detailed traceback:")  # Add full traceback to log
+            QMessageBox.warning(self, "Error", f"Failed to update with fresh data: {str(e)}")
+            self.reject()
+
+    def save_and_exit(self):
+        """Use existing data, calculate metrics, save to db"""
+        try:
+            # 1. Save stock meta data
+            self.save_changes()
+            logger.info("Basic stock data saved")
+
+            progress = QProgressDialog(
+                "Calculating metrics with existing data...",
+                "Cancel",
+                0,
+                self.table.rowCount(),
+                self
+            )
+            progress.setWindowModality(Qt.WindowModal)
+
+            for row in range(self.table.rowCount()):
+                if progress.wasCanceled():
+                    break
+
+                instrument_code = self.table.item(row, 0).text()
+                verification_status = self.table.item(row, 7).text()
+
+                if verification_status == "Verified":
+                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                    if stock and stock[0]:
+                        stock_id = stock[0]
+                        yahoo_symbol = stock[1]
+                        transactions = self.db_manager.get_transactions_for_stock(stock_id)
+                        if transactions:
+                            # 2. Get existing Yahoo data from db
+                            logger.info(f"Reading existing data for {yahoo_symbol}")
+                            existing_yahoo_data = self.db_manager.get_existing_yahoo_data(
+                                stock_id=stock_id
+                            )
+
+                            # 3. Calculate metrics using existing data
+                            logger.info(f"Calculating metrics for {yahoo_symbol}")
+                            metrics = HistoricalDataCollector.calculate_historical_metrics(
+                                stock_id=stock_id,
+                                transactions=transactions,
+                                yahoo_data=existing_yahoo_data
+                            )
+
+                            # 4. Save updated metrics to db
+                            if metrics:
+                                logger.debug(f"About to insert {len(metrics)} records")
+                                self.db_manager.bulk_insert_historical_prices(metrics)
+                                logger.debug("Insert completed")
+
+                progress.setValue(row + 1)
+
+            progress.close()
+            self.reject()
+
+        except Exception as e:
+            logger.error(f"Error in save_and_exit: {str(e)}")
+            logger.exception("Detailed traceback:")
             QMessageBox.warning(
                 self,
                 "Error",
-                f"Failed to save changes and update data: {str(e)}"
+                f"Failed to calculate metrics with existing data: {str(e)}"
             )
-
-    def save_and_exit(self):
-        """Save all changes without updating stock data"""
-        self.save_changes()  # Save current state
-        self.reject()  # Close dialog with reject (won't trigger verification)
+            self.reject()
 
     def save_changes(self):
-        """Save the current state of all stocks to the database."""
+        """
+        Save the current state of all stocks to the database and update metrics.
+        Handles stock data, DRP settings, splits, and metrics calculations.
+        """
         try:
+            metrics_manager = PortfolioMetricsManager(self.db_manager)
+                
             for row in range(self.table.rowCount()):
                 instrument_code = self.table.item(row, 0).text()
                 market_combo = self.table.cellWidget(row, 1)
@@ -802,7 +837,7 @@ class VerifyTransactionsDialog(QDialog):
                         market_or_index = market_combo.currentData()
                         self.db_manager.update_stock_market(instrument_code, market_or_index)
                     
-                    # Explicitly convert current_price to float and handle empty strings
+                    # Handle price conversion
                     try:
                         price = float(current_price) if current_price else None
                     except ValueError:
@@ -821,7 +856,7 @@ class VerifyTransactionsDialog(QDialog):
                         name if name else None,
                         price,
                         yahoo_symbol,
-                        verification_status,  # Save the actual verification status
+                        verification_status,
                         datetime.now().replace(microsecond=0),
                         stock_id
                     ))
@@ -831,12 +866,17 @@ class VerifyTransactionsDialog(QDialog):
                     # Create new stock
                     market_or_index = market_combo.currentData() if market_combo.currentIndex() > 0 else None
                     
-                    # Add the stock record
+                    try:
+                        current_price_float = float(current_price) if current_price else None
+                    except ValueError:
+                        current_price_float = None
+                        logging.warning(f"Invalid price value for new stock {instrument_code}: {current_price}")
+                    
                     stock_id = self.db_manager.add_stock(
                         yahoo_symbol=yahoo_symbol,
                         instrument_code=instrument_code,
                         name=name if name else None,
-                        current_price=float(current_price) if current_price else None,
+                        current_price=current_price_float,
                         market_or_index=market_or_index,
                         verification_status=verification_status
                     )
@@ -844,29 +884,44 @@ class VerifyTransactionsDialog(QDialog):
                     logging.info(f"Created new stock {instrument_code} (ID: {stock_id})")
                 
                 if stock_id:
-                    # Save DRP setting
-                    drp_checkbox = self.table.cellWidget(row, 6)
-                    if drp_checkbox:
-                        self.db_manager.update_stock_drp(stock_id, drp_checkbox.isChecked())
+                    
+                    # Handle portfolio association
                     if self.portfolio_id:
-                        # Add portfolio association
                         self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
 
-                    # Save splits if they exist in stock_data
+                    # Process splits if available
                     if instrument_code in self.stock_data and 'splits' in self.stock_data[instrument_code]:
                         splits = self.stock_data[instrument_code]['splits']
-                        self.db_manager.bulk_insert_stock_splits([
+                        split_records = [
                             (stock_id, date.strftime('%Y-%m-%d'), ratio, 'yahoo', datetime.now())
                             for date, ratio in splits.items()
-                        ])
+                        ]
+                        if split_records:
+                            self.db_manager.bulk_insert_stock_splits(split_records)
+                            logging.info(f"Saved {len(split_records)} splits for {instrument_code}")
+
+                    # Update metrics for verified stocks
+                    if verification_status == "Verified":
+                        metrics_manager.update_metrics_for_stock(stock_id)
+                        logging.info(f"Updated metrics for verified stock {instrument_code}")
             
             # Commit all changes
             self.db_manager.conn.commit()
-            logging.info("Successfully saved all stock changes to database")
+            logging.info("Successfully saved all stock changes and updated metrics")
             
+            # Emit verification results
+            self.verification_completed.emit({
+                'market_mappings': self.market_mappings,
+                'stock_data': self.stock_data,
+                'verification_status': self.verification_status,
+                'transactions_df': self.transactions_data,
+                'drp_settings': self.drp_settings
+            })
+                
         except Exception as e:
             self.db_manager.conn.rollback()
             logging.error(f"Error saving changes: {str(e)}")
+            logging.exception("Detailed traceback:")
             QMessageBox.warning(
                 self,
                 "Error Saving Changes",

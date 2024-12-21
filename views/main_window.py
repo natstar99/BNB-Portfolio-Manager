@@ -1,7 +1,8 @@
 # File: views/main_window.py
 
 import os
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QStackedWidget, QLabel, QHBoxLayout
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, 
+                               QStackedWidget, QLabel, QHBoxLayout, QApplication)
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
 
@@ -16,7 +17,8 @@ class MainWindow(QMainWindow):
     def __init__(self, db_manager):
         super().__init__()
         self.setWindowTitle("Bear No Bears - Portfolio Manager")
-        self.setGeometry(100, 100, 1200, 600)
+        screen = QApplication.primaryScreen().geometry()
+        self.setGeometry(0, 0, screen.width(), screen.height()-0.07*screen.height())
 
         self.db_manager = db_manager
 
