@@ -132,7 +132,7 @@ BNB/
 - Yahoo Finance integration
 
 ### Future Development
-V3.X will focus on:
+#### V3.X will focus on:
 - Improving the asset correlation matrices and risk analysis (Sharpe ratio, beta, etc.)
 - Improving the portfolio optimisation features
 - UI improvements
@@ -140,24 +140,25 @@ V3.X will focus on:
 - Better support for different tax calculation methods
 - Custom benchmark comparisons
 - Tax optimisation strategies for realised profit/loss
-V4.X+ will focus on:
-- Initial .exe release with:
+
+#### V4.X+ will focus on:
+##### Initial .exe release with:
  - Automated updates
  - Installation wizard
  - User preferences persistence
-- Machine learning/neural network integration:
+##### Machine learning/neural network integration:
  - Portfolio risk prediction
  - Market trend analysis
  - Anomaly detection
  - Price movement forecasting
  - Investment pattern recognition
-- Market intelligence features:
+##### Market intelligence features:
  - Automated news aggregation and sentiment analysis
  - Real-time market trend detection
  - Company financial health monitoring
  - Sector performance analysis
  - Social media sentiment tracking
-- Personal finance integratoin:
+##### Personal finance integratoin:
  - Budgeting and expense tracking
  - Net worth monitoring
  - Income and expense categorisation
