@@ -3,7 +3,6 @@
 
 from utils.yahoo_finance_service import YahooFinanceService
 from utils.date_utils import DateUtils
-from database.portfolio_metrics_manager import PortfolioMetricsManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,6 +24,9 @@ class HistoricalDataCollector:
             bool: True if successful, False otherwise
         """
         try:
+            # Get currencies
+            stock_currency, portfolio_currency = db_manager.get_stock_currency_info(stock_id)
+
             # Get earliest transaction date
             transactions = db_manager.get_transactions_for_stock(stock_id)
             if not transactions:
@@ -39,7 +41,9 @@ class HistoricalDataCollector:
                 db_manager=db_manager,
                 stock_id=stock_id,
                 yahoo_symbol=yahoo_symbol,
-                start_date=start_date
+                start_date=start_date,
+                stock_currency=stock_currency,
+                portfolio_currency=portfolio_currency
             )
             
             if data is None:

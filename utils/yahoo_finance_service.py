@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 import logging
 from utils.date_utils import DateUtils
+from database.portfolio_metrics_manager import PortfolioMetricsManager
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ class YahooFinanceService:
     """Handles all Yahoo Finance API interactions."""
     
     @staticmethod
-    def fetch_stock_data(db_manager, stock_id: int, yahoo_symbol: str, start_date: datetime) -> pd.DataFrame:
+    def fetch_stock_data(db_manager, stock_id: int, yahoo_symbol: str, start_date: datetime, stock_currency: str, portfolio_currency: str) -> pd.DataFrame:
         """
         Fetch historical data from Yahoo Finance.
         Only gets raw OHLCV data, dividends and splits.
@@ -22,6 +23,8 @@ class YahooFinanceService:
             stock_id: The database ID of the stock
             yahoo_symbol: Yahoo Finance stock symbol
             start_date: Start date for historical data
+            stock_currency: Currency of stock
+            default_currency: Default currency of the selected portfolio
             
         Returns:
             pd.DataFrame: DataFrame containing historical data, or None if fetch fails
@@ -56,11 +59,28 @@ class YahooFinanceService:
                     row.get('Stock Splits', 1.0)
                 ))
             
+            # Check if currency is correct
+            if str(stock_currency) != str(portfolio_currency):
+                conversion_data = YahooFinanceService.fetch_currency_conversion_data(
+                    yahoo_symbol, start_date, stock_currency, portfolio_currency
+                )
+                
+                if conversion_data is not None:
+                    # Convert historical prices
+                    records = YahooFinanceService.apply_currency_conversion(
+                        data, records, conversion_data
+                    )
+                    
+                    # Update transaction prices using database manager
+                    db_manager.update_transaction_prices_with_conversion(
+                        stock_id, conversion_data, stock_currency, portfolio_currency
+                    )
+
             # Bulk insert historical prices
             db_manager.bulk_insert_historical_prices(records)
             
             # Update metrics after new data
-            from database.portfolio_metrics_manager import PortfolioMetricsManager
+            
             metrics_manager = PortfolioMetricsManager(db_manager)
             metrics_manager.update_metrics_for_stock(stock_id)
             
@@ -127,3 +147,96 @@ class YahooFinanceService:
                 'splits': None,
                 'error': str(e)
             }
+
+    
+    @staticmethod
+    def fetch_currency_conversion_data(yahoo_symbol: str, start_date: datetime, stock_currency: str, portfolio_currency: str) -> pd.DataFrame:
+        """
+        Fetch currency conversion data from Yahoo Finance.
+        Attempts direct currency pair first, falls back to USD conversion if needed.
+        
+        Args:
+            yahoo_symbol: Stock's Yahoo Finance symbol (for logging)
+            start_date: Start date for conversion data
+            stock_currency: Currency of the stock
+            portfolio_currency: Portfolio's default currency
+            
+        Returns:
+            pd.DataFrame: DataFrame with dates and conversion rates
+        """
+        try:
+            # Try direct currency pair
+            ticker = yf.Ticker(f"{stock_currency}{portfolio_currency}=X")
+            data = ticker.history(start=start_date, auto_adjust=False)
+            
+            if not data.empty:
+                logger.info(f"Found direct currency conversion for {stock_currency} to {portfolio_currency}")
+                conversion_data = data['Close'].to_frame('conversion_rate')
+                return conversion_data
+                
+            # If direct conversion fails, try via USD
+            logger.info(f"Direct conversion not found, trying via USD for {yahoo_symbol}")
+            
+            # Get stock currency to USD conversion
+            stock_usd = yf.Ticker(f"{stock_currency}=X")
+            stock_data = stock_usd.history(start=start_date, auto_adjust=False)
+            
+            # Get portfolio currency to USD conversion
+            portfolio_usd = yf.Ticker(f"{portfolio_currency}=X")
+            portfolio_data = portfolio_usd.history(start=start_date, auto_adjust=False)
+            
+            if not stock_data.empty and not portfolio_data.empty:
+                # Calculate cross rate
+                conversion_rate = portfolio_data['Close'] / stock_data['Close']
+                return conversion_rate.to_frame('conversion_rate')
+                
+            raise ValueError("Could not fetch required currency conversion data")
+            
+        except Exception as e:
+            logger.error(f"Error fetching currency conversion data for {yahoo_symbol}: {str(e)}")
+            logger.exception("Detailed traceback:")
+            return None
+
+    @staticmethod
+    def apply_currency_conversion(data: pd.DataFrame, records: list, conversion_data: pd.DataFrame):
+        """
+        Apply currency conversion to historical price records.
+        
+        Args:
+            data: Original Yahoo Finance data DataFrame
+            records: List of tuples containing historical price records
+            conversion_data: DataFrame containing currency conversion rates
+            
+        Returns:
+            list: Updated records with converted values
+        """
+        try:
+            # Convert records to DataFrame for easier manipulation
+            records_df = pd.DataFrame(records, columns=[
+                'stock_id', 'date', 'open', 'high', 'low', 'close', 
+                'volume', 'dividends', 'splits'
+            ])
+            
+            # Merge conversion rates with records
+            merged_data = pd.merge(
+                records_df,
+                conversion_data,
+                left_on='date',
+                right_index=True,
+                how='left'
+            )
+            
+            # Apply conversion to price columns
+            price_columns = ['open', 'high', 'low', 'close', 'dividends']
+            for col in price_columns:
+                merged_data[col] *= merged_data['conversion_rate']
+            
+            # Convert back to list of tuples, excluding conversion_rate column
+            converted_records = list(merged_data.drop('conversion_rate', axis=1).itertuples(index=False, name=None))
+            
+            return converted_records
+            
+        except Exception as e:
+            logger.error(f"Error applying currency conversion: {str(e)}")
+            logger.exception("Detailed traceback:")
+            return records  # Return original records if conversion fails

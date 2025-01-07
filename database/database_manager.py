@@ -497,3 +497,78 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error updating metrics for stock {stock_id}: {str(e)}")
             raise
+
+
+    # For getting the currency of a specified stock
+    def get_stock_currency_info(self, stock_id: int) -> tuple:
+        """
+        Get the stock's currency and its portfolio's default currency.
+        
+        Args:
+            stock_id: The database ID of the stock
+            
+        Returns:
+            tuple: (stock_currency, portfolio_currency) or (None, None) if not found
+        """
+        try:
+            result = self.fetch_one("""
+                SELECT 
+                    s.currency as stock_currency,
+                    p.default_currency as portfolio_currency
+                FROM stocks s
+                JOIN portfolio_stocks ps ON s.id = ps.stock_id
+                JOIN portfolios p ON ps.portfolio_id = p.id
+                WHERE s.id = ?
+            """, (stock_id,))
+            
+            if result:
+                return result[0], result[1]
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"Error getting currency info for stock {stock_id}: {str(e)}")
+            return None, None
+        
+    def update_transaction_prices_with_conversion(self, stock_id: int, conversion_data: pd.DataFrame, 
+                                                stock_currency: str, portfolio_currency: str):
+        """
+        Update transaction prices using currency conversion rates.
+        Performs a left join between transactions and conversion rates to update prices in place.
+        
+        Args:
+            stock_id: The database ID of the stock
+            conversion_data: DataFrame containing currency conversion rates
+            stock_currency: Currency of the stock
+            portfolio_currency: Portfolio's default currency
+        """
+        try:
+            # First, store conversion rates in temporary table
+            self.execute("CREATE TEMP TABLE IF NOT EXISTS temp_conversion_rates (date DATE, conversion_rate REAL)")
+            self.execute("DELETE FROM temp_conversion_rates")  # Clear any existing data
+            
+            # Insert conversion rates
+            conversion_records = [(date, rate) for date, rate in conversion_data.itertuples()]
+            self.cursor.executemany(
+                "INSERT INTO temp_conversion_rates (date, conversion_rate) VALUES (?, ?)",
+                conversion_records
+            )
+            
+            # Update transaction prices with join
+            self.execute("""
+                UPDATE transactions 
+                SET 
+                    price = price * tcr.conversion_rate,
+                    currency_conversion_rate = tcr.conversion_rate
+                FROM transactions t
+                LEFT JOIN temp_conversion_rates tcr ON date(t.date) = date(tcr.date)
+                WHERE t.stock_id = ?
+            """, (stock_id,))
+            
+            # Clean up
+            self.execute("DROP TABLE IF EXISTS temp_conversion_rates")
+            self.conn.commit()
+            
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Error updating transaction prices with conversion: {str(e)}")
+            raise
