@@ -50,13 +50,14 @@ class VerifyTransactionsDialog(QDialog):
         
         # Main table
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "Instrument Code",
             "Market",
             "Yahoo Symbol",
             "Stock Name",
             "Latest Price",
+            "Currency",
             "Splits",
             "DRP",
             "Status",
@@ -176,6 +177,7 @@ class VerifyTransactionsDialog(QDialog):
                     market_suffix = existing_stock[7]
                     verification_status = existing_stock[8]
                     drp = existing_stock[9]
+                    currency = existing_stock[10]
                     
                     # Set the market combo box value if we have one
                     if market_or_index:
@@ -189,23 +191,24 @@ class VerifyTransactionsDialog(QDialog):
                     # Set Stock Name (Column 3)
                     self.table.item(row, 3).setText(name or "")
                     
-                    # Set Current Price (Column 4)
+                    # Set Current Price (Column 4) and Currency (Column 5)
                     if current_price:
                         self.table.item(row, 4).setText(f"{current_price:.2f}")
+                        self.table.item(row, 5).setText(currency)
                     
-                    # Check for splits and set indicator (Column 5)
+                    # Check for splits and set indicator (Column 6)
                     splits = self.db_manager.get_stock_splits(stock_id)
                     split_indicator = "✓" if splits else ""
-                    self.table.item(row, 5).setText(split_indicator)
+                    self.table.item(row, 6).setText(split_indicator)
                     
-                    # Set DRP checkbox (Column 6)
+                    # Set DRP checkbox (Column 7)
                     drp_checkbox = QCheckBox()
                     drp_checkbox.setChecked(bool(drp))
                     drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
-                    self.table.setCellWidget(row, 6, drp_checkbox)
+                    self.table.setCellWidget(row, 7, drp_checkbox)
                     self.drp_settings[instrument_code] = bool(drp)
                     
-                    # Set verification status (Column 7)
+                    # Set verification status (Column 8)
                     if verification_status == "Delisted":
                         self.update_status(row, "Delisted", Qt.black)
                     elif name:
@@ -224,16 +227,16 @@ class VerifyTransactionsDialog(QDialog):
                     # Initialise other columns as empty
                     self.table.item(row, 3).setText("")  # Name
                     self.table.item(row, 4).setText("")  # Price
-                    self.table.item(row, 5).setText("")  # Splits
+                    self.table.item(row, 6).setText("")  # Splits
                     
                     # Add DRP checkbox for new stock (Column 6)
                     drp_checkbox = QCheckBox()
                     drp_checkbox.setChecked(False)
                     drp_checkbox.stateChanged.connect(lambda state, r=row: self.on_drp_changed(r))
-                    self.table.setCellWidget(row, 6, drp_checkbox)
+                    self.table.setCellWidget(row, 7, drp_checkbox)
                     self.drp_settings[instrument_code] = False
                     
-                    # Set initial verification status as Pending (Column 7)
+                    # Set initial verification status as Pending (Column 8)
                     self.update_status(row, "Pending", Qt.gray)
                 
                 # Connect market combo box signal
@@ -242,10 +245,10 @@ class VerifyTransactionsDialog(QDialog):
                     lambda idx, r=row: self.on_market_changed(r)
                 )
                 
-                # Create Actions Button (Column 8)
+                # Create Actions Button (Column 9)
                 actions_btn = QPushButton("Actions ▼")
                 actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
-                self.table.setCellWidget(row, 8, actions_btn)
+                self.table.setCellWidget(row, 9, actions_btn)
 
                 # Store the initial verification status
                 if row not in self.verification_status:
@@ -334,18 +337,18 @@ class VerifyTransactionsDialog(QDialog):
         progress.setWindowModality(Qt.WindowModal)
         
         for row in range(self.table.rowCount()):
-            if self.table.item(row, 7).text() != "Delisted":
+            if self.table.item(row, 8).text() != "Delisted":
                 if progress.wasCanceled():
                     break
                     
-                self.verify_stock(row)
+                self.initiate_verification(row)
                 progress.setValue(row + 1)
         
         progress.close()
 
     def on_drp_changed(self, row):
         """Handle changes to the DRP checkbox."""
-        drp_checkbox = self.table.cellWidget(row, 6)  # Column 6 is DRP
+        drp_checkbox = self.table.cellWidget(row, 7)  # Column 7 is DRP
         instrument_code = self.table.item(row, 0).text()
         stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
         if stock:
@@ -354,7 +357,7 @@ class VerifyTransactionsDialog(QDialog):
             self.db_manager.update_stock_drp(stock_id, is_checked)
             self.drp_settings[instrument_code] = is_checked
 
-    def verify_stock(self, row):
+    def initiate_verification(self, row):
         """
         Verify stock using Yahoo Finance service.
         
@@ -388,6 +391,9 @@ class VerifyTransactionsDialog(QDialog):
             
             # Update latest price
             self.table.item(row, 4).setText(str(result['current_price']))
+
+            # Update currency
+            self.table.item(row, 5).setText(str(result['currency']))
             
             # Get market settings
             market_combo = self.table.cellWidget(row, 1)
@@ -401,15 +407,16 @@ class VerifyTransactionsDialog(QDialog):
                 'symbol': yahoo_symbol,
                 'market_or_index': market_or_index,
                 'market_suffix': market_suffix,
-                'drp': self.drp_settings.get(instrument_code, False)
+                'drp': self.drp_settings.get(instrument_code, False),
+                'currency': result['currency']
             }
 
             # Add splits if any found
             if result['splits'] is not None:
-                self.table.item(row, 5).setText("✓")
+                self.table.item(row, 6).setText("✓")
                 self.stock_data[instrument_code]['splits'] = result['splits']
             else:
-                self.table.item(row, 5).setText("")
+                self.table.item(row, 6).setText("")
                 
         except Exception as e:
             self.update_status(row, "Failed", Qt.red)
@@ -418,10 +425,10 @@ class VerifyTransactionsDialog(QDialog):
     def update_status(self, row, status, color):
         """Update the verification status for a given row."""
         # Ensure the status cell exists, create it if it doesn't
-        status_item = self.table.item(row, 7)  # Status is column 7
+        status_item = self.table.item(row, 8)  # Status is column 8
         if status_item is None:
             status_item = QTableWidgetItem("")
-            self.table.setItem(row, 7, status_item)
+            self.table.setItem(row, 8, status_item)
         
         status_item.setText(status)
         
@@ -440,7 +447,7 @@ class VerifyTransactionsDialog(QDialog):
         menu = QMenu(self)
         
         verify_action = menu.addAction("Verify with Yahoo")
-        verify_action.triggered.connect(lambda: self.verify_stock(row))
+        verify_action.triggered.connect(lambda: self.initiate_verification(row))
         
         delist_action = menu.addAction("Mark as Delisted")
         delist_action.triggered.connect(lambda: self.mark_as_delisted(row))
@@ -449,7 +456,7 @@ class VerifyTransactionsDialog(QDialog):
         manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
         
         # Show menu at button
-        button = self.table.cellWidget(row, 8)
+        button = self.table.cellWidget(row, 9) # Actions menu in column 9
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
 
     def manage_splits(self, row):
@@ -467,7 +474,7 @@ class VerifyTransactionsDialog(QDialog):
         if dialog.exec_():
             # Refresh the splits indicator in the table
             has_splits = bool(dialog.get_splits())
-            self.table.item(row, 5).setText("✓" if has_splits else "")
+            self.table.item(row, 6).setText("✓" if has_splits else "")
 
     def show_context_menu(self, position):
         menu = QMenu(self)
@@ -475,7 +482,7 @@ class VerifyTransactionsDialog(QDialog):
         
         if row >= 0:
             verify_action = menu.addAction("Verify with Yahoo")
-            verify_action.triggered.connect(lambda: self.verify_stock(row))
+            verify_action.triggered.connect(lambda: self.initiate_verification(row))
             
             manage_splits_action = menu.addAction("Manage Splits")
             manage_splits_action.triggered.connect(lambda: self.manage_splits(row))
@@ -504,7 +511,7 @@ class VerifyTransactionsDialog(QDialog):
                 font.setBold(True)
                 status_item.setFont(font)
                 status_item.setForeground(Qt.black)
-                self.table.setItem(row, 7, status_item)
+                self.table.setItem(row, 8, status_item)
                 
                 # Update verification status in memory
                 self.verification_status[row] = "Delisted"
@@ -583,14 +590,14 @@ class VerifyTransactionsDialog(QDialog):
             self.table.setCellWidget(current_row, 1, market_combo)
             
             # Initialise other columns
-            for col in range(2, 7):
+            for col in range(2, 8):
                 self.table.setItem(current_row, col, QTableWidgetItem(""))
                 
             # Add DRP checkbox
             drp_checkbox = QCheckBox()
             drp_checkbox.setChecked(False)
             drp_checkbox.stateChanged.connect(lambda state, r=current_row: self.on_drp_changed(r))
-            self.table.setCellWidget(current_row, 6, drp_checkbox)
+            self.table.setCellWidget(current_row, 7, drp_checkbox)
             
             # Set initial status
             self.update_status(current_row, "Pending", Qt.gray)
@@ -598,7 +605,7 @@ class VerifyTransactionsDialog(QDialog):
             # Add actions button
             actions_btn = QPushButton("Actions ▼")
             actions_btn.clicked.connect(lambda _, r=current_row: self.show_actions_menu(r))
-            self.table.setCellWidget(current_row, 8, actions_btn)
+            self.table.setCellWidget(current_row, 9, actions_btn)
             
             # Connect market combo signal
             market_combo.currentIndexChanged.connect(
@@ -720,7 +727,7 @@ class VerifyTransactionsDialog(QDialog):
                 if progress.wasCanceled():
                     break
 
-                verification_status = self.table.item(row, 7).text()
+                verification_status = self.table.item(row, 8).text()
                 if verification_status == "Verified":
                     instrument_code = self.table.item(row, 0).text()
                     stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
@@ -765,7 +772,7 @@ class VerifyTransactionsDialog(QDialog):
                     break
 
                 instrument_code = self.table.item(row, 0).text()
-                verification_status = self.table.item(row, 7).text()
+                verification_status = self.table.item(row, 8).text()
 
                 if verification_status == "Verified":
                     stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
@@ -823,7 +830,8 @@ class VerifyTransactionsDialog(QDialog):
                 yahoo_symbol = self.table.item(row, 2).text()
                 name = self.table.item(row, 3).text()
                 current_price = self.table.item(row, 4).text()
-                verification_status = self.table.item(row, 7).text()
+                currency = self.table.item(row, 5).text()
+                verification_status = self.table.item(row, 8).text()
                 
                 logging.info(f"Saving stock {instrument_code} with verification status: {verification_status}")
                 
@@ -850,14 +858,14 @@ class VerifyTransactionsDialog(QDialog):
                             current_price = ?,
                             yahoo_symbol = ?,
                             verification_status = ?,
-                            last_updated = ?
+                            currency = ?
                         WHERE id = ?
                     """, (
                         name if name else None,
                         price,
                         yahoo_symbol,
                         verification_status,
-                        datetime.now().replace(microsecond=0),
+                        currency,
                         stock_id
                     ))
                     

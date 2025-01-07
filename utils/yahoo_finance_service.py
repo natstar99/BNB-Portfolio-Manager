@@ -94,6 +94,9 @@ class YahooFinanceService:
                 info.get('lastPrice', 0.0)
             )
             
+            # Get currency information
+            currency = ticker.info['currency']
+
             # If still no price, try getting from history
             if price == 0:
                 hist = ticker.history(period="1d", auto_adjust=False)
@@ -108,6 +111,7 @@ class YahooFinanceService:
             return {
                 'name': info.get('longName', 'N/A'),
                 'current_price': price,
+                'currency': currency,
                 'exists': bool(info.get('longName')),
                 'splits': splits if not splits.empty else None,
                 'error': None
@@ -118,6 +122,7 @@ class YahooFinanceService:
             return {
                 'name': 'N/A',
                 'current_price': 0.0,
+                'currency': 'N/A',
                 'exists': False,
                 'splits': None,
                 'error': str(e)

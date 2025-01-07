@@ -103,7 +103,7 @@ class DatabaseManager:
             
             self.log_stock_entry(instrument_code)
 
-    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None, verification_status=None):
+    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None, verification_status=None, currency = None):
         """Add or update a stock."""
         # Get market suffix if market_or_index is provided
         market_suffix = None
@@ -117,11 +117,11 @@ class DatabaseManager:
         self.execute("""
             INSERT OR REPLACE INTO stocks 
             (yahoo_symbol, instrument_code, name, current_price, last_updated, 
-            market_or_index, market_suffix, verification_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            market_or_index, market_suffix, verification_status, currency)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (yahoo_symbol, instrument_code, name, current_price, 
             datetime.now().replace(microsecond=0), market_or_index, 
-            market_suffix, verification_status))
+            market_suffix, verification_status, currency))
         self.conn.commit()
         self.log_stock_entry(instrument_code)  # Log after insert
         return self.cursor.lastrowid
@@ -154,6 +154,7 @@ class DatabaseManager:
                 - market_suffix (str)         [7]
                 - verification_status (str)   [8]
                 - drp (int)                   [9]
+                - currency (str)              [10]
         """
         return self.fetch_one("""
             SELECT 
@@ -166,7 +167,8 @@ class DatabaseManager:
                 s.market_or_index,
                 s.market_suffix,
                 s.verification_status,
-                s.drp
+                s.drp,
+                s.currency
             FROM stocks s
             WHERE s.instrument_code = ?
         """, (instrument_code,))
@@ -175,7 +177,7 @@ class DatabaseManager:
         """Simple method to log stock table entries."""
         result = self.fetch_one("""
             SELECT id, yahoo_symbol, instrument_code, name, current_price, 
-                last_updated, market_or_index, market_suffix, verification_status
+                last_updated, market_or_index, market_suffix, verification_status, currency
             FROM stocks 
             WHERE instrument_code = ?
         """, (instrument_code,))
@@ -192,6 +194,7 @@ class DatabaseManager:
     - Market/Index: {result[6]}
     - Market Suffix: {result[7]}
     - Verification Status: {result[8]}
+    - Currency: {result[9]}
             """)
         
     # Transaction methods

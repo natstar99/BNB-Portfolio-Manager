@@ -169,32 +169,53 @@ class PortfolioStudyController:
         plt.gcf().tight_layout()
 
     def plot_market_value(self, ax, params):
-        """Plot market value analysis."""
+        """
+        Plot market value analysis with proper handling of weekend/holiday data.
+        Uses forward fill to maintain last known values for non-trading days.
+        
+        Args:
+            ax: Matplotlib axis object for plotting
+            params: Dictionary containing plot parameters including view_type and chart_type
+        """
+        # Create a copy of the data to avoid modifying the original
+        plot_data = self.data.copy()
+        
+        # Convert date column to datetime if not already
+        plot_data['date'] = pd.to_datetime(plot_data['date'])
+        
+        # Set multi-index using both date and stock
+        plot_data.set_index(['date', 'stock'], inplace=True)
+        
+        # Unstack to get stock as columns, then resample to daily frequency and forward fill
+        plot_data = plot_data['market_value'].unstack()
+        plot_data = plot_data.asfreq('D').ffill()
+        
         if params['view_type'] == "Individual Stocks":
             # Plot individual stock values
             for stock in params['selected_stocks']:
-                stock_data = self.data[self.data['stock'] == stock]
-                dates = pd.to_datetime(stock_data['date'])
-                ax.plot(dates, stock_data['market_value'], 
-                       label=stock, linewidth=1.5)
+                if stock in plot_data.columns:
+                    ax.plot(plot_data.index, plot_data[stock], 
+                        label=stock, linewidth=1.5)
+                    
         else:  # Portfolio Total
             if params['chart_type'] == "Line Chart":
-                # Sum market values by date
-                portfolio_total = self.data.groupby('date')['market_value'].sum()
-                dates = pd.to_datetime(portfolio_total.index)
-                ax.plot(dates, portfolio_total.values,
-                       label='Total Portfolio', linewidth=2)
+                # Sum market values by date using the forward-filled values
+                portfolio_total = plot_data.sum(axis=1)
+                ax.plot(plot_data.index, portfolio_total.values,
+                    label='Total Portfolio', linewidth=2)
             else:  # Stacked Area
-                # Pivot data for stacked area plot
-                plot_data = self.data.pivot(
-                    index='date',
-                    columns='stock',
-                    values='market_value'
-                ).fillna(0)  # Fill NaN with 0 for stacking
+                # Fill any remaining NaN values with 0 for stacking
+                plot_data = plot_data.fillna(0)
                 
-                dates = pd.to_datetime(plot_data.index)
-                ax.stackplot(dates, plot_data.T, 
-                           labels=plot_data.columns)
+                # Ensure all stocks are properly aligned
+                sorted_columns = sorted(plot_data.columns)
+                plot_data = plot_data[sorted_columns]
+                
+                # Create the stacked area plot
+                ax.stackplot(plot_data.index, 
+                            [plot_data[col] for col in plot_data.columns],
+                            labels=plot_data.columns,
+                            alpha=0.8)  # Added some transparency for better visibility
         
         ax.set_title("Portfolio Market Value Over Time")
         ax.set_xlabel("Date")

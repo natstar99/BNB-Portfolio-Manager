@@ -82,7 +82,7 @@ historical_data_view:
     - name: Unrealised P/L
       field: unrealised_pl
       simple_view: false
-    - name: Total Return
+    - name: Total Return $
       field: total_return
       simple_view: true
     - name: Total Return %

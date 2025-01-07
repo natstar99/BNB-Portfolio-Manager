@@ -3,7 +3,8 @@
 -- Portfolios table
 CREATE TABLE IF NOT EXISTS portfolios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    default_currency TEXT DEFAULT 'AUD'
 );
 
 -- Stocks table
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS stocks (
     market_suffix TEXT,
     verification_status TEXT DEFAULT 'pending', -- tracks verification status (pending, verified, failed)
     drp INTEGER DEFAULT 0,
+    currency TEXT,
     UNIQUE(yahoo_symbol, instrument_code),
     FOREIGN KEY (market_or_index) REFERENCES market_codes(market_or_index)
 );
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     quantity REAL NOT NULL,
     price REAL NOT NULL,
     transaction_type TEXT NOT NULL,
+    currency_conversion_rate REAL DEFAULT 1.0,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 
@@ -81,6 +84,7 @@ CREATE TABLE IF NOT EXISTS historical_prices (
     volume INTEGER,
     dividend REAL,
     split_ratio REAL,
+    currency_conversion_rate REAL DEFAULT 1.0,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE,
     UNIQUE(stock_id, date)
 );
@@ -131,6 +135,27 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_metrics_stock_date
     ON portfolio_metrics(stock_id, date);
 CREATE INDEX IF NOT EXISTS idx_portfolio_metrics_date 
     ON portfolio_metrics(date);
+
+-- Create supported currencies table
+CREATE TABLE IF NOT EXISTS supported_currencies (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    symbol TEXT,
+    is_active BOOLEAN DEFAULT 1
+);
+
+-- Insert common currencies
+INSERT OR IGNORE INTO supported_currencies (code, name, symbol) VALUES
+    ('USD', 'US Dollar', '$'),
+    ('EUR', 'Euro', '€'),
+    ('GBP', 'British Pound', '£'),
+    ('JPY', 'Japanese Yen', '¥'),
+    ('AUD', 'Australian Dollar', 'A$'),
+    ('CAD', 'Canadian Dollar', 'C$'),
+    ('CHF', 'Swiss Franc', 'Fr'),
+    ('CNY', 'Chinese Yuan', '¥'),
+    ('HKD', 'Hong Kong Dollar', 'HK$'),
+    ('NZD', 'New Zealand Dollar', 'NZ$');
 
 -- Market_Codes table
 CREATE TABLE IF NOT EXISTS market_codes (

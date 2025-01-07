@@ -325,7 +325,7 @@ class HistoricalDataDialog(QDialog):
             # Determine format type and apply formatting
             if any(text in column_name for text in ['Open', 'High', 'Low', 'Close', 'Price',
                                                 'Value', 'P/L', 'Cost', 'Dividend', 'DRP',
-                                                'Total Return']):
+                                                '$']):
                 format_config = formats.get('price_formats', {'default': '.2f'})
                 decimals = int(format_config['default'].split('.')[1][0])
                 return f"${value:.{decimals}f}"

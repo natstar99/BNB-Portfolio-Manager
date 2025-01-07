@@ -428,7 +428,7 @@ portfolio_metrics AS (
 	
 		-- Calculate return percentage
 		CASE 
-		    WHEN rc.running_cost_basis > 0 THEN 
+		    WHEN rc.running_cost_basis > 0 AND rc.total_shares_owned > 0.000001 THEN 
 		        (
 		            rc.realised_pl +  -- Already includes cash dividends
 		            CASE 

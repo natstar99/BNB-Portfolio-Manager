@@ -10,6 +10,7 @@ from controllers.portfolio_controller import PortfolioController
 from controllers.portfolio_view_controller import PortfolioViewController
 from controllers.market_analysis_controller import MarketAnalysisController
 from controllers.portfolio_study_controller import PortfolioStudyController
+from controllers.settings_controller import SettingsController
 from views.portfolio_study_view import PortfolioStudyView
 from views.market_analysis_view import MarketAnalysisView
 
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.portfolio_view_controller = PortfolioViewController(self.db_manager)
         self.portfolio_study_controller = PortfolioStudyController(self.db_manager)
         self.market_analysis_controller = MarketAnalysisController(self.db_manager)
+        self.settings_controller = SettingsController(self.db_manager)
 
         # Set up views
         self.portfolio_study_view = PortfolioStudyView()
@@ -84,7 +86,7 @@ class MainWindow(QMainWindow):
         self.content_widget.addWidget(self.portfolio_view_controller.get_view())
         self.content_widget.addWidget(self.portfolio_study_controller.get_view())
         self.content_widget.addWidget(self.market_analysis_controller.get_view())
-        self.content_widget.addWidget(QLabel("Settings Page"))
+        self.content_widget.addWidget(self.settings_controller.get_view())
 
         # Add sidebar and content to main layout
         main_layout.addWidget(sidebar)
@@ -112,5 +114,6 @@ class MainWindow(QMainWindow):
             self.portfolio_view_controller.set_portfolio(portfolio)
             self.portfolio_study_controller.set_portfolio(portfolio)
             self.market_analysis_controller.set_portfolio(portfolio)
+            self.settings_controller.set_portfolio(portfolio)
             self.content_widget.setCurrentIndex(1)
             self.nav_buttons[1].setStyleSheet("background-color: #ddd;")
