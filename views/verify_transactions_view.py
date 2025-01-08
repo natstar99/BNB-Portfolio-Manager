@@ -11,6 +11,7 @@ import yfinance as yf
 import logging
 import pandas as pd
 from utils.historical_data_collector import HistoricalDataCollector
+from views.historical_data_view import ManageHistoricalDataDialog
 from utils.yahoo_finance_service import YahooFinanceService
 from database.portfolio_metrics_manager import PortfolioMetricsManager
 
@@ -552,7 +553,7 @@ class VerifyTransactionsDialog(QDialog):
         self.remove_selected_btn.setEnabled(has_selection)
 
     def add_instrument(self):
-        """Show dialog to add a new instrument code."""
+        """Show dialog to add a new instrument code and optionally add transactions."""
         dialog = AddInstrumentDialog(self)
         if dialog.exec_():
             instrument_code = dialog.get_instrument_code()
@@ -611,6 +612,54 @@ class VerifyTransactionsDialog(QDialog):
             market_combo.currentIndexChanged.connect(
                 lambda idx, r=current_row: self.on_market_changed(r)
             )
+
+            # Add basic stock record to database
+            stock_id = self.db_manager.add_stock(
+                yahoo_symbol=instrument_code,  # Initially same as instrument code
+                instrument_code=instrument_code,
+                name=None,
+                current_price=None,
+                verification_status="Pending"
+            )
+
+            # After adding to database, ask about transactions
+            response = QMessageBox.question(
+                self,
+                "Add Transactions",
+                "Would you like to add transactions for this instrument now?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if response == QMessageBox.Yes:
+                stock_tuple = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if stock_tuple:
+                    from models.stock import Stock  # Make sure to import Stock
+                    stock = Stock(
+                        id=stock_tuple[0],
+                        yahoo_symbol=stock_tuple[1],
+                        instrument_code=stock_tuple[2],
+                        name=stock_tuple[3],
+                        current_price=stock_tuple[4],
+                        last_updated=stock_tuple[5],
+                        db_manager=self.db_manager
+                    )
+                    dialog = ManageHistoricalDataDialog(
+                        stock=stock,
+                        db_manager=self.db_manager,
+                        parent=self
+                    )
+                    # Hide the update data button
+                    dialog.update_data_btn.hide()
+                    # Change button box to have Save instead of Close
+                    dialog.button_box.clear()
+                    save_btn = QPushButton("Save")
+                    save_btn.clicked.connect(dialog.accept)
+                    dialog.button_box.addButton(save_btn, QDialogButtonBox.AcceptRole)
+                    cancel_btn = QPushButton("Cancel") 
+                    cancel_btn.clicked.connect(dialog.reject)
+                    dialog.button_box.addButton(cancel_btn, QDialogButtonBox.RejectRole)
+                    
+                    dialog.exec_()
 
     def remove_selected(self):
         """Remove selected instruments after appropriate warnings and validation."""
@@ -1178,7 +1227,7 @@ class StockSplitsDialog(QDialog):
 
 class AddInstrumentDialog(QDialog):
     """
-    Simple dialog for adding a new instrument code to the verification list.
+    Dialog for adding a new instrument code to the verification list.
     """
     def __init__(self, parent=None):
         super().__init__(parent)

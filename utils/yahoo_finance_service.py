@@ -216,6 +216,10 @@ class YahooFinanceService:
                 'stock_id', 'date', 'open', 'high', 'low', 'close', 
                 'volume', 'dividends', 'splits'
             ])
+
+            # Convert date columns to datetime with no timezone
+            records_df['date'] = pd.to_datetime(records_df['date']).dt.tz_localize(None)
+            conversion_data.index = pd.to_datetime(conversion_data.index).tz_localize(None)
             
             # Merge conversion rates with records
             merged_data = pd.merge(
@@ -232,6 +236,8 @@ class YahooFinanceService:
                 merged_data[col] *= merged_data['conversion_rate']
             
             # Convert back to list of tuples, excluding conversion_rate column
+            # Convert dates back to strings in YYYY-MM-DD format
+            merged_data['date'] = merged_data['date'].dt.strftime('%Y-%m-%d')
             converted_records = list(merged_data.drop('conversion_rate', axis=1).itertuples(index=False, name=None))
             
             return converted_records

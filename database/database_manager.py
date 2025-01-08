@@ -546,22 +546,27 @@ class DatabaseManager:
             self.execute("CREATE TEMP TABLE IF NOT EXISTS temp_conversion_rates (date DATE, conversion_rate REAL)")
             self.execute("DELETE FROM temp_conversion_rates")  # Clear any existing data
             
-            # Insert conversion rates
-            conversion_records = [(date, rate) for date, rate in conversion_data.itertuples()]
+            # Convert conversion data index to string dates before inserting
+            conversion_records = [
+                (date.strftime('%Y-%m-%d'), rate) 
+                for date, rate in conversion_data.itertuples()
+            ]
+            
             self.cursor.executemany(
                 "INSERT INTO temp_conversion_rates (date, conversion_rate) VALUES (?, ?)",
                 conversion_records
             )
             
             # Update transaction prices with join
+            # Note: We're now using proper table aliases and being explicit about which price we're updating
             self.execute("""
                 UPDATE transactions 
                 SET 
-                    price = price * tcr.conversion_rate,
+                    price = transactions.price * tcr.conversion_rate,
                     currency_conversion_rate = tcr.conversion_rate
-                FROM transactions t
-                LEFT JOIN temp_conversion_rates tcr ON date(t.date) = date(tcr.date)
-                WHERE t.stock_id = ?
+                FROM transactions trans
+                LEFT JOIN temp_conversion_rates tcr ON date(trans.date) = date(tcr.date)
+                WHERE trans.stock_id = ?
             """, (stock_id,))
             
             # Clean up
