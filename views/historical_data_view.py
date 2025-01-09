@@ -125,8 +125,6 @@ class HistoricalDataDialog(QDialog):
                 # Determine table prefix based on the field
                 if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
                     fields.append(f"hp.{field}")
-                elif field in ['transaction_type', 'price', 'quantity']:
-                    fields.append(f"t.{field}")
                 else:
                     fields.append(f"pm.{field}")
 
@@ -137,9 +135,6 @@ class HistoricalDataDialog(QDialog):
                 SELECT 
                     {', '.join(fields)}
                 FROM historical_prices hp
-                LEFT JOIN transactions t 
-                    ON hp.stock_id = t.stock_id 
-                    AND date(hp.date) = date(t.date)
                 LEFT JOIN portfolio_metrics pm 
                     ON hp.stock_id = pm.stock_id 
                     AND hp.date = pm.date
@@ -207,8 +202,6 @@ class HistoricalDataDialog(QDialog):
                 # Determine which table the field comes from
                 if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
                     visible_columns.append(f"hp.{field}")
-                elif field in ['transaction_type', 'price', 'quantity']:
-                    visible_columns.append(f"t.{field}")
                 else:
                     visible_columns.append(f"pm.{field}")
 
@@ -216,9 +209,6 @@ class HistoricalDataDialog(QDialog):
             query = f"""
                 SELECT {', '.join(visible_columns)}
                 FROM historical_prices hp
-                LEFT JOIN transactions t 
-                    ON hp.stock_id = t.stock_id 
-                    AND date(hp.date) = date(t.date)
                 LEFT JOIN portfolio_metrics pm 
                     ON hp.stock_id = pm.stock_id 
                     AND hp.date = pm.date
