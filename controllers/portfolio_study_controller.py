@@ -36,55 +36,68 @@ class PortfolioStudyController:
         
         Args:
             params: Dictionary containing analysis parameters
-            
+                
         Returns:
             pd.DataFrame: DataFrame containing requested metrics
         """
         try:
-            # Build the columns list based on study type
-            study_type = params['study_type']
-            columns = ['date']  # Always include date
+            # Get unique fields for the query
+            fields = ['date']  # Always include date
+
+            # Map study types to database columns
+            study_type_mapping = {
+                'market_value': 'market_value',
+                'profitability': ['total_return', 'market_value', 'daily_pl', 'daily_pl_pct', 'total_return_pct', 'cumulative_return_pct'],
+                'dividend_performance': ['cash_dividend', 'cash_dividends_total', 'drp_share', 'drp_shares_total']
+            }
             
-            if study_type == "Market Value":
-                columns.extend(['market_value'])
-            elif study_type == "Profitability":
-                if params['display_type'] == "Percentage":
-                    if params['time_period'] == "Daily Changes":
-                        columns.extend(['daily_pl_pct'])
-                    else:  # Cumulative
-                        columns.extend(['total_return_pct'])
-                else:  # Dollar Value
-                    if params['time_period'] == "Daily Changes":
-                        columns.extend(['daily_pl'])
-                    else:  # Cumulative
-                        columns.extend(['total_return'])
-            elif study_type == "Dividend Performance":
-                if params['view_type'] == "Cash Dividends":
-                    columns.extend(['cash_dividend', 'cash_dividends_total'])
-                else:  # DRP
-                    columns.extend(['drp_share', 'drp_shares_total'])
-            elif study_type == "Portfolio Distribution":
-                columns.extend(['market_value'])  # Only need latest values
+            # Add required fields based on study type
+            if params['study_type'] in study_type_mapping:
+                study_fields = study_type_mapping[params['study_type']]
+                if isinstance(study_fields, list):
+                    fields.extend(study_fields)
+                else:
+                    fields.append(study_fields)
+                    
+            # Add any specific metric if provided
+            if 'metric' in params:
+                if isinstance(params['metric'], list):
+                    fields.extend(params['metric'])
+                else:
+                    fields.append(params['metric'])
+                    
+            if 'metrics' in params:
+                fields.extend(params['metrics'])
+
+            # Remove any duplicates while preserving order
+            fields = list(dict.fromkeys(fields))
+            
+            # Build query using the ordered fields
+            query = f"""
+                    SELECT {', '.join(fields)}
+                    FROM portfolio_metrics
+                    WHERE stock_id = :stock_id 
+                    AND date BETWEEN :start_date AND :end_date
+                    ORDER BY date
+                """
+            logger.debug(f"Generated SQL query: {query}")
             
             # Get data for selected stocks
             data_frames = []
             for yahoo_symbol in params['selected_stocks']:
                 stock = self.current_portfolio.get_stock(yahoo_symbol)
                 if stock:
-                    query = f"""
-                        SELECT {', '.join(columns)}
-                        FROM portfolio_metrics
-                        WHERE stock_id = ? AND date BETWEEN ? AND ?
-                        ORDER BY date
-                    """
+                    query_params = {
+                        'stock_id': stock.id,
+                        'start_date': params['start_date'],
+                        'end_date': params['end_date']
+                    }
                     
-                    results = self.db_manager.fetch_all(
-                        query,
-                        (stock.id, params['start_date'], params['end_date'])
-                    )
+                    logger.debug(f"Executing query for stock {yahoo_symbol} with params: {query_params}")
+                    results = self.db_manager.fetch_all_with_params(query, query_params)
                     
                     if results:
-                        df = pd.DataFrame(results, columns=columns)
+                        df = pd.DataFrame(results, columns=fields)
                         df['stock'] = yahoo_symbol
                         data_frames.append(df)
             
@@ -94,7 +107,36 @@ class PortfolioStudyController:
             
         except Exception as e:
             logger.error(f"Error getting portfolio data: {str(e)}")
+            logger.error(f"Parameters received: {params}")
             raise
+
+    def calculate_portfolio_total_metrics(self, data, params):
+        """Calculate portfolio-wide metrics."""
+        if params['chart_type'] == 'dollar_value':
+            # Simple sum for dollar values
+            return data.groupby('date')['total_return'].sum().reset_index()
+        else:  # percentage
+            # Calculate weighted return
+            grouped = data.groupby('date').agg({
+                'total_return': 'sum',
+                'market_value': 'sum'
+            }).reset_index()
+            grouped['value'] = grouped['total_return'] / grouped['market_value'] * 100
+            return grouped
+
+    def calculate_deltas(self, data, params):
+        """Calculate day-over-day changes."""
+        if params['view_type'] == 'individual_stocks':
+            # Calculate deltas for each stock
+            for stock in data['stock'].unique():
+                mask = data['stock'] == stock
+                base_col = params['metric'].replace('_delta', '')
+                data.loc[mask, 'value'] = data.loc[mask, base_col].diff()
+        else:
+            # Calculate deltas for portfolio total
+            data['value'] = data['value'].diff()
+        
+        return data
 
     def analyse_portfolio(self, params):
         """
@@ -121,11 +163,11 @@ class PortfolioStudyController:
             
             study_type = params['study_type']
             
-            if study_type == "Market Value":
+            if study_type == "market_value":
                 self.plot_market_value(ax, params)
-            elif study_type == "Profitability":
+            elif study_type == "profitability":
                 self.plot_profitability(ax, params)
-            elif study_type == "Dividend Performance":
+            elif study_type == "dividend_performance":
                 self.plot_dividends(ax, params)
             else:  # Portfolio Distribution
                 self.plot_distribution(ax)
@@ -177,6 +219,9 @@ class PortfolioStudyController:
             ax: Matplotlib axis object for plotting
             params: Dictionary containing plot parameters including view_type and chart_type
         """
+        # Add debug logging
+        logger.debug(f"Market Value plot parameters: {params}")
+        
         # Create a copy of the data to avoid modifying the original
         plot_data = self.data.copy()
         
@@ -190,7 +235,8 @@ class PortfolioStudyController:
         plot_data = plot_data['market_value'].unstack()
         plot_data = plot_data.asfreq('D').ffill()
         
-        if params['view_type'] == "Individual Stocks":
+        # Check view type using the correct mapped value
+        if params['view_type'] == "individual_stocks":  # This should match the value in config.yaml
             # Plot individual stock values
             for stock in params['selected_stocks']:
                 if stock in plot_data.columns:
@@ -198,12 +244,13 @@ class PortfolioStudyController:
                         label=stock, linewidth=1.5)
                     
         else:  # Portfolio Total
-            if params['chart_type'] == "Line Chart":
+            # Check chart type using the correct mapped value
+            if params['chart_type'] == "line_chart":  # This should match the value in config.yaml
                 # Sum market values by date using the forward-filled values
                 portfolio_total = plot_data.sum(axis=1)
                 ax.plot(plot_data.index, portfolio_total.values,
                     label='Total Portfolio', linewidth=2)
-            else:  # Stacked Area
+            elif params['chart_type'] == "stacked_area":  # This should match the value in config.yaml
                 # Fill any remaining NaN values with 0 for stacking
                 plot_data = plot_data.fillna(0)
                 
@@ -215,8 +262,8 @@ class PortfolioStudyController:
                 ax.stackplot(plot_data.index, 
                             [plot_data[col] for col in plot_data.columns],
                             labels=plot_data.columns,
-                            alpha=0.8)  # Added some transparency for better visibility
-        
+                            alpha=0.8)
+            
         ax.set_title("Portfolio Market Value Over Time")
         ax.set_xlabel("Date")
         ax.set_ylabel("Value ($)")
@@ -230,42 +277,72 @@ class PortfolioStudyController:
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
 
     def plot_profitability(self, ax, params):
-        """Plot profitability analysis."""
-        # Determine which metric to plot
-        if params['display_type'] == "Percentage":
-            metric = 'daily_pl_pct' if params['time_period'] == "Daily Changes" else 'total_return_pct'
-            ylabel = "Return (%)"
-            value_format = lambda x, p: f'{x:.1f}%'
-        else:  # Dollar Value
-            metric = 'daily_pl' if params['time_period'] == "Daily Changes" else 'total_return'
-            ylabel = "Profit/Loss ($)"
-            value_format = lambda x, p: f'${x:,.0f}'
-        
-        if params['view_type'] == "Individual Stocks":
-            for stock in params['selected_stocks']:
-                stock_data = self.data[self.data['stock'] == stock]
-                dates = pd.to_datetime(stock_data['date'])
-                ax.plot(dates, stock_data[metric], label=stock)
-        else:  # Portfolio Total
-            portfolio_total = self.data.groupby('date')[metric].sum()
-            dates = pd.to_datetime(portfolio_total.index)
-            ax.plot(dates, portfolio_total.values,
-                   label='Total Portfolio', linewidth=2)
-        
-        # Add zero line for reference
-        ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
-        
-        ax.set_title(f"Portfolio {'Daily' if params['time_period'] == 'Daily Changes' else 'Cumulative'} Returns")
-        ax.set_xlabel("Date")
-        ax.set_ylabel(ylabel)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax.grid(True, alpha=0.3)
-        
-        # Set up date axis
-        self.setup_date_axis(ax)
-        
-        # Format y-axis
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
+        """
+        Plot profitability analysis with proper date axis formatting.
+        """
+        try:
+            view_type = params['view_type']
+            time_period = params['calculation_type']  # 'daily' or 'cumulative'
+            chart_type = params['chart_type']
+            
+            # Convert dates to datetime if they aren't already
+            self.data['date'] = pd.to_datetime(self.data['date'])
+            
+            # Determine which metric to use
+            if chart_type == 'dollar_value':
+                metric = 'daily_pl' if time_period == 'daily' else 'total_return'
+                ylabel = "Return ($)"
+                value_format = lambda x, p: f'${x:,.0f}'
+            elif chart_type == 'percentage':
+                metric = 'daily_pl_pct' if time_period == 'daily' else 'total_return_pct'
+                ylabel = "Return (%)"
+                value_format = lambda x, p: f'{x:.1f}%'
+            else:  # aggregated_percentage
+                metric = 'cumulative_return_pct'
+                ylabel = "Return (%)"
+                value_format = lambda x, p: f'{x:.1f}%'
+            
+            if view_type == 'individual_stocks':
+                for stock in params['selected_stocks']:
+                    stock_data = self.data[self.data['stock'] == stock].copy()
+                    ax.plot(stock_data['date'], stock_data[metric], label=stock)
+            else:  # portfolio_total
+                if chart_type == 'percentage':
+                    # Calculate portfolio percentage return
+                    grouped = self.data.groupby('date').agg({
+                        'total_return': 'sum',
+                        'market_value': 'sum'
+                    })
+                    y_values = grouped['total_return'] / grouped['market_value'] * 100
+                else:
+                    grouped = self.data.groupby('date')[metric].sum()
+                    y_values = grouped
+                    
+                ax.plot(grouped.index, y_values.values, label='Portfolio Total', linewidth=2)
+            
+            # Add zero line for reference
+            ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
+            
+            # Set axis limits based on actual data range
+            min_date = self.data['date'].min()
+            max_date = self.data['date'].max()
+            ax.set_xlim(min_date, max_date)
+            
+            period_type = 'Daily' if time_period == 'daily' else 'Cumulative'
+            ax.set_title(f"Portfolio {period_type} Returns")
+            ax.set_xlabel("Date")
+            ax.set_ylabel(ylabel)
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax.grid(True, alpha=0.3)
+            
+            # Format axes
+            self.setup_date_axis(ax)
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
+            
+        except Exception as e:
+            logger.error(f"Error plotting profitability: {str(e)}")
+            logger.exception("Detailed traceback:")
+            raise
 
     def plot_dividends(self, ax, params):
         """Plot dividend analysis."""
@@ -353,38 +430,6 @@ class PortfolioStudyController:
         
         # Use a tight layout to prevent label cutoff
         fig.tight_layout()
-
-    def plot_profitability(self, ax, params):
-        """Plot profitability analysis."""
-        # Determine which metric to plot
-        if params['display_type'] == "Percentage":
-            metric = 'daily_pl_pct' if params['time_period'] == "Daily Changes" else 'total_return_pct'
-            ylabel = "Return (%)"
-        else:  # Dollar Value
-            metric = 'daily_pl' if params['time_period'] == "Daily Changes" else 'total_return'
-            ylabel = "Profit/Loss ($)"
-        
-        if params['view_type'] == "Individual Stocks":
-            for stock in params['selected_stocks']:
-                stock_data = self.data[self.data['stock'] == stock]
-                ax.plot(stock_data['date'], stock_data[metric], label=stock)
-        else:  # Portfolio Total
-            portfolio_total = self.data.groupby('date')[metric].sum()
-            ax.plot(
-                portfolio_total.index,
-                portfolio_total.values,
-                label='Total Portfolio',
-                linewidth=2
-            )
-        
-        # Add zero line for reference
-        ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
-        
-        ax.set_title(f"Portfolio {'Daily' if params['time_period'] == 'Daily Changes' else 'Cumulative'} Returns")
-        ax.set_xlabel("Date")
-        ax.set_ylabel(ylabel)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
 
     def plot_dividends(self, ax, params):
         """Plot dividend analysis."""

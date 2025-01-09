@@ -114,3 +114,99 @@ historical_data_view:
       - fifo
       - lifo
       - hifo
+portfolio_study_view:
+  hierarchy:
+    market_value:
+      name: "Market Value"
+      view_types:
+        individual_stocks:
+          name: "Individual Stocks"
+          chart_types:
+            line_chart:
+              name: "Line Chart"
+        portfolio_total:
+          name: "Portfolio Total"
+          chart_types:
+            line_chart:
+              name: "Line Chart"
+            stacked_area:
+              name: "Stacked Area"
+    
+    profitability:
+      name: "Profitability"
+      view_types:
+        individual_stocks:
+          name: "Individual Stocks"
+          chart_types:
+            dollar_value:
+              name: "Total Return $"
+              time_periods:
+                daily: "Daily Changes" # Plots the dail_pl column from the portfolio_metrics table
+                cumulative: "Cumulative" # Plots total_return value from the portfolio_metrics table
+            percentage:
+              name: "Total Return %"
+              time_periods:
+                daily: "Daily Changes" # Plots the daily_pl_pct column from the portfolio_metrics table
+                cumulative: "Cumulative" # Plots total_return_pct value from the portfolio_metrics table
+            aggregated_percentage:
+              name: "Aggregated ROI %"
+              time_periods:
+                daily: "Daily Changes" # Plots the delta of the cumulative_return_pct column from the portfolio_metrics table
+                cumulative: "Cumulative" # Plots cumulative_return_pct value from the portfolio_metrics table
+        portfolio_total:
+          name: "Portfolio Total"
+          chart_types:
+            dollar_value:
+              name: "Total Return $"
+              time_periods:
+                daily: "Daily Changes" # Plots the summed delta of the total_return column from the portfolio_metrics table for the selected stocks
+                cumulative: "Cumulative" # Plots the summed total_return column from the portfolio_metrics table for the selected stocks
+            percentage:
+              name: "Total Return %"
+              time_periods:
+                daily: "Daily Changes" # Plots the delta of the sum(total_return) / sum(market_value) from the portfolio_metrics table for the selected stocks
+                cumulative: "Cumulative" # Plots the sum(total_return) / sum(market_value) from the portfolio_metrics table for the selected stocks
+    
+    dividend_performance:
+      name: "Dividend Performance"
+      view_types:
+        individual_stocks:
+          name: "Individual Stocks"
+          chart_types:
+            cash:
+              name: "Cash Dividends"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+            drp:
+              name: "DRP"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+            combined:
+              name: "Cash + DRP"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+        portfolio_total:
+          name: "Portfolio Total"
+          chart_types:
+            cash:
+              name: "Cash Dividends"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+            drp:
+              name: "DRP"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+            combined:
+              name: "Cash + DRP"
+              time_periods:
+                daily: "Daily Changes"
+                cumulative: "Cumulative"
+    
+    portfolio_distribution:
+      name: "Portfolio Distribution"
+      # No additional options for pie chart

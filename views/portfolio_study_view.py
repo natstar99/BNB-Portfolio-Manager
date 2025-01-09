@@ -1,15 +1,187 @@
+# File: views/portfolio_study_view.py
+
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QLabel, QListWidget, QTabWidget, QButtonGroup,
                               QFrame, QGridLayout, QGroupBox, QDateEdit,
                               QTableWidget, QTableWidgetItem, QHeaderView,
-                              QRadioButton)
+                              QRadioButton, QMessageBox)
 from PySide6.QtCore import Signal, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 from matplotlib.figure import Figure
 from datetime import datetime
 import logging
+import yaml
 
 logger = logging.getLogger(__name__)
+
+class StudyViewConfig:
+    """
+    Manages the hierarchical configuration for the portfolio study view.
+    Centralizes all option management and dependencies.
+    """
+    def __init__(self, config_data):
+        """
+        Initialize with configuration loaded from yaml.
+        
+        Args:
+            config_data (dict): The loaded yaml configuration for portfolio_study_view
+        """
+        self.config = config_data
+        self.current_selections = {
+            'study_type': None,
+            'view_type': None,
+            'display_type': None,
+            'time_period': None,
+            'dividend_type': None
+        }
+        
+    def get_available_options(self, level):
+        """
+        Get available options for a given level based on current selections.
+        
+        Args:
+            level (str): The hierarchy level to get options for
+            
+        Returns:
+            list: List of (key, display_name) tuples for available options
+        """
+        if level == 'study_type':
+            return [(key, data['name']) for key, data in self.config['hierarchy'].items()]
+            
+        study_type = self.current_selections['study_type']
+        if not study_type or study_type not in self.config['hierarchy']:
+            return []
+            
+        current_level = self.config['hierarchy'][study_type]
+        
+        if level == 'view_type':
+            if 'view_types' in current_level:
+                return [(key, data['name']) for key, data in current_level['view_types'].items()]
+            return []
+            
+        view_type = self.current_selections['view_type']
+        if not view_type or 'view_types' not in current_level or view_type not in current_level['view_types']:
+            return []
+            
+        current_level = current_level['view_types'][view_type]
+        
+        if level == 'chart_type' and 'chart_types' in current_level:
+            return [(key, data['name']) for key, data in current_level['chart_types'].items()]
+        
+        chart_type = self.current_selections['chart_type']
+        
+        # Add this section for time_period options
+        if level == 'time_period' and chart_type:
+            if ('chart_types' in current_level and 
+                chart_type in current_level['chart_types'] and
+                'time_periods' in current_level['chart_types'][chart_type]):
+                
+                time_periods = current_level['chart_types'][chart_type]['time_periods']
+                return [(key, name) for key, name in time_periods.items()]
+        
+        return []
+    
+    def set_selection(self, level, value):
+        """
+        Set selection for a level and clear dependent selections.
+        
+        Args:
+            level (str): The hierarchy level being set
+            value (str): The selected value
+        """
+        # Define level dependencies
+        level_order = ['study_type', 'view_type', 'display_type', 'dividend_type', 'time_period']
+        
+        # Clear all dependent selections
+        if level in level_order:
+            idx = level_order.index(level)
+            for dependent_level in level_order[idx+1:]:
+                self.current_selections[dependent_level] = None
+        
+        self.current_selections[level] = value
+
+    def get_selection(self, level):
+        """
+        Get current selection for a level.
+        
+        Args:
+            level (str): The hierarchy level
+            
+        Returns:
+            str: Currently selected value or None
+        """
+        return self.current_selections[level]
+
+
+class StudyOptionGroup(QGroupBox):
+    """
+    A group box containing radio buttons for a specific level of options.
+    Manages its own state and notifies parent of changes.
+    """
+    selection_changed = Signal(str, str)  # (level, selected_value)
+    
+    def __init__(self, level, title, parent=None):
+        """
+        Initialize option group.
+        
+        Args:
+            level (str): The hierarchy level this group represents
+            title (str): Display title for the group box
+            parent (QWidget): Parent widget
+        """
+        super().__init__(title, parent)
+        self.level = level
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+        self.button_group = QButtonGroup(self)
+        self.button_group.buttonClicked.connect(self.on_selection_changed)
+        self.buttons = {}
+    
+    def update_options(self, options):
+        """
+        Update available options in the group.
+        
+        Args:
+            options (list): List of (value, display_name) tuples
+        """
+        # Clear existing buttons
+        for button in self.buttons.values():
+            self.layout.removeWidget(button)
+            self.button_group.removeButton(button)
+            button.deleteLater()
+        self.buttons.clear()
+        
+        # Add new buttons
+        for value, display_name in options:
+            button = QRadioButton(display_name)
+            button.value = value  # Store value for reference
+            self.buttons[value] = button
+            self.layout.addWidget(button)
+            self.button_group.addButton(button)
+            
+        self.setVisible(bool(options))
+    
+    def set_selection(self, value):
+        """
+        Set the currently selected option.
+        
+        Args:
+            value (str): Value to select
+        """
+        if value in self.buttons:
+            self.buttons[value].setChecked(True)
+        else:
+            # Clear selection if value not available
+            self.button_group.setExclusive(False)
+            for button in self.buttons.values():
+                button.setChecked(False)
+            self.button_group.setExclusive(True)
+    
+    def on_selection_changed(self, button):
+        """Handle radio button selection change."""
+        self.selection_changed.emit(self.level, button.value)
+
 
 class PortfolioStudyView(QWidget):
     """
@@ -20,13 +192,14 @@ class PortfolioStudyView(QWidget):
     
     def __init__(self):
         super().__init__()
+        self.manual_update = False
         self.init_ui()
     
     def init_ui(self):
         """Initialise the user interface with a cleaner, more intuitive layout."""
         layout = QVBoxLayout(self)
         
-        # Create main horizontal layout
+        # Create main horizontal layout for control panel and display
         main_layout = QHBoxLayout()
         
         # Left panel - Controls
@@ -37,7 +210,7 @@ class PortfolioStudyView(QWidget):
         display_panel = self.create_display_panel()
         main_layout.addWidget(display_panel)
         
-        # Set the main layout proportions
+        # Set the main layout proportions (1:3 ratio)
         main_layout.setStretch(0, 1)  # Control panel
         main_layout.setStretch(1, 3)  # Display panel
         
@@ -47,6 +220,32 @@ class PortfolioStudyView(QWidget):
         """Create the left control panel with study options and stock selection."""
         control_group = QGroupBox("Analysis Controls")
         control_layout = QVBoxLayout()
+        
+        # Load configuration
+        with open('config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+            study_config = config.get('portfolio_study_view', {})
+        
+        # Initialize configuration manager
+        self.study_config = StudyViewConfig(study_config)
+        
+        # Create option groups
+        self.option_groups = {
+            'study_type': StudyOptionGroup('study_type', "Study Type"),
+            'view_type': StudyOptionGroup('view_type', "View Type"),
+            'chart_type': StudyOptionGroup('chart_type', "Chart Type"),
+            'time_period': StudyOptionGroup('time_period', "Time Period"),
+            'dividend_type': StudyOptionGroup('dividend_type', "Dividend Type")
+        }
+        
+        # Connect signals
+        for group in self.option_groups.values():
+            group.selection_changed.connect(self.on_option_selected)
+            control_layout.addWidget(group)
+            
+        # Initialize study type options
+        study_options = self.study_config.get_available_options('study_type')
+        self.option_groups['study_type'].update_options(study_options)
         
         # Date Range Selection
         date_group = QGroupBox("Date Range")
@@ -65,33 +264,6 @@ class PortfolioStudyView(QWidget):
         
         date_group.setLayout(date_layout)
         control_layout.addWidget(date_group)
-        
-        # Study Type Selection
-        study_group = QGroupBox("Study Type")
-        study_layout = QVBoxLayout()
-        
-        self.study_type_buttons = QButtonGroup()
-        study_types = [
-            ("Market Value", "market_value"),
-            ("Profitability", "profitability"),
-            ("Dividend Performance", "dividends"),
-            ("Portfolio Distribution", "distribution")
-        ]
-        
-        for text, value in study_types:
-            radio = QRadioButton(text)
-            self.study_type_buttons.addButton(radio)
-            study_layout.addWidget(radio)
-        
-        self.study_type_buttons.buttons()[0].setChecked(True)  # Default to Market Value
-        study_group.setLayout(study_layout)
-        control_layout.addWidget(study_group)
-        
-        # View Options (changes based on study type)
-        self.view_options_group = QGroupBox("View Options")
-        self.view_options_layout = QVBoxLayout()
-        self.view_options_group.setLayout(self.view_options_layout)
-        control_layout.addWidget(self.view_options_group)
         
         # Stock Selection
         stocks_group = QGroupBox("Select Stocks")
@@ -121,10 +293,6 @@ class PortfolioStudyView(QWidget):
         control_layout.addWidget(update_btn)
         
         control_group.setLayout(control_layout)
-        
-        # Connect study type change signal
-        self.study_type_buttons.buttonClicked.connect(self.update_view_options)
-        
         return control_group
 
     def create_display_panel(self):
@@ -138,8 +306,7 @@ class PortfolioStudyView(QWidget):
         self.figure = Figure(figsize=(10, 6))
         self.canvas = FigureCanvas(self.figure)
         
-        # Add matplotlib toolbar for interactivity
-        from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+        # Add matplotlib toolbar
         self.toolbar = NavigationToolbar2QT(self.canvas, charts_tab)
         charts_layout.addWidget(self.toolbar)
         charts_layout.addWidget(self.canvas)
@@ -160,76 +327,119 @@ class PortfolioStudyView(QWidget):
         
         return display_panel
 
-    def update_view_options(self, button):
-        """Update the view options based on the selected study type."""
-        # Clear existing options
-        while self.view_options_layout.count():
-            item = self.view_options_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def on_option_selected(self, level, value):
+        """
+        Handle option selection at any level.
         
-        study_type = next(btn.text() for btn in self.study_type_buttons.buttons() if btn.isChecked())
+        Args:
+            level (str): The hierarchy level that changed
+            value (str): The newly selected value
+        """
+        # Store the new selection
+        self.study_config.set_selection(level, value)
         
-        if study_type == "Market Value":
-            # Add view type toggle
-            self.add_radio_pair("View Type", "Individual Stocks", "Portfolio Total")
+        # Get current study type
+        study_type = self.study_config.get_selection('study_type')
+        if not study_type:
+            return
             
-            # Add chart type toggle (only for Portfolio Total)
-            self.add_radio_pair("Chart Type", "Line Chart", "Stacked Area")
-            
-        elif study_type == "Profitability":
-            # Add view type toggle
-            self.add_radio_pair("View Type", "Individual Stocks", "Portfolio Total")
-            
-            # Add metric type toggle
-            self.add_radio_pair("Display Type", "Percentage", "Dollar Value")
-            
-            # Add time period toggle
-            self.add_radio_pair("Time Period", "Daily Changes", "Cumulative")
-            
-        elif study_type == "Dividend Performance":
-            # Add view type toggle
-            self.add_radio_pair("View Type", "Cash Dividends", "DRP")
-            
-            # Add aggregation toggle
-            self.add_radio_pair("Display", "Individual", "Cumulative")
-            
-        # Portfolio Distribution has no toggles as it's always a pie chart
+        # Get the configuration for current study type
+        study_config = self.study_config.config['hierarchy'].get(study_type, {})
         
-        self.view_options_group.setVisible(study_type != "Portfolio Distribution")
+        # If study type changed, reset everything
+        if level == 'study_type':
+            # Clear all other selections
+            self.study_config.current_selections = {
+                'study_type': value,  # Keep new study type
+                'view_type': None,
+                'chart_type': None,
+                'time_period': None,
+                'dividend_type': None
+            }
+            # Reset UI groups
+            for group_level, group in self.option_groups.items():
+                if group_level != 'study_type':
+                    group.update_options([])
+                    group.set_selection(None)
+            
+            # Update view type options
+            if 'view_types' in study_config:
+                view_type_options = [
+                    (key, data['name']) 
+                    for key, data in study_config['view_types'].items()
+                ]
+                self.option_groups['view_type'].update_options(view_type_options)
+            
+            # Clear displays
+            self.clear_plot()
+            self.clear_statistics()
+            
+        elif level == 'view_type':
+            # Clear dependent selections
+            self.study_config.current_selections.update({
+                'chart_type': None,
+                'time_period': None
+            })
+            
+            # Update chart type options based on view type
+            view_config = study_config['view_types'].get(value, {})
+            if 'chart_types' in view_config:
+                chart_type_options = [
+                    (key, data['name'])
+                    for key, data in view_config['chart_types'].items()
+                ]
+                self.option_groups['chart_type'].update_options(chart_type_options)
+                
+            # Clear time period options until chart type is selected
+            self.option_groups['time_period'].update_options([])
+            
+        elif level == 'chart_type':
+            # Clear dependent selection
+            self.study_config.current_selections['time_period'] = None
+            
+            # Get current view type
+            view_type = self.study_config.get_selection('view_type')
+            if view_type:
+                # Update time period options based on chart type
+                view_config = study_config['view_types'].get(view_type, {})
+                chart_config = view_config.get('chart_types', {}).get(value, {})
+                
+                if 'time_periods' in chart_config:
+                    time_period_options = [
+                        (key, name) 
+                        for key, name in chart_config['time_periods'].items()
+                    ]
+                    self.option_groups['time_period'].update_options(time_period_options)
+        
+        # Update analysis if we have all required selections
+        self.update_analysis_if_ready()
 
-    def add_radio_pair(self, label, option1, option2):
-        """Helper method to add a pair of radio buttons with a label."""
-        group = QGroupBox(label)
-        layout = QHBoxLayout()
-        
-        radio1 = QRadioButton(option1)
-        radio2 = QRadioButton(option2)
-        radio1.setChecked(True)
-        
-        layout.addWidget(radio1)
-        layout.addWidget(radio2)
-        
-        group.setLayout(layout)
-        self.view_options_layout.addWidget(group)
-
-    def update_portfolio_stocks(self, stocks):
-        """Update the list of available portfolio stocks."""
-        self.stock_list.clear()
-        for stock in stocks:
-            self.stock_list.addItem(f"{stock.yahoo_symbol} ({stock.name})")
-
-    def update_analysis(self):
-        """Collect current settings and emit signal to update analysis."""
-        study_type = next(btn.text() for btn in self.study_type_buttons.buttons() if btn.isChecked())
-        
-        # Get selected stocks
+    def update_analysis_if_ready(self):
+        """
+        Check if we have all required selections and update analysis if we do.
+        Validates selections and emits update signal with parameters.
+        """
+        study_type = self.study_config.get_selection('study_type')
+        if not study_type:
+            return
+                
+        # Validate stock selection
         selected_stocks = [
             item.text().split(" (")[0] 
             for item in self.stock_list.selectedItems()
         ]
         
-        # Base parameters
+        # Show warning only on manual update
+        if not selected_stocks:
+            if self.manual_update:
+                QMessageBox.warning(
+                    self,
+                    "Selection Required",
+                    "Please select at least one stock to analyze."
+                )
+            return
+                
+        # Build basic parameters
         params = {
             'start_date': self.start_date.date().toPython(),
             'end_date': self.end_date.date().toPython(),
@@ -237,11 +447,149 @@ class PortfolioStudyView(QWidget):
             'study_type': study_type
         }
         
-        # Add view options based on study type
-        if study_type != "Portfolio Distribution":
-            for group in self.view_options_group.findChildren(QGroupBox):
-                label = group.title()
-                value = next(btn.text() for btn in group.findChildren(QRadioButton) if btn.isChecked())
-                params[label.lower().replace(" ", "_")] = value
+        # Get all current selections
+        view_type = self.study_config.get_selection('view_type')
+        chart_type = self.study_config.get_selection('chart_type')
+        time_period = self.study_config.get_selection('time_period')
         
+        # Check required selections based on study type
+        missing = []
+        if study_type == 'market_value':
+            if not view_type:
+                missing.append('view_type')
+            if view_type == 'portfolio_total' and not chart_type:
+                missing.append('chart_type')
+        elif study_type == 'profitability':
+            if not view_type:
+                missing.append('view_type')
+            if not chart_type:
+                missing.append('chart_type')
+            if not time_period:
+                missing.append('time_period')
+        elif study_type == 'dividend_performance':
+            if not view_type:
+                missing.append('view_type')
+            if not chart_type:
+                missing.append('dividend_type')
+            if not time_period:
+                missing.append('time_period')
+                
+        # Show warning if missing required selections (only on manual update)
+        if missing and self.manual_update:
+            QMessageBox.warning(
+                self,
+                "Selection Required",
+                f"Please select options for: {', '.join(missing).replace('_', ' ').title()}"
+            )
+            return
+        elif missing:
+            return
+
+        # Add valid selections to parameters
+        params.update({
+            'view_type': view_type,
+            'chart_type': chart_type,
+            'time_period': time_period
+        })
+        
+        # Add study-specific parameters
+        if study_type == 'profitability':
+            if view_type == 'individual_stocks':
+                if chart_type == 'dollar_value':
+                    # Use daily_pl for daily changes, total_return for cumulative
+                    params['metric'] = 'daily_pl' if time_period == 'daily' else 'total_return'
+                elif chart_type == 'percentage':
+                    # Use daily_pl_pct for daily changes, total_return_pct for cumulative
+                    params['metric'] = 'daily_pl_pct' if time_period == 'daily' else 'total_return_pct'
+                elif chart_type == 'aggregated_percentage':
+                    # Use cumulative_return_pct for both, will calculate delta in controller if needed
+                    params['metric'] = 'cumulative_return_pct'
+            else:  # portfolio_total
+                if chart_type == 'dollar_value':
+                    # For portfolio total, we'll sum these values
+                    params['metric'] = 'daily_pl' if time_period == 'daily' else 'total_return'
+                elif chart_type == 'percentage':
+                    # Need both metrics to calculate percentage
+                    params['metrics'] = ['total_return', 'market_value']
+
+            params['calculation_type'] = time_period  # 'daily' or 'cumulative'
+                
+        elif study_type == 'dividend_performance':
+            if chart_type == 'cash':
+                params['metric'] = 'cash_dividends_total' if time_period == 'cumulative' else 'cash_dividend'
+            elif chart_type == 'drp':
+                params['metric'] = 'drp_shares_total' if time_period == 'cumulative' else 'drp_share'
+            elif chart_type == 'combined':
+                params['metric'] = ['cash_dividends_total', 'drp_shares_total'] if time_period == 'cumulative' else ['cash_dividend', 'drp_share']
+
+        # Emit update signal with validated parameters
         self.update_plot.emit(params)
+
+    def update_portfolio_stocks(self, stocks):
+        """
+        Update the list of available portfolio stocks in the selection list.
+        
+        Args:
+            stocks: List of Stock objects to display
+        """
+        self.stock_list.clear()
+        for stock in stocks:
+            self.stock_list.addItem(f"{stock.yahoo_symbol} ({stock.name})")
+        
+        # Auto-select all stocks if list is short
+        if self.stock_list.count() <= 5:
+            self.stock_list.selectAll()
+
+    def update_analysis(self):
+        """
+        Manual update triggered by update button.
+        Validates date range before proceeding.
+        """
+        # Validate date range
+        start = self.start_date.date()
+        end = self.end_date.date()
+        
+        if start > end:
+            QMessageBox.warning(
+                self,
+                "Invalid Date Range",
+                "Start date cannot be after end date."
+            )
+            return
+            
+        if end > datetime.now().date():
+            QMessageBox.warning(
+                self,
+                "Invalid Date Range",
+                "End date cannot be in the future."
+            )
+            return
+        
+        self.manual_update = True  # Set flag before update
+        try:
+            self.update_analysis_if_ready()
+        finally:
+            self.manual_update = False  # Clear flag after update
+        
+    def clear_plot(self):
+        """Clear the current plot."""
+        self.figure.clear()
+        self.canvas.draw()
+        
+    def clear_statistics(self):
+        """Clear the statistics table."""
+        self.stats_table.setRowCount(0)
+        
+    def reset_selections(self):
+        """Reset all option selections and clear displays."""
+        # Reset all options
+        for group in self.option_groups.values():
+            group.set_selection(None)
+            
+        # Reset study config
+        for level in self.study_config.current_selections:
+            self.study_config.current_selections[level] = None
+            
+        # Clear displays
+        self.clear_plot()
+        self.clear_statistics()
