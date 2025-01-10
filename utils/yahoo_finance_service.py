@@ -246,3 +246,69 @@ class YahooFinanceService:
             logger.error(f"Error applying currency conversion: {str(e)}")
             logger.exception("Detailed traceback:")
             return records  # Return original records if conversion fails
+
+    @staticmethod
+    def get_current_conversion_rate(from_currency: str, to_currency: str) -> float:
+        """
+        Get the current currency conversion rate with fallback options.
+        
+        Args:
+            from_currency (str): The currency to convert from
+            to_currency (str): The currency to convert to
+            
+        Returns:
+            float: The conversion rate (1.0 if currencies are same or conversion fails)
+        """
+        try:
+            # Return 1.0 if currencies are the same or invalid
+            if not from_currency or not to_currency or from_currency == to_currency:
+                return 1.0
+                
+            # Try direct conversion first
+            conversion_symbol = f"{from_currency}{to_currency}=X"
+            ticker = yf.Ticker(conversion_symbol)
+            info = ticker.info
+            
+            rate = (
+                info.get('currentPrice', 0.0) or
+                info.get('regularMarketPrice', 0.0) or
+                info.get('previousClose', 0.0) or
+                info.get('lastPrice', 0.0)
+            )
+            
+            if rate:
+                return float(rate)
+                
+            # If direct conversion fails, try via USD
+            from_usd = yf.Ticker(f"{from_currency}USD=X")
+            to_usd = yf.Ticker(f"{to_currency}USD=X")
+            
+            from_info = from_usd.info
+            to_info = to_usd.info
+            
+            from_rate = (
+                from_info.get('currentPrice', 0.0) or
+                from_info.get('regularMarketPrice', 0.0) or
+                from_info.get('previousClose', 0.0) or
+                from_info.get('lastPrice', 0.0)
+            )
+            
+            to_rate = (
+                to_info.get('currentPrice', 0.0) or
+                to_info.get('regularMarketPrice', 0.0) or
+                to_info.get('previousClose', 0.0) or
+                to_info.get('lastPrice', 0.0)
+            )
+            
+            if from_rate and to_rate:
+                return float(to_rate) / float(from_rate)
+                
+            # Log warning if no valid price found
+            logger.warning(
+                f"Could not find valid conversion rate for {from_currency} to {to_currency}"
+            )
+            return 1.0  # Fallback if all conversions fail
+            
+        except Exception as e:
+            logger.error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
+            return 1.0

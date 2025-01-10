@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QPushButton, QTableWidget, QTableWidgetItem, 
-                               QHeaderView, QAbstractItemView)
+                               QHeaderView, QAbstractItemView, QCheckBox)
 from PySide6.QtCore import Qt, Signal
 import math
 import logging
@@ -34,8 +34,16 @@ class MyPortfolioView(QWidget):
         layout.addWidget(self.portfolio_pl_dollar_label)
         layout.addWidget(self.portfolio_pl_percent_label)
 
-        # Create Buttons
+        # Create Buttons and Toggle
         button_layout = QHBoxLayout()
+
+        # Add toggle for zero shares
+        self.show_zero_shares = QCheckBox("Show Zero Share Positions")
+        self.show_zero_shares.setChecked(True)  # Default to showing all
+        self.show_zero_shares.stateChanged.connect(self.on_toggle_zero_shares)
+        button_layout.addWidget(self.show_zero_shares)
+        button_layout.addStretch()  # Add stretch to separate toggle from buttons
+
         self.refresh_button = QPushButton("Refresh Data")
         self.manage_portfolio_button = QPushButton("Manage Portfolio")
         self.view_history_button = QPushButton("View History")
@@ -162,6 +170,12 @@ class MyPortfolioView(QWidget):
                 # Shares (total shares owned)
                 self.stocks_table.setItem(row, 2, QTableWidgetItem(
                     f"{metrics.get('total_shares_owned', 0):,.4f}"))
+                # After populating the row, check if it should be hidden
+                shares = metrics.get('total_shares_owned', 0)
+                self.stocks_table.setRowHidden(
+                    row, 
+                    not self.show_zero_shares.isChecked() and shares == 0
+                )
                 
                 # Average Price (weighted average purchase price)
                 if metrics.get('weighted_avg_purchase_price'):
@@ -170,7 +184,7 @@ class MyPortfolioView(QWidget):
                 
                 # Current Price
                 self.stocks_table.setItem(row, 4, QTableWidgetItem(
-                    f"${stock.current_price:,.2f}"))
+                    f"${stock.get_converted_price():,.2f}"))
                 
                 # Cost Basis
                 self.stocks_table.setItem(row, 5, QTableWidgetItem(
@@ -233,3 +247,15 @@ class MyPortfolioView(QWidget):
         if total_cost_basis > 0:
             total_return_pct = (total_return / total_cost_basis) * 100
             self.portfolio_pl_percent_label.setText(f"Total Return: {total_return_pct:,.2f}%")
+
+    def on_toggle_zero_shares(self, state):
+        """Handle toggling of zero share positions visibility."""
+        for row in range(self.stocks_table.rowCount()):
+            shares_item = self.stocks_table.item(row, 2)  # Column index for shares
+            if shares_item:
+                try:
+                    shares = float(shares_item.text().replace(',', ''))
+                    # Show/hide row based on toggle state and shares value
+                    self.stocks_table.setRowHidden(row, not state and shares == 0)
+                except (ValueError, AttributeError):
+                    continue

@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 from database.portfolio_metrics_manager import PortfolioMetricsManager
 from models.transaction import Transaction
 from database.portfolio_metrics_manager import METRICS_COLUMNS
+from utils.yahoo_finance_service import YahooFinanceService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -169,3 +170,30 @@ class Stock:
             last_updated=datetime.now().replace(microsecond=0),
             db_manager=db_manager
         )
+
+    def get_converted_price(self) -> float:
+        """
+        Get the current price converted to portfolio's default currency if needed.
+        
+        Returns:
+            float: The current price in the portfolio's default currency
+        """
+        try:
+            # Get currencies
+            currencies = self.db_manager.get_stock_currency_info(self.id)
+            if not currencies:
+                return self.current_price
+                
+            stock_currency, portfolio_currency = currencies
+            
+            # Get conversion rate using Yahoo Finance Service
+            conversion_rate = YahooFinanceService.get_current_conversion_rate(
+                stock_currency, 
+                portfolio_currency
+            )
+            
+            return self.current_price * conversion_rate
+            
+        except Exception as e:
+            logger.warning(f"Failed to convert price for {self.yahoo_symbol}: {e}")
+            return self.current_price

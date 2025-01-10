@@ -1,6 +1,7 @@
 # File: controllers/portfolio_view_controller.py
 
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtCore import Qt
 from views.my_portfolio_view import MyPortfolioView
 from models.portfolio import Portfolio
 from models.stock import Stock
@@ -12,7 +13,7 @@ import pandas as pd
 from views.verify_transactions_view import VerifyTransactionsDialog
 from views.historical_data_view import HistoricalDataDialog
 from utils.historical_data_collector import HistoricalDataCollector
-
+from utils.yahoo_finance_service import YahooFinanceService
 logger = logging.getLogger(__name__)
 
 class PortfolioViewController:
@@ -51,12 +52,44 @@ class PortfolioViewController:
         if not self.current_portfolio:
             return
 
-        for stock in self.current_portfolio.stocks.values():
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Updating stock prices...", 
+            "Cancel",
+            0, 
+            len(self.current_portfolio.stocks),
+            self.view
+        )
+        progress.setWindowModality(Qt.WindowModal)
+
+        for i, stock in enumerate(self.current_portfolio.stocks.values()):
+            if progress.wasCanceled():
+                break
+
             try:
-                ticker = yf.Ticker(stock.yahoo_symbol)
-                info = ticker.info
-                stock.current_price = info.get('currentPrice', stock.current_price)
-                stock.update_price()
+                # Use YahooFinanceService to verify stock and get info
+                result = YahooFinanceService.verify_stock(stock.yahoo_symbol)
+                
+                if result['error']:
+                    raise Exception(result['error'])
+                    
+                # Update stock price and currency in database
+                self.db_manager.execute("""
+                    UPDATE stocks 
+                    SET current_price = ?,
+                        currency = ?,
+                        last_updated = ?
+                    WHERE id = ?
+                """, (
+                    result['current_price'],
+                    result['currency'],
+                    datetime.now().replace(microsecond=0),
+                    stock.id
+                ))
+                
+                # Update stock object
+                stock.current_price = result['current_price']
+                
             except Exception as e:
                 logger.error(f"Failed to update price for {stock.yahoo_symbol}: {str(e)}")
                 QMessageBox.warning(
@@ -65,6 +98,11 @@ class PortfolioViewController:
                     f"Failed to update price for {stock.yahoo_symbol}: {str(e)}"
                 )
 
+            progress.setValue(i + 1)
+
+        progress.close()
+
+        # Refresh portfolio after updates
         self.current_portfolio.load_stocks()
         self.update_view()
         QMessageBox.information(self.view, "Update Complete", "Portfolio prices have been updated.")
