@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QDateEdit, QDialogButtonBox, QCheckBox,
                               QAbstractItemView, QComboBox, QMessageBox,
                               QDoubleSpinBox, QFormLayout, QSpinBox, QHeaderView,
-                              QApplication)
+                              QApplication, QProgressDialog)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
@@ -290,7 +290,7 @@ class HistoricalDataDialog(QDialog):
         Args:
             value: The value to format
             column_info: Dictionary containing column information
-            
+                
         Returns:
             str: Formatted value string
         """
@@ -308,9 +308,8 @@ class HistoricalDataDialog(QDialog):
             # Determine column type and get corresponding format
             column_name = column_info['name']
             
-            # Get format settings - add debug logging
+            # Get format settings
             formats = self.config.get('column_formats', {})
-            logger.debug(f"Current formats config: {formats}")
             
             # Determine format type and apply formatting
             if any(text in column_name for text in ['Open', 'High', 'Low', 'Close', 'Price',
@@ -332,7 +331,6 @@ class HistoricalDataDialog(QDialog):
                 
         except Exception as e:
             logger.error(f"Error formatting value {value} for column {column_info['name']}: {str(e)}")
-            logger.exception("Detailed traceback:")  # Add full traceback
             return str(value)
 
     def hide_empty_columns(self):
@@ -949,11 +947,31 @@ class ManageHistoricalDataDialog(QDialog):
     def update_historical_data(self):
         """Update historical price data from Yahoo Finance."""
         try:
+            progress = QProgressDialog(
+                f"Updating historical data for {self.stock.yahoo_symbol}...",
+                "Cancel",
+                0,
+                100,
+                self
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Updating Historical Data")
+
+            def update_progress(message):
+                progress.setLabelText(message)
+                # Increment progress by 20% for each major step
+                current_value = progress.value()
+                progress.setValue(min(current_value + 20, 99))
+
             result = HistoricalDataCollector.process_and_store_historical_data(
                 self.db_manager,
                 self.stock.id,
-                self.stock.yahoo_symbol
+                self.stock.yahoo_symbol,
+                progress_callback=update_progress
             )
+            
+            progress.setValue(100)
+            progress.close()
             
             if result:
                 self.load_data()
@@ -970,6 +988,7 @@ class ManageHistoricalDataDialog(QDialog):
                 )
                 
         except Exception as e:
+            progress.close()
             QMessageBox.critical(
                 self,
                 "Error",

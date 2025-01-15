@@ -11,7 +11,7 @@ class HistoricalDataCollector:
     """Collects and stores historical price data."""
 
     @staticmethod
-    def process_and_store_historical_data(db_manager, stock_id: int, yahoo_symbol: str) -> bool:
+    def process_and_store_historical_data(db_manager, stock_id: int, yahoo_symbol: str, progress_callback=None) -> bool:
         """
         Fetch and store historical data, then update metrics.
         
@@ -19,13 +19,20 @@ class HistoricalDataCollector:
             db_manager: Database manager instance
             stock_id (int): The database ID of the stock
             yahoo_symbol (str): Yahoo Finance symbol for the stock
+            progress_callback (callable, optional): Callback function for progress updates
             
         Returns:
             bool: True if successful, False otherwise
         """
         try:
+            if progress_callback:
+                progress_callback("Getting currencies...")
+            
             # Get currencies
             stock_currency, portfolio_currency = db_manager.get_stock_currency_info(stock_id)
+
+            if progress_callback:
+                progress_callback("Getting transaction dates...")
 
             # Get earliest transaction date
             transactions = db_manager.get_transactions_for_stock(stock_id)
@@ -35,6 +42,9 @@ class HistoricalDataCollector:
 
             start_date = DateUtils.parse_date(min(t[1] for t in transactions))
             logger.info(f"Fetching historical data for {yahoo_symbol} from {start_date}")
+            
+            if progress_callback:
+                progress_callback("Fetching Yahoo Finance data...")
             
             # Fetch and store data using YahooFinanceService
             data = YahooFinanceService.fetch_stock_data(
@@ -50,6 +60,9 @@ class HistoricalDataCollector:
                 logger.warning(f"No historical data retrieved for {yahoo_symbol}")
                 return False
 
+            if progress_callback:
+                progress_callback("Updating metrics...")
+                
             logger.info(f"Successfully processed historical data for {yahoo_symbol}")
             return True
                 

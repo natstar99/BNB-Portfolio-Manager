@@ -391,7 +391,7 @@ portfolio_metrics AS (
 	                ELSE NULL
 	            END
 	        -- For all other days
-	        WHEN LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) > 0 THEN
+	        WHEN LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) > 0.0001 THEN
 	            (COALESCE(
 	                (rc.total_shares_owned * rc.close_price) - 
 	                LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) -
@@ -405,15 +405,19 @@ portfolio_metrics AS (
 	                COALESCE(rc.cash_dividend, 0),
 	                0
 	            ) / LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date)) * 100
-	        ELSE NULL
+	        ELSE 	                    
+	        	((rc.total_shares_owned * rc.close_price) - 
+                (rc.adjusted_quantity * rc.adjusted_price)) / 
+                (rc.adjusted_quantity * rc.adjusted_price) * 100
 	    END as daily_pl_pct,
 	    
 	    
 	    -- Calculate realised P/L (includes both sell profits and cash dividends)
 	    rc.realised_pl,
 	    
+	    -- Calculate unrealised P/L
 	    CASE 
-	        WHEN rc.total_shares_owned > 0 THEN 
+	        WHEN rc.total_shares_owned * rc.close_price > 0.0001 THEN -- (When Market Value is > $0.0001)
 	            (rc.total_shares_owned * rc.close_price) - rc.running_cost_basis
 	        ELSE 0
 	    END as unrealised_pl,
@@ -424,26 +428,20 @@ portfolio_metrics AS (
 	        WHEN rc.total_shares_owned > 0 THEN 
 	            (rc.total_shares_owned * rc.close_price) - rc.running_cost_basis
 	        ELSE 0
-	    END as total_return,
-	
-		-- Calculate return percentage
-		CASE 
-		    WHEN rc.running_cost_basis > 0 AND rc.total_shares_owned > 0.000001 THEN 
-		        (
-		            rc.realised_pl +  -- Already includes cash dividends
-		            CASE 
-		                WHEN rc.total_shares_owned > 0 THEN 
-		                    (rc.total_shares_owned * rc.close_price) - rc.running_cost_basis
-		                ELSE 0
-		            END
-		        ) / rc.running_cost_basis * 100
-		    ELSE NULL
-		END as total_return_pct
+	    END as total_return
 	FROM running_calculations rc
 	)
 
 SELECT 
     *,
+    -- Calculate return percentage
+    CASE
+    	WHEN market_value > 0.0001 AND cost_basis > 1 THEN
+    		(total_return / cost_basis) * 100
+		ELSE NULL
+    END AS total_return_pct,
+    
+    -- Cumulative return percentage
     EXP(SUM(LN(COALESCE(1 + (daily_pl_pct/100), 1))) OVER (
         ORDER BY date
     )) * 100 - 100 as cumulative_return_pct
