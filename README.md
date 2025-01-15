@@ -90,8 +90,8 @@ BNB/
 │
 ├── database/                        # Database related files
 │   ├── database_manager.py          # Core database operations manager
-│   ├── portfolio_metrics.sql        # SQL for portfolio metrics calculations
-│   ├── portfolio_metrics_manager.py # Manages portfolio metrics calculations
+│   ├── final_metrics.sql            # SQL for portfolio metrics calculations
+│   ├── final_metrics_manager.py     # Manages portfolio metrics calculations
 │   └── schema.sql                   # Main database schema
 │
 ├── models/                          # Data models

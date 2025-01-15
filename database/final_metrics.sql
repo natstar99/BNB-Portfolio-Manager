@@ -1,4 +1,4 @@
--- File: database/portfolio_metrics.sql
+-- File: database/final_metrics.sql
 
 -- Query to calculate and update metrics including split-adjusted values, weighted averages, and returns analysis.
 WITH RECURSIVE 
@@ -97,47 +97,18 @@ running_calculations AS (
             ELSE NULL 
         END AS adjusted_price,
         row_num,
-        -- Calculate transaction impact
-        CASE 
-            WHEN transaction_type = 'BUY' THEN quantity * cumulative_split_ratio
-            WHEN transaction_type = 'SELL' THEN -quantity * cumulative_split_ratio
-            ELSE 0 
-        END AS transaction_quantity_delta,
         -- Track net transactions
         CASE 
             WHEN transaction_type = 'BUY' THEN quantity * cumulative_split_ratio
             WHEN transaction_type = 'SELL' THEN -quantity * cumulative_split_ratio
             ELSE 0 
         END AS net_transaction_quantity,
-        -- Track total bought and sold quantities
-        CASE 
-            WHEN transaction_type = 'BUY' THEN quantity * cumulative_split_ratio
-            ELSE 0 
-        END AS total_bought_quantity,
-
-        CASE 
-            WHEN transaction_type = 'SELL' THEN quantity * cumulative_split_ratio
-            ELSE 0 
-        END AS total_sold_quantity,
-        -- Track cumulative values for weighted averages
         CASE 
             WHEN transaction_type = 'BUY' THEN 
                 quantity * cumulative_split_ratio * (price / cumulative_split_ratio)
             ELSE 0 
-        END AS cumulative_buy_value,
-        CASE 
-            WHEN transaction_type = 'SELL' THEN 
-                quantity * cumulative_split_ratio * (price / cumulative_split_ratio)
-            ELSE 0 
-        END AS cumulative_sell_value,
-        CASE 
-            WHEN transaction_type = 'BUY' THEN 
-                quantity * cumulative_split_ratio * (price / cumulative_split_ratio)
-            WHEN transaction_type = 'SELL' THEN 
-                -(quantity * cumulative_split_ratio * (price / cumulative_split_ratio))
-            ELSE 0 
-        END AS running_cost_basis,
-        -- Track total shares including DRP
+        END AS total_investment_amount,
+        -- Track total shares owned (includes DRP)
         CASE 
             WHEN transaction_type = 'BUY' THEN quantity * cumulative_split_ratio
             WHEN transaction_type = 'SELL' THEN -quantity * cumulative_split_ratio
@@ -176,12 +147,6 @@ running_calculations AS (
             ELSE NULL 
         END,
         d.row_num,
-        -- Transaction impact
-        CASE 
-            WHEN d.transaction_type = 'BUY' THEN d.quantity * d.cumulative_split_ratio
-            WHEN d.transaction_type = 'SELL' THEN -d.quantity * d.cumulative_split_ratio
-            ELSE 0 
-        END,
         -- Update cumulative transaction total
         rc.net_transaction_quantity + 
         CASE 
@@ -189,39 +154,11 @@ running_calculations AS (
             WHEN d.transaction_type = 'SELL' THEN -d.quantity * d.cumulative_split_ratio
             ELSE 0 
         END,
-        -- Update total bought quantity
-        rc.total_bought_quantity + 
-        CASE 
-            WHEN d.transaction_type = 'BUY' THEN d.quantity * d.cumulative_split_ratio
-            ELSE 0 
-        END,
-
-        -- Update total sold quantity
-        rc.total_sold_quantity + 
-        CASE 
-            WHEN d.transaction_type = 'SELL' THEN d.quantity * d.cumulative_split_ratio
-            ELSE 0 
-        END,
-        -- Update buy value total
-        rc.cumulative_buy_value + 
+        -- Update total_investment_amount (cumulative sum of BUY transactions)
+        rc.total_investment_amount + 
         CASE 
             WHEN d.transaction_type = 'BUY' THEN 
                 d.quantity * d.cumulative_split_ratio * (d.price / d.cumulative_split_ratio)
-            ELSE 0 
-        END,
-        -- Update sell value total
-        rc.cumulative_sell_value + 
-        CASE 
-            WHEN d.transaction_type = 'SELL' THEN 
-                d.quantity * d.cumulative_split_ratio * (d.price / d.cumulative_split_ratio)
-            ELSE 0 
-        END,
-        rc.running_cost_basis + 
-        CASE 
-            WHEN d.transaction_type = 'BUY' THEN 
-                d.quantity * d.cumulative_split_ratio * (d.price / d.cumulative_split_ratio)
-            WHEN d.transaction_type = 'SELL' THEN 
-                -(d.quantity * d.cumulative_split_ratio * (d.price / d.cumulative_split_ratio))
             ELSE 0 
         END,
         -- Update total shares (including DRP)
@@ -293,163 +230,172 @@ running_calculations AS (
     JOIN running_calculations rc ON d.row_num = rc.row_num + 1
 ),
 
--- Final CTE: Calculate almost all portfolio metrics
-portfolio_metrics AS (
-	SELECT
-	    NULL as metric_index,
-	    rc.stock_id,
-	    rc.yahoo_symbol,
-	    rc.date,
-	    rc.close_price,
-	    rc.dividend,
-	    rc.drp_flag,
-	    rc.split_ratio,
-	    rc.cumulative_split_ratio,
-	    rc.transaction_type,
-	    rc.adjusted_quantity as quantity,
-	    rc.adjusted_price as price,
-	    rc.transaction_quantity_delta,
-	    rc.total_bought_quantity,
-	    rc.total_sold_quantity,
-	    rc.net_transaction_quantity,
-	    rc.total_shares_owned,
-	
-	    -- Calculate weighted average prices
-	    CASE 
-	        WHEN rc.cumulative_buy_value > 0 AND rc.total_bought_quantity > 0 THEN 
-	            rc.cumulative_buy_value / rc.total_bought_quantity
-	        ELSE NULL 
-	    END as weighted_avg_purchase_price,
-	
-	    CASE 
-	        WHEN rc.cumulative_sell_value > 0 AND rc.total_sold_quantity > 0 THEN 
-	            rc.cumulative_sell_value / rc.total_sold_quantity
-	        ELSE NULL 
-	    END as weighted_avg_sale_price,
-	
-	    rc.cumulative_buy_value,
-	    rc.cumulative_sell_value,
-	
-	    -- Track cost basis
-	    rc.running_cost_basis as cost_basis,
-	
-	    -- Track dividends
-	    rc.cash_dividend,
-	    rc.cash_dividends_total,
-	    rc.drp_share,
-	    rc.drp_shares_total,
-	
-	    -- Calculate market value
-	    rc.total_shares_owned * rc.close_price as market_value,
-	
-	    
-	    -- ***CALCULATE PROFITABILITY METRICS***
-	  
-	     -- Calculate daily P/L
-	    -- This compares current market value with previous day's market value, adjusting for transactions
-	    CASE
-	        -- For the first transaction (when it's a BUY)
-	        WHEN rc.transaction_type = 'BUY' AND 
-	             NOT EXISTS (
-	                 SELECT 1 
-	                 FROM running_calculations rc2 
-	                 WHERE rc2.date < rc.date AND rc2.total_shares_owned > 0
-	             ) THEN
-	            ((rc.adjusted_quantity * rc.adjusted_price) -
-	            (rc.total_shares_owned * rc.close_price))*-1
-	            
-	        -- For all other days
-	        ELSE COALESCE(
-	            (rc.total_shares_owned * rc.close_price) - 
-	            LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) -
-	            -- Subtract impact of buys/sells
-	            CASE 
-	                WHEN rc.transaction_type = 'BUY' THEN rc.adjusted_quantity * rc.adjusted_price
-	                WHEN rc.transaction_type = 'SELL' THEN -(rc.adjusted_quantity * rc.adjusted_price)
-	                ELSE 0 
-	            END +
-	            -- Add impact of cash dividends
-	            COALESCE(rc.cash_dividend, 0),
-	            0
-	        )
-	    END as daily_pl,
-	
-	    -- Calculate daily P/L percentage
-	    CASE
-	        -- For the first transaction (when it's a BUY)
-	        WHEN rc.transaction_type = 'BUY' AND 
-	             NOT EXISTS (
-	                 SELECT 1 
-	                 FROM running_calculations rc2 
-	                 WHERE rc2.date < rc.date AND rc2.total_shares_owned > 0
-	             ) THEN
-	            CASE 
-	                WHEN (rc.adjusted_quantity * rc.adjusted_price) > 0 THEN
-	                    ((rc.total_shares_owned * rc.close_price) - 
-	                     (rc.adjusted_quantity * rc.adjusted_price)) / 
-	                    (rc.adjusted_quantity * rc.adjusted_price) * 100
-	                ELSE NULL
-	            END
-	        -- For all other days
-	        WHEN LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) > 0.0001 THEN
-	            (COALESCE(
-	                (rc.total_shares_owned * rc.close_price) - 
-	                LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date) -
-	                -- Subtract impact of buys/sells
-	                CASE 
-	                    WHEN rc.transaction_type = 'BUY' THEN rc.adjusted_quantity * rc.adjusted_price
-	                    WHEN rc.transaction_type = 'SELL' THEN -(rc.adjusted_quantity * rc.adjusted_price)
-	                    ELSE 0 
-	                END +
-	                -- Add impact of cash dividends
-	                COALESCE(rc.cash_dividend, 0),
-	                0
-	            ) / LAG(rc.total_shares_owned * rc.close_price) OVER (ORDER BY rc.date)) * 100
-	        ELSE 	                    
-	        	((rc.total_shares_owned * rc.close_price) - 
-                (rc.adjusted_quantity * rc.adjusted_price)) / 
-                (rc.adjusted_quantity * rc.adjusted_price) * 100
-	    END as daily_pl_pct,
-	    
-	    
-	    -- Calculate realised P/L (includes both sell profits and cash dividends)
-	    rc.realised_pl,
-	    
-	    -- Calculate unrealised P/L
-	    CASE 
-	        WHEN rc.total_shares_owned * rc.close_price > 0.0001 THEN -- (When Market Value is > $0.0001)
-	            (rc.total_shares_owned * rc.close_price) - rc.running_cost_basis
-	        ELSE 0
-	    END as unrealised_pl,
-	
-	    -- Calculate total return
-	    rc.realised_pl + 
-	    CASE 
-	        WHEN rc.total_shares_owned > 0 THEN 
-	            (rc.total_shares_owned * rc.close_price) - rc.running_cost_basis
-	        ELSE 0
-	    END as total_return
-	FROM running_calculations rc
-	)
+-- Fourth CTE: to calculate cost_basis from realised_pl table
+realised_cost AS (
+    SELECT
+        stock_id,
+        date(trade_date) as trade_date,
+        SUM(purchase_price) as cost_basis_variation  -- This represents the total original purchase price of the shares sold on a particular 'SELL' date
+    FROM realised_pl
+    WHERE method = :pl_method
+    GROUP BY stock_id, date(trade_date)
+),
 
-SELECT 
-    *,
-    -- Calculate return percentage
-    CASE
-    	WHEN market_value > 0.0001 AND cost_basis > 1 THEN
-    		(total_return / cost_basis) * 100
-		ELSE NULL
-    END AS total_return_pct,
-    
-    -- Cumulative return percentage
-    EXP(SUM(LN(COALESCE(1 + (daily_pl_pct/100), 1))) OVER (
-        ORDER BY date
-    )) * 100 - 100 as cumulative_return_pct
-FROM portfolio_metrics
-ORDER BY date;
+-- Fifth CTE: Build a base portfolio_metrics table to include the cost basis variation
+base_portfolio_metrics AS (
+    SELECT
+        NULL as metric_index,
+        rc.*,
+        
+        -- Calculate the market value
+        (rc.total_shares_owned * rc.close_price) as market_value,
+        
+        -- Calculate cost_basis_variation, multiplying by -1 for SELL transactions
+        -- We only consider it on SELL days to avoid double counting
+        COALESCE(
+            CASE 
+                WHEN rc.transaction_type = 'SELL' THEN -1 * r.cost_basis_variation
+                ELSE 0 
+            END, 
+            0
+        ) as cost_basis_variation
+        
+    FROM running_calculations rc
+    LEFT JOIN realised_cost r ON 
+        rc.stock_id = r.stock_id 
+        AND rc.date = r.trade_date
+),
+
+-- Sixth CTE: Calculate core portfolio metrics including cost basis and P/L calculations
+portfolio_metrics AS (
+    SELECT
+        bpm.*,
+        
+        -- Calculate running sum of cost_basis_variation
+        -- This tracks how the cost basis changes over time as shares are sold
+        SUM(bpm.cost_basis_variation) OVER (
+            PARTITION BY bpm.stock_id 
+            ORDER BY bpm.date
+        ) as cumulative_cost_basis_variation,
+        
+        -- Calculate unrealised P/L by comparing current market value against adjusted cost basis
+        -- We add (not subtract) the cost_basis_variation because it's stored as a negative value
+        (market_value) - 
+        (bpm.total_investment_amount + 
+         SUM(bpm.cost_basis_variation) OVER (
+            PARTITION BY bpm.stock_id 
+            ORDER BY bpm.date
+         )
+        ) as unrealised_pl,
+        
+        -- Calculate daily P/L by comparing consecutive market values and adjusting for transactions
+        CASE
+            -- Special handling for the first BUY transaction
+            -- We compare the investment amount against the end-of-day market value
+            WHEN bpm.transaction_type = 'BUY' AND 
+                 NOT EXISTS (
+                     SELECT 1 
+                     FROM running_calculations rc2 
+                     WHERE rc2.date < bpm.date AND rc2.total_shares_owned > 0
+                 ) THEN
+                ((bpm.adjusted_quantity * bpm.adjusted_price) - bpm.market_value) * -1
+            
+            -- For all other days, calculate the change in market value
+            -- while adjusting for any transactions and dividends
+            ELSE COALESCE(
+                bpm.market_value - 
+                LAG(bpm.market_value) OVER (ORDER BY bpm.date) -
+                -- Remove the impact of today's transactions
+                CASE 
+                    WHEN bpm.transaction_type = 'BUY' THEN bpm.adjusted_quantity * bpm.adjusted_price
+                    WHEN bpm.transaction_type = 'SELL' THEN -(bpm.adjusted_quantity * bpm.adjusted_price)
+                    ELSE 0 
+                END +
+                -- Add any cash dividends received
+                COALESCE(bpm.cash_dividend, 0),
+                0
+            )
+        END as daily_pl
+    FROM base_portfolio_metrics bpm
+),
+
+-- Seventh CTE: Additional metrics that depend on the core calculations above
+extended_metrics AS (
+    SELECT 
+        pm.*,
+        
+        -- Calculate the current cost basis of the shares owned at each date 
+       pm.total_investment_amount + pm.cumulative_cost_basis_variation
+       as current_cost_basis,
+       
+        -- Calculate daily percentage return
+        CASE
+            -- For regular trading days, calculate against previous day's market value
+            WHEN LAG(pm.market_value) OVER (ORDER BY pm.date) > 0.00001 THEN
+                (pm.daily_pl / LAG(pm.market_value) OVER (ORDER BY pm.date)) * 100
+            -- For the first BUY, calculate against the initial investment amount
+            WHEN pm.transaction_type = 'BUY' AND pm.market_value > 0.00001 THEN
+                (pm.daily_pl / (pm.adjusted_quantity * pm.adjusted_price)) * 100
+            ELSE 0
+        END as daily_pl_pct,
+        
+        -- Calculate total return (combining realized and unrealized gains/losses)
+        pm.realised_pl + pm.unrealised_pl as total_return,
+        
+        -- Express total return as a percentage of total investment
+        CASE
+            WHEN pm.total_investment_amount > 0 THEN
+                ((pm.realised_pl + pm.unrealised_pl) / pm.total_investment_amount) * 100
+            ELSE NULL
+        END as total_return_pct
+    FROM portfolio_metrics pm
+),
+
+
+-- Final CTE: Calculate cumulative returns and order columns
+final_metrics AS (
+    SELECT
+	    NULL as metric_index,           -- Start with system columns
+	    em.stock_id,
+	    em.yahoo_symbol,
+	    em.date,                       -- Date information
+	    em.close_price,                -- Price information
+	    em.dividend,                   -- Dividend related columns
+	    em.cash_dividend,
+	    em.cash_dividends_total,
+	    em.drp_flag,                   -- DRP related columns
+	    em.drp_share,
+	    em.drp_shares_total,
+	    em.split_ratio,                -- Split related columns
+	    em.cumulative_split_ratio,
+	    em.transaction_type,           -- Transaction related columns
+	    em.adjusted_quantity,
+	    em.adjusted_price,
+	    em.net_transaction_quantity,
+	    em.total_investment_amount,
+	    em.cost_basis_variation,       -- Cost basis related columns
+	    em.cumulative_cost_basis_variation,
+	    em.current_cost_basis,
+	    em.total_shares_owned,         -- Position related columns
+	    em.market_value,
+	    em.realised_pl,                -- Profit/Loss related columns
+	    em.unrealised_pl,
+	    em.daily_pl,
+	    em.daily_pl_pct,
+	    em.total_return,
+	    em.total_return_pct,
+	    -- Calculate cumulative return using geometric mean of daily returns
+	    -- This provides a more accurate measure of investment performance over time
+	    EXP(SUM(LN(COALESCE(1 + (daily_pl_pct/100), 1))) OVER (
+	        ORDER BY date
+	    )) * 100 - 100 as cumulative_return_pct
+FROM extended_metrics em           -- Using table alias for cleaner code
+)
+-- FINAL SELECT: Execute Main query for all metrics
+SELECT * FROM final_metrics ORDER BY date;
 
 -- Query to get metrics for date range
-SELECT * FROM portfolio_metrics 
+SELECT * FROM final_metrics 
 WHERE stock_id = :stock_id 
 {% if start_date %}
     AND date >= :start_date
@@ -460,7 +406,7 @@ WHERE stock_id = :stock_id
 ORDER BY date;
 
 -- Query to get latest metrics
-SELECT * FROM portfolio_metrics 
+SELECT * FROM final_metrics 
 WHERE stock_id = :stock_id 
 ORDER BY date DESC 
 LIMIT 1;

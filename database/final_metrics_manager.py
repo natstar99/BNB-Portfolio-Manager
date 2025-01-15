@@ -1,4 +1,4 @@
-# File: database/portfolio_metrics_manager.py
+# File: database/final_metrics_manager.py
 
 import os
 from datetime import datetime
@@ -6,7 +6,7 @@ import logging
 import yaml
 logger = logging.getLogger(__name__)
 
-# Definition of the columns in the portfolio_metrics table
+# Definition of the columns in the final_metrics table
 # This is referenced throughout the code as a single source of truth
 METRICS_COLUMNS = [
     'metric_index',
@@ -15,31 +15,27 @@ METRICS_COLUMNS = [
     'date',
     'close_price',
     'dividend',
+    'cash_dividend',
+    'cash_dividends_total',
     'drp_flag',
+    'drp_share',
+    'drp_shares_total',
     'split_ratio',
     'cumulative_split_ratio',
     'transaction_type',
-    'quantity',
-    'price',
-    'transaction_quantity_delta',
-    'total_bought_quantity',
-    'total_sold_quantity', 
+    'adjusted_quantity',
+    'adjusted_price',
     'net_transaction_quantity',
+    'total_investment_amount',
+    'cost_basis_variation',
+    'cumulative_cost_basis_variation',
+    'current_cost_basis',
     'total_shares_owned',
-    'weighted_avg_purchase_price',
-    'weighted_avg_sale_price',
-    'cumulative_buy_value',
-    'cumulative_sell_value',
-    'cost_basis',
-    'cash_dividend',
-    'cash_dividends_total',
-    'drp_share',
-    'drp_shares_total',
     'market_value',
-    'daily_pl',
-    'daily_pl_pct',
     'realised_pl',
     'unrealised_pl',
+    'daily_pl',
+    'daily_pl_pct',
     'total_return',
     'total_return_pct',
     'cumulative_return_pct'
@@ -54,7 +50,7 @@ class PortfolioMetricsManager:
     def load_queries(self):
         """Load SQL queries from file."""
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        queries_path = os.path.join(current_dir, "portfolio_metrics.sql")
+        queries_path = os.path.join(current_dir, "final_metrics.sql")
         
         try:
             logger.debug(f"Attempting to load queries from: {queries_path}")
@@ -90,20 +86,24 @@ class PortfolioMetricsManager:
             raise Exception(f"Failed to load metrics queries: {str(e)}")
 
     def update_metrics_for_stock(self, stock_id: int):
-        """Update all metrics for a given stock."""
+        """
+        Update all metrics for a given stock
+        
+        Args:
+            stock_id: The database ID of the stock
+        """
         try:
             # Load config to get P/L method
             with open('config.yaml', 'r') as f:
                 config = yaml.safe_load(f)
                 pl_method = config.get('profit_loss_calculations', {}).get('default_method', 'fifo')
-                print(pl_method)
 
             # Get metrics data from SQL query with pl_method parameter
             metrics_data = self.db_manager.fetch_all_with_params(
                 self.queries['calculate and update metrics'],
                 {
                     'stock_id': stock_id,
-                    'pl_method': pl_method  # Pass the method as parameter
+                    'pl_method': pl_method
                 }
             )
             
@@ -189,7 +189,7 @@ class PortfolioMetricsManager:
         placeholders = ','.join(['?' for _ in columns])
         
         sql = f"""
-            INSERT OR REPLACE INTO portfolio_metrics 
+            INSERT OR REPLACE INTO final_metrics 
             ({cols}) 
             VALUES ({placeholders})
         """

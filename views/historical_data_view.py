@@ -135,7 +135,7 @@ class HistoricalDataDialog(QDialog):
                 SELECT 
                     {', '.join(fields)}
                 FROM historical_prices hp
-                LEFT JOIN portfolio_metrics pm 
+                LEFT JOIN final_metrics pm 
                     ON hp.stock_id = pm.stock_id 
                     AND hp.date = pm.date
                 WHERE hp.stock_id = ?
@@ -209,7 +209,7 @@ class HistoricalDataDialog(QDialog):
             query = f"""
                 SELECT {', '.join(visible_columns)}
                 FROM historical_prices hp
-                LEFT JOIN portfolio_metrics pm 
+                LEFT JOIN final_metrics pm 
                     ON hp.stock_id = pm.stock_id 
                     AND hp.date = pm.date
                 WHERE hp.stock_id = ? 

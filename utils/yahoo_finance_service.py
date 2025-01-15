@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import logging
 from utils.date_utils import DateUtils
-from database.portfolio_metrics_manager import PortfolioMetricsManager
+from database.final_metrics_manager import PortfolioMetricsManager
 
 logger = logging.getLogger(__name__)
 

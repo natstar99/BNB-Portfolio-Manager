@@ -75,7 +75,7 @@ class PortfolioStudyController:
             # Build query using the ordered fields
             query = f"""
                     SELECT {', '.join(fields)}
-                    FROM portfolio_metrics
+                    FROM final_metrics
                     WHERE stock_id = :stock_id 
                     AND date BETWEEN :start_date AND :end_date
                     ORDER BY date

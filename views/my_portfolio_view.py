@@ -24,13 +24,15 @@ class MyPortfolioView(QWidget):
 
         # Portfolio name and summary
         self.portfolio_name_label = QLabel("Portfolio Name")
-        self.portfolio_value_label = QLabel("Total Value: $0.00")
+        self.portfolio_value_label = QLabel("Portfolio Value: $0.00")
+        self.portfolio_cost_basis_label = QLabel("Cost Basis: $0.00")
         self.portfolio_pl_dollar_label = QLabel("Total P/L: $0.00")
         self.portfolio_pl_percent_label = QLabel("Total Return: 0.00%")
 
         # Add all labels to layout
         layout.addWidget(self.portfolio_name_label)
         layout.addWidget(self.portfolio_value_label)
+        layout.addWidget(self.portfolio_cost_basis_label)
         layout.addWidget(self.portfolio_pl_dollar_label)
         layout.addWidget(self.portfolio_pl_percent_label)
 
@@ -62,7 +64,6 @@ class MyPortfolioView(QWidget):
             "Name",
             "Yahoo Symbol",
             "Shares",
-            "Avg Price",
             "Current Price",
             "Cost Basis",
             "Current Value",
@@ -70,8 +71,9 @@ class MyPortfolioView(QWidget):
             "Cash Dividends",
             "DRP Shares",
             "DRP Value",
-            "Total Return",
-            "Total %"
+            "Total Return $",
+            "Total Return %",
+            "Aggregate %"
         ])
         
         # Set column resize modes
@@ -91,45 +93,6 @@ class MyPortfolioView(QWidget):
         self.manage_portfolio_button.clicked.connect(self.manage_portfolio.emit)
         self.view_history_button.clicked.connect(self.on_view_history)
         self.stocks_table.itemSelectionChanged.connect(self.on_selection_changed)
-
-    def calculate_portfolio_totals(self):
-        """Calculate portfolio totals from the table data."""
-        total_value = 0.0
-        total_return = 0.0
-        total_cost_basis = 0.0
-
-        for row in range(self.stocks_table.rowCount()):
-            # Get current value from column 6
-            value_item = self.stocks_table.item(row, 6)
-            if value_item:
-                value_text = value_item.text().replace('$', '').replace(',', '')
-                try:
-                    total_value += float(value_text)
-                except ValueError:
-                    pass
-
-            # Get total return from column 11
-            return_item = self.stocks_table.item(row, 11)
-            if return_item and return_item.text():
-                return_text = return_item.text().replace('$', '').replace(',', '')
-                try:
-                    total_return += float(return_text)
-                except ValueError:
-                    pass
-
-            # Get cost basis from column 5
-            cost_basis_item = self.stocks_table.item(row, 5)
-            if cost_basis_item:
-                cost_basis_text = cost_basis_item.text().replace('$', '').replace(',', '')
-                try:
-                    total_cost_basis += float(cost_basis_text)
-                except ValueError:
-                    pass
-
-        # Calculate total return percentage
-        total_return_percent = (total_return / total_cost_basis * 100) if total_cost_basis > 0 else 0
-
-        return total_value, total_return, total_return_percent
 
     def on_view_history(self):
         """Handle the view history button click."""
@@ -151,8 +114,8 @@ class MyPortfolioView(QWidget):
         self.stocks_table.setRowCount(len(portfolio.stocks))
         
         total_value = 0.0
-        total_return = 0.0
         total_cost_basis = 0.0
+        total_return = 0.0
         
         for row, (yahoo_symbol, stock) in enumerate(portfolio.stocks.items()):
             metrics = stock.latest_metrics
@@ -177,21 +140,16 @@ class MyPortfolioView(QWidget):
                     not self.show_zero_shares.isChecked() and shares == 0
                 )
                 
-                # Average Price (weighted average purchase price)
-                if metrics.get('weighted_avg_purchase_price'):
-                    self.stocks_table.setItem(row, 3, QTableWidgetItem(
-                        f"${metrics.get('weighted_avg_purchase_price', 0):,.2f}"))
-                
                 # Current Price
-                self.stocks_table.setItem(row, 4, QTableWidgetItem(
+                self.stocks_table.setItem(row, 3, QTableWidgetItem(
                     f"${stock.get_converted_price():,.2f}"))
                 
                 # Cost Basis
-                self.stocks_table.setItem(row, 5, QTableWidgetItem(
-                    f"${metrics.get('cost_basis', 0):,.2f}"))
+                self.stocks_table.setItem(row, 4, QTableWidgetItem(
+                    f"${metrics.get('current_cost_basis', 0):,.2f}"))
                 
                 # Current Value (market value)
-                self.stocks_table.setItem(row, 6, QTableWidgetItem(
+                self.stocks_table.setItem(row, 5, QTableWidgetItem(
                     f"${metrics.get('market_value', 0):,.2f}"))
                 
                 # Realised P/L
@@ -199,14 +157,14 @@ class MyPortfolioView(QWidget):
                 if realised_pl != 0:
                     realised_pl_item = QTableWidgetItem(f"${realised_pl:,.2f}")
                     realised_pl_item.setForeground(Qt.darkGreen if realised_pl >= 0 else Qt.red)
-                    self.stocks_table.setItem(row, 7, realised_pl_item)
+                    self.stocks_table.setItem(row, 6, realised_pl_item)
                 
                 # Cash Dividends
                 cash_dividends = metrics.get('cash_dividends_total', 0)
                 if cash_dividends > 0:
                     dividends_item = QTableWidgetItem(f"${cash_dividends:,.2f}")
                     dividends_item.setForeground(Qt.darkGreen)
-                    self.stocks_table.setItem(row, 8, dividends_item)
+                    self.stocks_table.setItem(row, 7, dividends_item)
                 
                 # DRP Shares
                 drp_shares = metrics.get('drp_shares_total', 0)
@@ -216,35 +174,45 @@ class MyPortfolioView(QWidget):
                         f"${drp_shares * stock.current_price:,.2f}")
                     drp_shares_item.setForeground(Qt.blue)
                     drp_value_item.setForeground(Qt.blue)
-                    self.stocks_table.setItem(row, 9, drp_shares_item)
-                    self.stocks_table.setItem(row, 10, drp_value_item)
+                    self.stocks_table.setItem(row, 8, drp_shares_item)
+                    self.stocks_table.setItem(row, 9, drp_value_item)
                 
                 # Total Return
-                total_return = metrics.get('total_return', 0)
-                if abs(total_return) > 0.001:
-                    total_return_item = QTableWidgetItem(f"${total_return:,.2f}")
-                    total_return_item.setForeground(Qt.darkGreen if total_return >= 0 else Qt.red)
-                    self.stocks_table.setItem(row, 11, total_return_item)
+                stock_total_return = metrics.get('total_return', 0)
+                if abs(stock_total_return) > 0.001:
+                    total_return_item = QTableWidgetItem(f"${stock_total_return:,.2f}")
+                    total_return_item.setForeground(Qt.darkGreen if stock_total_return >= 0 else Qt.red)
+                    self.stocks_table.setItem(row, 10, total_return_item)
                 
                 # Total Return %
                 total_return_pct = metrics.get('total_return_pct', 0)
                 return_pct_item = QTableWidgetItem(f"{total_return_pct:+.2f}%")
                 return_pct_item.setForeground(Qt.darkGreen if total_return_pct >= 0 else Qt.red)
-                self.stocks_table.setItem(row, 12, return_pct_item)
+                self.stocks_table.setItem(row, 11, return_pct_item)
+
+                # Aggregate Return %
+                cumulative_return = metrics.get('cumulative_return_pct', 0)
+                cumulative_return_item = QTableWidgetItem(f"{cumulative_return:+.2f}%")
+                cumulative_return_item.setForeground(
+                    Qt.darkGreen if cumulative_return >= 0 else Qt.red
+                )
+                self.stocks_table.setItem(row, 12, cumulative_return_item)
                 
                 # Update running totals
                 total_value += metrics.get('market_value', 0)
+                total_cost_basis += metrics.get('current_cost_basis', 0)
                 total_return += metrics.get('total_return', 0)
-                total_cost_basis += metrics.get('cost_basis', 0)
+                
                 
             except Exception as e:
                 logger.error(f"Error processing row {row} for {yahoo_symbol}: {str(e)}")
                 continue
         
         # Update summary labels
-        self.portfolio_value_label.setText(f"Total Value: ${total_value:,.2f}")
-        self.portfolio_pl_dollar_label.setText(f"Total P/L: ${total_return:,.2f}")
-        if total_cost_basis > 0:
+        self.portfolio_value_label.setText(f"Portfolio Value: ${total_value:,.2f}")
+        self.portfolio_cost_basis_label.setText(f"Cost Basis: ${total_cost_basis:,.2f}")
+        self.portfolio_pl_dollar_label.setText(f"Portfolio P/L: ${total_return:,.2f}")
+        if total_cost_basis > 0.0001:
             total_return_pct = (total_return / total_cost_basis) * 100
             self.portfolio_pl_percent_label.setText(f"Total Return: {total_return_pct:,.2f}%")
 

@@ -13,7 +13,7 @@ from models.stock import Stock
 from views.import_transactions_view import ImportTransactionsView
 from views.verify_transactions_view import VerifyTransactionsDialog
 from utils.historical_data_collector import HistoricalDataCollector
-from database.portfolio_metrics_manager import PortfolioMetricsManager
+from database.final_metrics_manager import PortfolioMetricsManager
 from utils.fifo_hifo_lifo_calculator import RealisedPLCalculator, process_stock_matches, MatchingMethod
 import yaml
 
@@ -172,12 +172,12 @@ class ImportTransactionsController(QObject):
                     self.db_manager.cursor.executemany("""
                         INSERT INTO realised_pl (
                             sell_id, buy_id, stock_id, matched_units,
-                            buy_price, sell_price, realised_pl,
+                            buy_price, sell_price, purchase_price, realised_pl,
                             trade_date, method
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, [
                         (m['sell_id'], m['buy_id'], m['stock_id'], m['matched_units'],
-                            m['buy_price'], m['sell_price'], m['realised_pl'],
+                            m['buy_price'], m['sell_price'], m['purchase_price'], m['realised_pl'],
                             m['trade_date'], m['method'])
                         for m in matches
                     ])

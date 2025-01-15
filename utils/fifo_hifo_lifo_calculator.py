@@ -89,10 +89,11 @@ def process_stock_matches(transactions, method: MatchingMethod):
                 buy_order.buy_remainder += matched_units
                 units_to_sell -= matched_units
                 
-                # Calculate profit/loss for this match
+                # Calculate profit/loss and purchase price for this match
+                purchase_price = matched_units * buy_order.price
                 pl_for_match = (
                     (matched_units * sell_order.price) - 
-                    (matched_units * buy_order.price)
+                    purchase_price
                 )
                 
                 # Record the match
@@ -103,6 +104,7 @@ def process_stock_matches(transactions, method: MatchingMethod):
                     'matched_units': matched_units,
                     'buy_price': buy_order.price,
                     'sell_price': sell_order.price,
+                    'purchase_price': purchase_price,
                     'realised_pl': pl_for_match,
                     'trade_date': sell_order.date,
                     'method': method.value
@@ -155,12 +157,13 @@ def calculate_all_pl_methods(db_path):
         cursor.executemany('''
         INSERT INTO realised_pl (
             sell_id, buy_id, stock_id, matched_units,
-            buy_price, sell_price, realised_pl, trade_date, method
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            buy_price, sell_price, purchase_price, realised_pl, 
+            trade_date, method
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', [
             (r['sell_id'], r['buy_id'], r['stock_id'], r['matched_units'],
-            r['buy_price'], r['sell_price'], r['realised_pl'], r['trade_date'],
-            r['method'])
+            r['buy_price'], r['sell_price'], r['purchase_price'], r['realised_pl'], 
+            r['trade_date'], r['method'])
             for r in results
         ])
     

@@ -6,7 +6,7 @@ import os
 import logging
 import pandas as pd
 import numpy as np
-from database.portfolio_metrics_manager import METRICS_COLUMNS, PortfolioMetricsManager
+from database.final_metrics_manager import METRICS_COLUMNS, PortfolioMetricsManager
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -436,7 +436,7 @@ class DatabaseManager:
             WHERE instrument_code = ?
         """, (instrument_code,))
 
-    # For interacting with the portfolio_metrics table:
+    # For interacting with the final_metrics table:
 
     def execute_with_params(self, sql, params=None):
         """Execute SQL with named parameters."""

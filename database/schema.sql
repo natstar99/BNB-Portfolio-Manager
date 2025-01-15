@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS realised_pl (
     matched_units REAL,
     buy_price REAL,
     sell_price REAL,
+    purchase_price REAL,
     realised_pl REAL,
     trade_date DATETIME,
     method TEXT CHECK(method IN ('fifo', 'lifo', 'hifo')),
@@ -90,38 +91,34 @@ CREATE TABLE IF NOT EXISTS historical_prices (
 );
 
 -- Portfolio Metrics table for real-time position tracking
-CREATE TABLE IF NOT EXISTS portfolio_metrics (
+CREATE TABLE IF NOT EXISTS final_metrics (
     metric_index INTEGER PRIMARY KEY AUTOINCREMENT,
     stock_id INTEGER NOT NULL,
     yahoo_symbol TEXT,
     date DATE,
     close_price REAL,
     dividend REAL DEFAULT 0.0,
+    cash_dividend REAL DEFAULT 0.0,
+    cash_dividends_total REAL DEFAULT 0.0,
     drp_flag INTEGER DEFAULT 0,
+    drp_share REAL DEFAULT 0.0,
+    drp_shares_total REAL DEFAULT 0.0,
     split_ratio REAL DEFAULT 1.0,
     cumulative_split_ratio REAL DEFAULT 1.0,
     transaction_type TEXT,
-    quantity REAL,
-    price REAL,
-    transaction_quantity_delta REAL,
-    total_bought_quantity REAL DEFAULT 0.0,
-    total_sold_quantity REAL DEFAULT 0.0,
+    adjusted_quantity REAL,
+    adjusted_price REAL,
     net_transaction_quantity REAL,
+    total_investment_amount REAL DEFAULT 0.0,
+    cost_basis_variation REAL DEFAULT 0.0,
+    cumulative_cost_basis_variation REAL DEFAULT 0.0,
+    current_cost_basis REAL DEFAULT 0.0,
     total_shares_owned REAL,
-    weighted_avg_purchase_price REAL,
-    weighted_avg_sale_price REAL,
-    cumulative_buy_value REAL DEFAULT 0.0,
-    cumulative_sell_value REAL DEFAULT 0.0,
-    cost_basis REAL DEFAULT 0.0,
-    cash_dividend REAL DEFAULT 0.0,
-    cash_dividends_total REAL DEFAULT 0.0,
-    drp_share REAL DEFAULT 0.0,
-    drp_shares_total REAL DEFAULT 0.0,
     market_value REAL DEFAULT 0.0,
-    daily_pl REAL DEFAULT 0.0,
-    daily_pl_pct REAL DEFAULT 0.0,
     realised_pl REAL DEFAULT 0.0,
     unrealised_pl REAL DEFAULT 0.0,
+    daily_pl REAL DEFAULT 0.0,
+    daily_pl_pct REAL DEFAULT 0.0,
     total_return REAL DEFAULT 0.0,
     total_return_pct REAL DEFAULT 0.0,
     cumulative_return_pct REAL DEFAULT 0.0,
@@ -131,10 +128,10 @@ CREATE TABLE IF NOT EXISTS portfolio_metrics (
 );
 
 -- Create indices for common queries
-CREATE INDEX IF NOT EXISTS idx_portfolio_metrics_stock_date 
-    ON portfolio_metrics(stock_id, date);
-CREATE INDEX IF NOT EXISTS idx_portfolio_metrics_date 
-    ON portfolio_metrics(date);
+CREATE INDEX IF NOT EXISTS idx_final_metrics_stock_date 
+    ON final_metrics(stock_id, date);
+CREATE INDEX IF NOT EXISTS idx_final_metrics_date 
+    ON final_metrics(date);
 
 -- Create supported currencies table
 CREATE TABLE IF NOT EXISTS supported_currencies (

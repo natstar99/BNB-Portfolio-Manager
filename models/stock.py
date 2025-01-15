@@ -2,9 +2,9 @@
 
 from datetime import datetime
 from typing import List, Dict, Optional
-from database.portfolio_metrics_manager import PortfolioMetricsManager
+from database.final_metrics_manager import PortfolioMetricsManager
 from models.transaction import Transaction
-from database.portfolio_metrics_manager import METRICS_COLUMNS
+from database.final_metrics_manager import METRICS_COLUMNS
 from utils.yahoo_finance_service import YahooFinanceService
 import logging
 
@@ -104,10 +104,10 @@ class Stock:
         metrics = self.latest_metrics
         return metrics['total_shares_owned'] if metrics else 0.0
 
-    def calculate_cost_basis(self) -> float:
-        """Get current cost basis."""
+    def calculate_current_cost_basis(self) -> float:
+        """Get the current cost basis of shares owned."""
         metrics = self.latest_metrics
-        return metrics['cost_basis'] if metrics else 0.0
+        return metrics['current_cost_basis'] if metrics else 0.0
 
     def calculate_market_value(self) -> float:
         """Get current market value."""
@@ -133,16 +133,11 @@ class Stock:
         """Get total return percentage."""
         metrics = self.latest_metrics
         return metrics['total_return_pct'] if metrics else 0.0
-
-    def calculate_weighted_avg_purchase_price(self) -> Optional[float]:
-        """Get weighted average purchase price."""
+    
+    def calculate_cumulative_return_pct(self) -> float:
+        """Get the cumulative return percentage."""
         metrics = self.latest_metrics
-        return metrics['weighted_avg_purchase_price'] if metrics else None
-
-    def calculate_weighted_avg_sale_price(self) -> Optional[float]:
-        """Get weighted average sale price."""
-        metrics = self.latest_metrics
-        return metrics['weighted_avg_sale_price'] if metrics else None
+        return metrics['cumulative_return_pct'] if metrics else 0.0
 
     def update_price(self, new_price: float) -> None:
         """Update current price and metrics."""

@@ -13,7 +13,7 @@ import pandas as pd
 from utils.historical_data_collector import HistoricalDataCollector
 from views.historical_data_view import ManageHistoricalDataDialog
 from utils.yahoo_finance_service import YahooFinanceService
-from database.portfolio_metrics_manager import PortfolioMetricsManager
+from database.final_metrics_manager import PortfolioMetricsManager
 
 logger = logging.getLogger(__name__)
 

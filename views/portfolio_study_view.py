@@ -186,7 +186,7 @@ class StudyOptionGroup(QGroupBox):
 class PortfolioStudyView(QWidget):
     """
     Enhanced view for analyzing portfolio performance using historical data.
-    Uses pre-calculated metrics from the portfolio_metrics table for efficient display.
+    Uses pre-calculated metrics from the final_metrics table for efficient display.
     """
     update_plot = Signal(dict)  # Emits analysis parameters
     
