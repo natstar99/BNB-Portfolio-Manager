@@ -162,13 +162,17 @@ running_calculations AS (
             ELSE 0 
         END,
         -- Update total shares (including DRP)
+        -- IN THE FOLLOWING DIVIDEND ADDITIONS, WE ONLY ADD  A DIVIDEND IF THE MARKET VALUE IS NON-ZERO OR CLOSE TO
+        -- Ie; Market Value must be > $0.00001
+        -- This ensures that we are not still adding dividends to positions which all the shares have been sold in reality
+        -- But technically there is a rounding error somewhere
         rc.total_shares_owned + 
         CASE 
             WHEN d.transaction_type = 'BUY' THEN d.quantity * d.cumulative_split_ratio
             WHEN d.transaction_type = 'SELL' THEN -d.quantity * d.cumulative_split_ratio
             ELSE 
                 CASE 
-                    WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 THEN
+                    WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
                         CASE 
                             -- Handle whole vs fractional shares differently
                             WHEN rc.total_shares_owned = FLOOR(rc.total_shares_owned) THEN 
@@ -181,25 +185,25 @@ running_calculations AS (
         END,
         -- Update cash dividend calculations
         CASE 
-            WHEN d.dividend > 0 AND d.drp_flag = 0 THEN 
+            WHEN d.dividend > 0 AND d.drp_flag = 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
                 d.dividend * rc.total_shares_owned
             ELSE 0 
         END,
         rc.cash_dividends_total + 
         CASE 
-            WHEN d.dividend > 0 AND d.drp_flag = 0 THEN 
+            WHEN d.dividend > 0 AND d.drp_flag = 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
                 d.dividend * rc.total_shares_owned
             ELSE 0 
         END,
         -- Update DRP calculations
         CASE 
-            WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 THEN 
+            WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
                 (d.dividend * rc.total_shares_owned) / d.close_price
             ELSE 0 
         END,
         rc.drp_shares_total + 
         CASE 
-            WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 THEN 
+            WHEN d.dividend > 0 AND d.drp_flag = 1 AND d.close_price > 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
                 (d.dividend * rc.total_shares_owned) / d.close_price
             ELSE 0 
         END,
@@ -214,14 +218,14 @@ running_calculations AS (
 		                FROM realised_pl rpl
 		                WHERE rpl.stock_id = d.stock_id
 		                AND rpl.sell_id = d.transaction_id  -- Join on the transaction ID
-		                AND rpl.method = :pl_method
+		                AND rpl.method = 'fifo'
 		            ),
 		            0
 		        )
 		    ELSE 0
 		END +
 		CASE 
-		    WHEN d.dividend > 0 AND d.drp_flag = 0 THEN 
+		    WHEN d.dividend > 0 AND d.drp_flag = 0 AND (rc.total_shares_owned * rc.close_price) > 0.00001 THEN
 		        -- Add cash dividends to the realised P/L
 		        d.dividend * rc.total_shares_owned
 		    ELSE 0

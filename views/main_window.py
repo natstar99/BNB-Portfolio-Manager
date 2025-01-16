@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
             "Manage Portfolios", 
             "My Portfolio",
             "Study Portfolio",
-            "Study Market",
+            "Study Market (Beta)",
             "Settings"
         ]:
             button = QPushButton(button_text)
@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
             "Manage Portfolios",
             "My Portfolio",
             "Study Portfolio",
-            "Study Market",
+            "Study Market (Beta)",
             "Settings"
         ].index(button_text)
         self.content_widget.setCurrentIndex(index)
