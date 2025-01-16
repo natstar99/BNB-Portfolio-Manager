@@ -4,100 +4,104 @@ historical_data_view:
   hide_all_one_columns: true
   column_groups:
     price_data:
-    - name: Date
-      field: date
-      simple_view: true
-    - name: Open
-      field: open_price
-      simple_view: false
-    - name: High
-      field: high_price
-      simple_view: false
-    - name: Low
-      field: low_price
-      simple_view: false
-    - name: Close
-      field: close_price
-      simple_view: true
-    - name: Volume
-      field: volume
-      simple_view: false
+      - name: Date
+        field: date
+        simple_view: true
+      - name: Close
+        field: close_price
+        simple_view: true
+      - name: Open Price
+        field: open_price
+        simple_view: false
+      - name: High Price
+        field: high_price
+        simple_view: false
+      - name: Low Price
+        field: low_price
+        simple_view: false
+      - name: Volume
+        field: volume
+        simple_view: false
     transaction_data:
-    - name: Type
-      field: transaction_type
-      simple_view: true
-    - name: Price
-      field: price
-      simple_view: true
-    - name: Quantity
-      field: quantity
-      simple_view: true
+      - name: Type
+        field: transaction_type
+        simple_view: true
+      - name: Adjusted Quantity
+        field: adjusted_quantity
+        simple_view: false
+      - name: Adjusted Price
+        field: adjusted_price
+        simple_view: true
+      - name: Net Quantity
+        field: net_transaction_quantity
+        simple_view: false
     position_metrics:
-    - name: Total Shares
-      field: total_shares_owned
-      simple_view: true
-    - name: Avg Buy Price
-      field: weighted_avg_purchase_price
-      simple_view: false
-    - name: Avg Sale Price
-      field: weighted_avg_sale_price
-      simple_view: false
-    - name: Total Buys
-      field: cumulative_buy_value
-      simple_view: false
-    - name: Total Sales
-      field: cumulative_sell_value
-      simple_view: false
-    - name: Cost Basis
-      field: cost_basis
-      simple_view: true
+      - name: Total Shares
+        field: total_shares_owned
+        simple_view: true
+      - name: Total Investment
+        field: total_investment_amount
+        simple_view: false
+      - name: Current Cost Basis
+        field: current_cost_basis
+        simple_view: true
+      - name: Cost Basis Variation
+        field: cost_basis_variation
+        simple_view: false
+      - name: Cumulative Cost Basis Variation
+        field: cumulative_cost_basis_variation
+        simple_view: false
     performance_metrics:
-    - name: Dividend
-      field: dividend
-      simple_view: true
-    - name: Cash Dividend
-      field: cash_dividend
-      simple_view: false
-    - name: Total Cash Dividends
-      field: cash_dividends_total
-      simple_view: false
-    - name: DRP Shares
-      field: drp_share
-      simple_view: false
-    - name: Total DRP Shares
-      field: drp_shares_total
-      simple_view: false
-    - name: Market Value
-      field: market_value
-      simple_view: true
-    - name: Daily P/L
-      field: daily_pl
-      simple_view: false
-    - name: Daily P/L %
-      field: daily_pl_pct
-      simple_view: false
-    - name: Realised P/L
-      field: realised_pl
-      simple_view: false
-    - name: Unrealised P/L
-      field: unrealised_pl
-      simple_view: false
-    - name: Total Return $
-      field: total_return
-      simple_view: true
-    - name: Total Return %
-      field: total_return_pct
-      simple_view: true
+      - name: Market Value
+        field: market_value
+        simple_view: true
+      - name: Daily P/L
+        field: daily_pl
+        simple_view: false
+      - name: Daily P/L %
+        field: daily_pl_pct
+        simple_view: false
+      - name: Realised P/L
+        field: realised_pl
+        simple_view: true
+      - name: Unrealised P/L
+        field: unrealised_pl
+        simple_view: true
+      - name: Total Return $
+        field: total_return
+        simple_view: true
+      - name: Total Return %
+        field: total_return_pct
+        simple_view: true
+      - name: Cumulative Return %
+        field: cumulative_return_pct
+        simple_view: true
+    dividend_data:
+      - name: Dividend
+        field: dividend
+        simple_view: true
+      - name: Cash Dividend
+        field: cash_dividend
+        simple_view: false
+      - name: Total Cash Dividends
+        field: cash_dividends_total
+        simple_view: false
+      - name: DRP Shares
+        field: drp_share
+        simple_view: false
+      - name: Total DRP Shares
+        field: drp_shares_total
+        simple_view: false
     corporate_actions:
-    - name: DRP
-      field: drp_flag
-      simple_view: true
-    - name: Split Ratio
-      field: split_ratio
-      simple_view: true
-    - name: Cumulative Split
-      field: cumulative_split_ratio
-      simple_view: true
+      - name: DRP Flag
+        field: drp_flag
+        simple_view: true
+      - name: Split Ratio
+        field: split_ratio
+        simple_view: true
+      - name: Cumulative Split Ratio
+        field: cumulative_split_ratio
+        simple_view: true
   column_formats:
     price_formats:
       default: .2f
@@ -106,7 +110,7 @@ historical_data_view:
       default: .2f
       custom: {}
     quantity_formats:
-      default: .6f
+      default: .4f
       custom: {}
   profit_loss_calculations:
     default_method: fifo

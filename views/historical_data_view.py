@@ -126,7 +126,7 @@ class HistoricalDataDialog(QDialog):
                 if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
                     fields.append(f"hp.{field}")
                 else:
-                    fields.append(f"pm.{field}")
+                    fields.append(f"fm.{field}")
 
             logger.debug(f"Selected fields in order: {fields}")
 
@@ -135,9 +135,9 @@ class HistoricalDataDialog(QDialog):
                 SELECT 
                     {', '.join(fields)}
                 FROM historical_prices hp
-                LEFT JOIN final_metrics pm 
-                    ON hp.stock_id = pm.stock_id 
-                    AND hp.date = pm.date
+                LEFT JOIN final_metrics fm 
+                    ON hp.stock_id = fm.stock_id 
+                    AND hp.date = fm.date
                 WHERE hp.stock_id = ?
                 ORDER BY hp.date DESC
             """
@@ -203,15 +203,15 @@ class HistoricalDataDialog(QDialog):
                 if field in ['open_price', 'high_price', 'low_price', 'close_price', 'volume']:
                     visible_columns.append(f"hp.{field}")
                 else:
-                    visible_columns.append(f"pm.{field}")
+                    visible_columns.append(f"fm.{field}")
 
             # Build query dynamically
             query = f"""
                 SELECT {', '.join(visible_columns)}
                 FROM historical_prices hp
-                LEFT JOIN final_metrics pm 
-                    ON hp.stock_id = pm.stock_id 
-                    AND hp.date = pm.date
+                LEFT JOIN final_metrics fm 
+                    ON hp.stock_id = fm.stock_id 
+                    AND hp.date = fm.date
                 WHERE hp.stock_id = ? 
                 AND hp.date BETWEEN ? AND ?
                 ORDER BY hp.date DESC
