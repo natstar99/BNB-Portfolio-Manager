@@ -247,8 +247,13 @@ base_portfolio_metrics AS (
         NULL as metric_index,
         rc.*,
         
-        -- Calculate the market value
-        (rc.total_shares_owned * rc.close_price) as market_value,
+        -- Calculate market value with validation for tiny values
+        CASE 
+            WHEN (rc.total_shares_owned * rc.close_price) < 0.00001 THEN 
+                0
+            ELSE 
+                (rc.total_shares_owned * rc.close_price)
+        END as market_value,
         
         -- Calculate cost_basis_variation, multiplying by -1 for SELL transactions
         -- We only consider it on SELL days to avoid double counting
@@ -328,16 +333,20 @@ extended_metrics AS (
        pm.total_investment_amount + pm.cumulative_cost_basis_variation
        as current_cost_basis,
        
-        -- Calculate daily percentage return
-        CASE
-            -- For regular trading days, calculate against previous day's market value
-            WHEN LAG(pm.market_value) OVER (ORDER BY pm.date) > 0.00001 THEN
-                (pm.daily_pl / LAG(pm.market_value) OVER (ORDER BY pm.date)) * 100
-            -- For the first BUY, calculate against the initial investment amount
-            WHEN pm.transaction_type = 'BUY' AND pm.market_value > 0.00001 THEN
-                (pm.daily_pl / (pm.adjusted_quantity * pm.adjusted_price)) * 100
-            ELSE 0
-        END as daily_pl_pct,
+		-- Calculate daily percentage return
+		CASE
+		    -- For the first transaction (no previous market value exists)
+		    WHEN LAG(pm.market_value) OVER (ORDER BY pm.date) IS NULL THEN
+		        (pm.daily_pl / (pm.adjusted_quantity * pm.adjusted_price)) * 100
+		    -- For BUY transactions, calculate including the investment amount on that day
+		    WHEN pm.transaction_type = 'BUY' THEN
+		        (pm.daily_pl / (LAG(pm.market_value) OVER (ORDER BY pm.date) + (pm.adjusted_quantity * pm.adjusted_price))) * 100
+		    -- For all other transactions
+		    WHEN LAG(pm.market_value) OVER (ORDER BY pm.date) IS NOT NULL THEN
+		        (pm.daily_pl / LAG(pm.market_value) OVER (ORDER BY pm.date)) * 100
+		    ELSE
+		        0
+		END AS daily_pl_pct,
         
         -- Calculate total return (combining realized and unrealized gains/losses)
         pm.realised_pl + pm.unrealised_pl as total_return,
