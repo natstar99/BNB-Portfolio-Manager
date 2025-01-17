@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "delete-portfolio-db",
+            "type": "shell",
+            "command": "rm",
+            "args": [
+                "${workspaceFolder}/portfolio.db"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

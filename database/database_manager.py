@@ -103,7 +103,8 @@ class DatabaseManager:
             
             self.log_stock_entry(instrument_code)
 
-    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None, verification_status=None, currency = None):
+    def add_stock(self, yahoo_symbol, instrument_code, name=None, current_price=None, market_or_index=None, 
+                  verification_status=None, trading_currency=None, current_currency=None):
         """Add or update a stock."""
         # Get market suffix if market_or_index is provided
         market_suffix = None
@@ -117,11 +118,11 @@ class DatabaseManager:
         self.execute("""
             INSERT OR REPLACE INTO stocks 
             (yahoo_symbol, instrument_code, name, current_price, last_updated, 
-            market_or_index, market_suffix, verification_status, currency)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            market_or_index, market_suffix, verification_status, trading_currency, current_currency)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (yahoo_symbol, instrument_code, name, current_price, 
             datetime.now().replace(microsecond=0), market_or_index, 
-            market_suffix, verification_status, currency))
+            market_suffix, verification_status, trading_currency, current_currency))
         self.conn.commit()
         self.log_stock_entry(instrument_code)  # Log after insert
         return self.cursor.lastrowid
@@ -154,7 +155,8 @@ class DatabaseManager:
                 - market_suffix (str)         [7]
                 - verification_status (str)   [8]
                 - drp (int)                   [9]
-                - currency (str)              [10]
+                - trading_currency (str)      [10]
+                - current_currency (str)      [11]
         """
         return self.fetch_one("""
             SELECT 
@@ -168,7 +170,8 @@ class DatabaseManager:
                 s.market_suffix,
                 s.verification_status,
                 s.drp,
-                s.currency
+                s.trading_currency,
+                s.current_currency
             FROM stocks s
             WHERE s.instrument_code = ?
         """, (instrument_code,))
@@ -177,25 +180,28 @@ class DatabaseManager:
         """Simple method to log stock table entries."""
         result = self.fetch_one("""
             SELECT id, yahoo_symbol, instrument_code, name, current_price, 
-                last_updated, market_or_index, market_suffix, verification_status, currency
+                last_updated, market_or_index, market_suffix, verification_status, 
+                drp, trading_currency, current_currency
             FROM stocks 
             WHERE instrument_code = ?
         """, (instrument_code,))
         
         if result:
             logging.info(f"""
-    Stock Entry for {instrument_code}:
-    - ID: {result[0]}
-    - Yahoo Symbol: {result[1]}
-    - Instrument Code: {result[2]}
-    - Name: {result[3]}
-    - Current Price: {result[4]}
-    - Last Updated: {result[5]}
-    - Market/Index: {result[6]}
-    - Market Suffix: {result[7]}
-    - Verification Status: {result[8]}
-    - Currency: {result[9]}
-            """)
+                Stock Entry for {instrument_code}:
+                - ID: {result[0]}
+                - Yahoo Symbol: {result[1]}
+                - Instrument Code: {result[2]}
+                - Name: {result[3]}
+                - Current Price: {result[4]}
+                - Last Updated: {result[5]}
+                - Market/Index: {result[6]}
+                - Market Suffix: {result[7]}
+                - Verification Status: {result[8]}
+                - DRP: {result[9]}
+                - Trading Currency: {result[10]}
+                - Current Currency: {result[11]}
+                        """)
         
     # Transaction methods
     def add_transaction(self, stock_id, date, quantity, price, transaction_type):
@@ -500,7 +506,7 @@ class DatabaseManager:
 
 
     # For getting the currency of a specified stock
-    def get_stock_currency_info(self, stock_id: int) -> tuple:
+    def get_trading_currency_info(self, stock_id: int) -> tuple:
         """
         Get the stock's currency and its portfolio's default currency.
         
@@ -508,16 +514,16 @@ class DatabaseManager:
             stock_id: The database ID of the stock
             
         Returns:
-            tuple: (stock_currency, portfolio_currency) or (None, None) if not found
+            tuple: (trading_currency, portfolio_currency) or (None, None) if not found
         """
         try:
             result = self.fetch_one("""
                 SELECT 
-                    s.currency as stock_currency,
-                    p.default_currency as portfolio_currency
+                    s.trading_currency,
+                    p.portfolio_currency
                 FROM stocks s
-                JOIN portfolio_stocks ps ON s.id = ps.stock_id
-                JOIN portfolios p ON ps.portfolio_id = p.id
+                LEFT JOIN portfolio_stocks ps ON s.id = ps.stock_id
+                LEFT JOIN portfolios p ON ps.portfolio_id = p.id
                 WHERE s.id = ?
             """, (stock_id,))
             
@@ -530,49 +536,84 @@ class DatabaseManager:
             return None, None
         
     def update_transaction_prices_with_conversion(self, stock_id: int, conversion_data: pd.DataFrame, 
-                                                stock_currency: str, portfolio_currency: str):
+                                                trading_currency: str, portfolio_currency: str):
         """
         Update transaction prices using currency conversion rates.
-        Performs a left join between transactions and conversion rates to update prices in place.
+        Preserves original prices on first conversion and uses them for subsequent conversions.
+        Always converts FROM the stock's native currency TO the portfolio currency using original prices.
         
         Args:
             stock_id: The database ID of the stock
             conversion_data: DataFrame containing currency conversion rates
-            stock_currency: Currency of the stock
+            trading_currency: Native currency of the stock (from stocks.currency)
             portfolio_currency: Portfolio's default currency
         """
         try:
-            # First, store conversion rates in temporary table
-            self.execute("CREATE TEMP TABLE IF NOT EXISTS temp_conversion_rates (date DATE, conversion_rate REAL)")
-            self.execute("DELETE FROM temp_conversion_rates")  # Clear any existing data
-            
+            # Get the stock's current processed currency
+            result = self.fetch_one(
+                "SELECT trading_currency, current_currency FROM stocks WHERE id = ?", 
+                (stock_id,)
+            )
+            native_currency, current_currency = result if result else (None, None)
+
+            # Skip if already in correct currency
+            if current_currency == portfolio_currency:
+                logger.info(f"Skipping currency conversion for stock {stock_id}: already in {portfolio_currency}")
+                return
+
+            logger.info(f"Converting stock {stock_id} from {native_currency} to {portfolio_currency} (current processing currency: {current_currency})")
+
+            # First time processing - preserve original prices
+            self.execute("""
+                UPDATE transactions 
+                SET original_price = price 
+                WHERE stock_id = ? 
+                AND original_price IS NULL
+                AND price IS NOT NULL
+            """, (stock_id,))
+
+            # Store conversion rates in temporary table
+            self.execute("""
+                CREATE TEMP TABLE IF NOT EXISTS temp_conversion_rates 
+                (date DATE, conversion_rate REAL)
+            """)
+            self.execute("DELETE FROM temp_conversion_rates")
+
             # Convert conversion data index to string dates before inserting
             conversion_records = [
                 (date.strftime('%Y-%m-%d'), rate) 
                 for date, rate in conversion_data.itertuples()
             ]
-            
+
             self.cursor.executemany(
                 "INSERT INTO temp_conversion_rates (date, conversion_rate) VALUES (?, ?)",
                 conversion_records
             )
-            
-            # Update transaction prices with join
-            # Note: We're now using proper table aliases and being explicit about which price we're updating
+
+            # Update transaction prices using original_price (always in native currency)
             self.execute("""
-                UPDATE transactions 
+                UPDATE transactions AS t
                 SET 
-                    price = transactions.price * tcr.conversion_rate,
+                    price = t.original_price * tcr.conversion_rate,
                     currency_conversion_rate = tcr.conversion_rate
-                FROM transactions trans
-                LEFT JOIN temp_conversion_rates tcr ON date(trans.date) = date(tcr.date)
-                WHERE trans.stock_id = ?
+                FROM temp_conversion_rates AS tcr
+                WHERE t.stock_id = ?
+                AND date(t.date) = date(tcr.date)
             """, (stock_id,))
-            
+
+            # Update the stock's current_currency
+            self.execute("""
+                UPDATE stocks 
+                SET current_currency = ?
+                WHERE id = ?
+            """, (portfolio_currency, stock_id))
+
             # Clean up
             self.execute("DROP TABLE IF EXISTS temp_conversion_rates")
             self.conn.commit()
-            
+
+            logger.info(f"Successfully updated transaction prices for stock {stock_id} from {trading_currency} to {portfolio_currency}")
+
         except Exception as e:
             self.conn.rollback()
             logger.error(f"Error updating transaction prices with conversion: {str(e)}")

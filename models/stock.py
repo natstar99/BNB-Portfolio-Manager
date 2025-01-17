@@ -169,21 +169,33 @@ class Stock:
     def get_converted_price(self) -> float:
         """
         Get the current price converted to portfolio's default currency if needed.
+        Uses the original price and applies currency conversion when necessary.
         
         Returns:
             float: The current price in the portfolio's default currency
         """
         try:
             # Get currencies
-            currencies = self.db_manager.get_stock_currency_info(self.id)
+            currencies = self.db_manager.get_trading_currency_info(self.id)
             if not currencies:
                 return self.current_price
                 
-            stock_currency, portfolio_currency = currencies
+            trading_currency, portfolio_currency = currencies
             
+            # Get the stock's current currency
+            result = self.db_manager.fetch_one(
+                "SELECT current_currency FROM stocks WHERE id = ?",
+                (self.id,)
+            )
+            current_currency = result[0] if result else trading_currency
+            
+            # If already in portfolio currency, return as is
+            if current_currency == portfolio_currency:
+                return self.current_price
+                
             # Get conversion rate using Yahoo Finance Service
             conversion_rate = YahooFinanceService.get_current_conversion_rate(
-                stock_currency, 
+                trading_currency, 
                 portfolio_currency
             )
             

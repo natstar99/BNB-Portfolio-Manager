@@ -49,6 +49,7 @@ class ImportTransactionsController(QObject):
     def import_transactions(self, file_name, column_mapping):
         """
         Import transactions from a file and collect historical data.
+        Pre-populates stock records before showing verification dialog.
         
         Args:
             file_name (str): Path to the import file
@@ -56,6 +57,7 @@ class ImportTransactionsController(QObject):
         """
         try:
             logger.info(f"Starting import from file: {file_name}")
+
             # Read the file
             if file_name.endswith('.xlsx'):
                 df = pd.read_excel(file_name, parse_dates=['Trade Date'])
@@ -70,8 +72,35 @@ class ImportTransactionsController(QObject):
             # Convert 'Trade Date' to date only (no time information)
             df['Trade Date'] = df['Trade Date'].dt.date
 
+            # Get unique instruments and sort alphabetically
+            unique_instruments = sorted(df['Instrument Code'].unique())
+
+            # Pre-populate stocks table with stocks
+            for instrument_code in unique_instruments:
+                # Check if stock already exists
+                existing_stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                if not existing_stock:
+                    # Add basic stock record
+                    logger.info(f"Pre-populating stock record for {instrument_code}")
+                    self.db_manager.add_stock(
+                        yahoo_symbol=instrument_code,  # Initially same as instrument code
+                        instrument_code=instrument_code,
+                        name=None,
+                        current_price=None,
+                        verification_status="Pending",
+                        trading_currency=None,
+                        current_currency=None,  # Will be set during verification
+                    )
+                else:
+                    logger.info(f"Stock {instrument_code} already exists in database")
+
             # Show verification dialog
-            dialog = VerifyTransactionsDialog(df, self.db_manager, self.view)
+            dialog = VerifyTransactionsDialog(
+                transactions_data=df, 
+                db_manager=self.db_manager,
+                parent=self.view,
+                portfolio_id=self.portfolio.id  # Import controller has portfolio as instance variable
+            )
             dialog.verification_completed.connect(self.on_verification_completed)
             
             if dialog.exec_():
@@ -83,6 +112,7 @@ class ImportTransactionsController(QObject):
         except Exception as e:
             error_msg = f"Failed to import transactions: {str(e)}"
             logger.error(error_msg)
+            logger.exception("Detailed traceback:")
             QMessageBox.warning(self.view, "Import Failed", error_msg)
 
     def on_verification_completed(self, verification_results):

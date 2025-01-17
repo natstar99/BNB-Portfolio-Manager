@@ -3,6 +3,7 @@
 
 from utils.yahoo_finance_service import YahooFinanceService
 from utils.date_utils import DateUtils
+from database.database_manager import PortfolioMetricsManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,12 +26,7 @@ class HistoricalDataCollector:
             bool: True if successful, False otherwise
         """
         try:
-            if progress_callback:
-                progress_callback("Getting currencies...")
             
-            # Get currencies
-            stock_currency, portfolio_currency = db_manager.get_stock_currency_info(stock_id)
-
             if progress_callback:
                 progress_callback("Getting transaction dates...")
 
@@ -41,27 +37,29 @@ class HistoricalDataCollector:
                 return False
 
             start_date = DateUtils.parse_date(min(t[1] for t in transactions))
-            logger.info(f"Fetching historical data for {yahoo_symbol} from {start_date}")
             
+            # Get currencies
+            if progress_callback:
+                progress_callback("Getting currencies...")  
+            trading_currency, portfolio_currency = db_manager.get_trading_currency_info(stock_id)
+
+            # Fetch and store data using YahooFinanceService
             if progress_callback:
                 progress_callback("Fetching Yahoo Finance data...")
-            
+
             # Fetch and store data using YahooFinanceService
             data = YahooFinanceService.fetch_stock_data(
                 db_manager=db_manager,
                 stock_id=stock_id,
                 yahoo_symbol=yahoo_symbol,
                 start_date=start_date,
-                stock_currency=stock_currency,
+                trading_currency=trading_currency,
                 portfolio_currency=portfolio_currency
             )
             
             if data is None:
                 logger.warning(f"No historical data retrieved for {yahoo_symbol}")
                 return False
-
-            if progress_callback:
-                progress_callback("Updating metrics...")
                 
             logger.info(f"Successfully processed historical data for {yahoo_symbol}")
             return True

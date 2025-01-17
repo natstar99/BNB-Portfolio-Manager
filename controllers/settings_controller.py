@@ -39,7 +39,7 @@ class SettingsController:
         if portfolio:
             # Load current currency setting
             result = self.db_manager.fetch_one(
-                "SELECT default_currency FROM portfolios WHERE id = ?",
+                "SELECT portfolio_currency FROM portfolios WHERE id = ?",
                 (portfolio.id,)
             )
             if result:
@@ -67,7 +67,7 @@ class SettingsController:
         try:
             new_currency = self.view.get_selected_currency()
             self.db_manager.execute(
-                "UPDATE portfolios SET default_currency = ? WHERE id = ?",
+                "UPDATE portfolios SET portfolio_currency = ? WHERE id = ?",
                 (new_currency, self.current_portfolio.id)
             )
             self.db_manager.conn.commit()

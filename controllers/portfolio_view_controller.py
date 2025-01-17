@@ -125,7 +125,12 @@ class PortfolioViewController:
             holdings_data = pd.DataFrame({
                 'Instrument Code': [code[0] for code in instruments]
             })
-            dialog = VerifyTransactionsDialog(holdings_data, self.db_manager, self.view)
+            dialog = VerifyTransactionsDialog(
+                transactions_data=holdings_data, 
+                db_manager=self.db_manager,
+                parent=self.view,
+                portfolio_id=self.current_portfolio.id
+            )
             dialog.portfolio_id = self.current_portfolio.id
             dialog.verification_completed.connect(self.on_verification_completed)
             if dialog.exec_():

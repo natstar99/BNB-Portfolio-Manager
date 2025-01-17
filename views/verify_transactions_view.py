@@ -24,7 +24,7 @@ class VerifyTransactionsDialog(QDialog):
         self.market_names = {}
         super().__init__(parent)
         self.db_manager = db_manager
-        self.portfolio_id = None
+        self.portfolio_id = portfolio_id
         self.transactions_data = transactions_data
         self.market_mappings = {}
         self.stock_data = {}
@@ -394,7 +394,8 @@ class VerifyTransactionsDialog(QDialog):
             self.table.item(row, 4).setText(str(result['current_price']))
 
             # Update currency
-            self.table.item(row, 5).setText(str(result['currency']))
+            trading_currency = result['currency']
+            self.table.item(row, 5).setText(trading_currency)
             
             # Get market settings
             market_combo = self.table.cellWidget(row, 1)
@@ -409,7 +410,8 @@ class VerifyTransactionsDialog(QDialog):
                 'market_or_index': market_or_index,
                 'market_suffix': market_suffix,
                 'drp': self.drp_settings.get(instrument_code, False),
-                'currency': result['currency']
+                'trading_currency': trading_currency,  # Store trading currency
+                'current_currency': None  # Initialise as None
             }
 
             # Add splits if any found
@@ -619,8 +621,14 @@ class VerifyTransactionsDialog(QDialog):
                 instrument_code=instrument_code,
                 name=None,
                 current_price=None,
-                verification_status="Pending"
+                verification_status="Pending",
+                trading_currency=None,
+                current_currency=None,  # Will be set during verification
             )
+
+            # Associate the stock with the portfolio
+            if self.portfolio_id:
+                self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
 
             # After adding to database, ask about transactions
             response = QMessageBox.question(
@@ -879,7 +887,7 @@ class VerifyTransactionsDialog(QDialog):
                 yahoo_symbol = self.table.item(row, 2).text()
                 name = self.table.item(row, 3).text()
                 current_price = self.table.item(row, 4).text()
-                currency = self.table.item(row, 5).text()
+                trading_currency = self.table.item(row, 5).text()
                 verification_status = self.table.item(row, 8).text()
                 
                 logging.info(f"Saving stock {instrument_code} with verification status: {verification_status}")
@@ -889,12 +897,12 @@ class VerifyTransactionsDialog(QDialog):
                 
                 if stock:
                     stock_id = stock[0]
-                    # Update existing stock
+                    # Check if a valid market or index selection has been made an update existing stock .db if so
                     if market_combo.currentIndex() > 0:
                         market_or_index = market_combo.currentData()
                         self.db_manager.update_stock_market(instrument_code, market_or_index)
                     
-                    # Handle price conversion
+                    # Convert price text box -> float
                     try:
                         price = float(current_price) if current_price else None
                     except ValueError:
@@ -907,14 +915,14 @@ class VerifyTransactionsDialog(QDialog):
                             current_price = ?,
                             yahoo_symbol = ?,
                             verification_status = ?,
-                            currency = ?
+                            trading_currency = ?
                         WHERE id = ?
                     """, (
                         name if name else None,
                         price,
                         yahoo_symbol,
                         verification_status,
-                        currency,
+                        trading_currency,
                         stock_id
                     ))
                     

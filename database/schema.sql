@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS portfolios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    default_currency TEXT DEFAULT 'AUD'
+    portfolio_currency TEXT DEFAULT 'AUD'
 );
 
 -- Stocks table
@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS stocks (
     market_suffix TEXT,
     verification_status TEXT DEFAULT 'pending', -- tracks verification status (pending, verified, failed)
     drp INTEGER DEFAULT 0,
-    currency TEXT,
+    trading_currency TEXT,
+    current_currency TEXT,
     UNIQUE(yahoo_symbol, instrument_code),
     FOREIGN KEY (market_or_index) REFERENCES market_codes(market_or_index)
 );
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     price REAL NOT NULL,
     transaction_type TEXT NOT NULL,
     currency_conversion_rate REAL DEFAULT 1.0,
+    original_price REAL,
     FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE
 );
 

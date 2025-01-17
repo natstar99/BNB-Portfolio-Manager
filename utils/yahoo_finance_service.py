@@ -13,23 +13,48 @@ class YahooFinanceService:
     """Handles all Yahoo Finance API interactions."""
     
     @staticmethod
-    def fetch_stock_data(db_manager, stock_id: int, yahoo_symbol: str, start_date: datetime, stock_currency: str, portfolio_currency: str) -> pd.DataFrame:
+    def fetch_stock_data(db_manager, stock_id: int, yahoo_symbol: str, start_date: datetime, 
+                        trading_currency: str, portfolio_currency: str) -> pd.DataFrame:
         """
-        Fetch historical data from Yahoo Finance.
-        Only gets raw OHLCV data, dividends and splits.
+        Fetch historical data from Yahoo Finance and handle currency conversions.
+        Downloads OHLCV data, dividends, and splits while managing currency conversions.
+        
+        The method follows a specific currency handling process:
+        1. If current_currency is NULL, it's set to trading_currency
+        2. If current_currency differs from portfolio_currency, conversion is performed
+        3. Original prices are preserved before any conversion
         
         Args:
             db_manager: Database manager instance
             stock_id: The database ID of the stock
             yahoo_symbol: Yahoo Finance stock symbol
             start_date: Start date for historical data
-            stock_currency: Currency of stock
-            default_currency: Default currency of the selected portfolio
-            
+            trading_currency: Currency stock is traded in (native currency)
+            portfolio_currency: Default currency of the selected portfolio
+                
         Returns:
             pd.DataFrame: DataFrame containing historical data, or None if fetch fails
         """
         try:
+            # First, handle currency status
+            result = db_manager.fetch_one(
+                "SELECT current_currency FROM stocks WHERE id = ?",
+                (stock_id,)
+            )
+            current_currency = result[0] if result else None
+            
+            # If current_currency is NULL, set it to trading_currency
+            if current_currency is None:
+                db_manager.execute("""
+                    UPDATE stocks 
+                    SET current_currency = trading_currency 
+                    WHERE id = ? AND current_currency IS NULL
+                """, (stock_id,))
+                db_manager.conn.commit()
+                current_currency = trading_currency
+                logger.info(f"Set initial current_currency to {trading_currency} for stock {stock_id}")
+
+            # Download raw data from Yahoo Finance
             ticker = yf.Ticker(yahoo_symbol)
             data = ticker.history(start=start_date, auto_adjust=False)
             
@@ -39,12 +64,11 @@ class YahooFinanceService:
                     
             # Reset index and format dates
             data = data.reset_index()
-            # Use DateUtils to normalise and format the dates
             data['Date'] = data['Date'].apply(lambda x: DateUtils.to_database_date(
                 DateUtils.normalise_yahoo_date(x)
             ))
             
-            # Store basic historical data
+            # Prepare records for database insertion
             records = []
             for _, row in data.iterrows():
                 records.append((
@@ -59,10 +83,16 @@ class YahooFinanceService:
                     row.get('Stock Splits', 1.0)
                 ))
             
-            # Check if currency is correct
-            if str(stock_currency) != str(portfolio_currency):
+            # Handle currency conversion if needed
+            if str(current_currency) != str(portfolio_currency):
+                logger.info(f"Currency conversion needed for stock {stock_id}: {current_currency} to {portfolio_currency}")
+                
                 conversion_data = YahooFinanceService.fetch_currency_conversion_data(
-                    yahoo_symbol, start_date, stock_currency, portfolio_currency
+                    yahoo_symbol, 
+                    start_date, 
+                    trading_currency, 
+                    portfolio_currency,
+                    current_currency
                 )
                 
                 if conversion_data is not None:
@@ -71,18 +101,24 @@ class YahooFinanceService:
                         data, records, conversion_data
                     )
                     
-                    # Update transaction prices using database manager
+                    # Update transaction prices using original prices
                     db_manager.update_transaction_prices_with_conversion(
-                        stock_id, conversion_data, stock_currency, portfolio_currency
+                        stock_id, conversion_data, trading_currency, portfolio_currency
                     )
+                    
+                    logger.info(f"Currency conversion completed for stock {stock_id}")
+                else:
+                    logger.warning(f"Failed to get conversion data for stock {stock_id}")
+                    return None
 
             # Bulk insert historical prices
             db_manager.bulk_insert_historical_prices(records)
+            logger.info(f"Historical data saved for stock {stock_id}")
             
             # Update metrics after new data
-            
             metrics_manager = PortfolioMetricsManager(db_manager)
             metrics_manager.update_metrics_for_stock(stock_id)
+            logger.info(f"Metrics updated for stock {stock_id}")
             
             return data
                 
@@ -150,52 +186,60 @@ class YahooFinanceService:
 
     
     @staticmethod
-    def fetch_currency_conversion_data(yahoo_symbol: str, start_date: datetime, stock_currency: str, portfolio_currency: str) -> pd.DataFrame:
+    def fetch_currency_conversion_data(yahoo_symbol: str, start_date: datetime, trading_currency: str,
+                                       portfolio_currency: str, current_currency: str = None) -> pd.DataFrame:
         """
         Fetch currency conversion data from Yahoo Finance.
-        Attempts direct currency pair first, falls back to USD conversion if needed.
+        Converts FROM the stock's current processing currency (or native currency if not yet processed)
+        TO the portfolio currency. Attempts direct currency pair first, falls back to USD conversion if needed.
         
         Args:
             yahoo_symbol: Stock's Yahoo Finance symbol (for logging)
             start_date: Start date for conversion data
-            stock_currency: Currency of the stock
-            portfolio_currency: Portfolio's default currency
+            trading_currency: Currency we're converting FROM (either current_currency or native currency)
+            portfolio_currency: Portfolio's default currency (currency we're converting TO)
+            current_currency: Current processing currency of the stock (if any)
             
         Returns:
             pd.DataFrame: DataFrame with dates and conversion rates
-        """
+            """
         try:
+            # Determine source currency for conversion
+            source_currency = current_currency if current_currency else trading_currency
+            logger.info(f"Fetching conversion data for {yahoo_symbol}: {source_currency} to {portfolio_currency}")
+            
             # Try direct currency pair
-            ticker = yf.Ticker(f"{stock_currency}{portfolio_currency}=X")
+            ticker = yf.Ticker(f"{source_currency}{portfolio_currency}=X")
             data = ticker.history(start=start_date, auto_adjust=False)
             
             if not data.empty:
-                logger.info(f"Found direct currency conversion for {stock_currency} to {portfolio_currency}")
+                logger.info(f"Found direct currency conversion for {source_currency} to {portfolio_currency}")
                 conversion_data = data['Close'].to_frame('conversion_rate')
                 return conversion_data
                 
             # If direct conversion fails, try via USD
             logger.info(f"Direct conversion not found, trying via USD for {yahoo_symbol}")
             
-            # Get stock currency to USD conversion
-            stock_usd = yf.Ticker(f"{stock_currency}=X")
-            stock_data = stock_usd.history(start=start_date, auto_adjust=False)
+            # Get source currency to USD conversion
+            source_usd = yf.Ticker(f"{source_currency}USD=X")
+            source_data = source_usd.history(start=start_date, auto_adjust=False)
             
-            # Get portfolio currency to USD conversion
-            portfolio_usd = yf.Ticker(f"{portfolio_currency}=X")
+            # Get USD to portfolio currency conversion
+            portfolio_usd = yf.Ticker(f"{portfolio_currency}USD=X")
             portfolio_data = portfolio_usd.history(start=start_date, auto_adjust=False)
             
-            if not stock_data.empty and not portfolio_data.empty:
+            if not source_data.empty and not portfolio_data.empty:
                 # Calculate cross rate
-                conversion_rate = portfolio_data['Close'] / stock_data['Close']
+                conversion_rate = portfolio_data['Close'] / source_data['Close']
                 return conversion_rate.to_frame('conversion_rate')
                 
-            raise ValueError("Could not fetch required currency conversion data")
+            raise ValueError(f"Could not fetch conversion data from {source_currency} to {portfolio_currency}")
             
         except Exception as e:
             logger.error(f"Error fetching currency conversion data for {yahoo_symbol}: {str(e)}")
             logger.exception("Detailed traceback:")
             return None
+
 
     @staticmethod
     def apply_currency_conversion(data: pd.DataFrame, records: list, conversion_data: pd.DataFrame):
@@ -253,8 +297,8 @@ class YahooFinanceService:
         Get the current currency conversion rate with fallback options.
         
         Args:
-            from_currency (str): The currency to convert from
-            to_currency (str): The currency to convert to
+            from_currency (str): The currency to convert from (stock's native currency)
+            to_currency (str): The currency to convert to (portfolio currency)
             
         Returns:
             float: The conversion rate (1.0 if currencies are same or conversion fails)
@@ -302,13 +346,13 @@ class YahooFinanceService:
             
             if from_rate and to_rate:
                 return float(to_rate) / float(from_rate)
-                
+                    
             # Log warning if no valid price found
             logger.warning(
                 f"Could not find valid conversion rate for {from_currency} to {to_currency}"
             )
             return 1.0  # Fallback if all conversions fail
-            
+                
         except Exception as e:
             logger.error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
             return 1.0
