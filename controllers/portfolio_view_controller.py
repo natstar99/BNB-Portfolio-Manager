@@ -77,12 +77,10 @@ class PortfolioViewController:
                 self.db_manager.execute("""
                     UPDATE stocks 
                     SET current_price = ?,
-                        currency = ?,
                         last_updated = ?
                     WHERE id = ?
                 """, (
                     result['current_price'],
-                    result['currency'],
                     datetime.now().replace(microsecond=0),
                     stock.id
                 ))

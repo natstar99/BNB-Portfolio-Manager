@@ -21,7 +21,7 @@ class YahooFinanceService:
         
         The method follows a specific currency handling process:
         1. If current_currency is NULL, it's set to trading_currency
-        2. If current_currency differs from portfolio_currency, conversion is performed
+        2. If current_currency or trading_currency differs from portfolio_currency, conversion is performed
         3. Original prices are preserved before any conversion
         
         Args:
@@ -84,8 +84,10 @@ class YahooFinanceService:
                 ))
             
             # Handle currency conversion if needed
-            if str(current_currency) != str(portfolio_currency):
-                logger.info(f"Currency conversion needed for stock {stock_id}: {current_currency} to {portfolio_currency}")
+            if (str(current_currency) != str(portfolio_currency)) or (str(trading_currency) != str(portfolio_currency)):
+                logger.info(f"Currency conversion needed for stock {stock_id}:")
+                logger.info(f"Either stock currency ({current_currency}) or trading_currency ({trading_currency}) is not equal to portfolio_currency ({portfolio_currency})") 
+                logger.info(f"Therefore, fetching data to convert from {trading_currency} to {portfolio_currency}")
                 
                 conversion_data = YahooFinanceService.fetch_currency_conversion_data(
                     yahoo_symbol, 
@@ -205,15 +207,14 @@ class YahooFinanceService:
             """
         try:
             # Determine source currency for conversion
-            source_currency = current_currency if current_currency else trading_currency
-            logger.info(f"Fetching conversion data for {yahoo_symbol}: {source_currency} to {portfolio_currency}")
+            logger.info(f"Fetching conversion data for {yahoo_symbol}: {trading_currency} to {portfolio_currency}")
             
             # Try direct currency pair
-            ticker = yf.Ticker(f"{source_currency}{portfolio_currency}=X")
+            ticker = yf.Ticker(f"{trading_currency}{portfolio_currency}=X")
             data = ticker.history(start=start_date, auto_adjust=False)
             
             if not data.empty:
-                logger.info(f"Found direct currency conversion for {source_currency} to {portfolio_currency}")
+                logger.info(f"Found direct currency conversion for {trading_currency} to {portfolio_currency}")
                 conversion_data = data['Close'].to_frame('conversion_rate')
                 return conversion_data
                 
@@ -221,7 +222,7 @@ class YahooFinanceService:
             logger.info(f"Direct conversion not found, trying via USD for {yahoo_symbol}")
             
             # Get source currency to USD conversion
-            source_usd = yf.Ticker(f"{source_currency}USD=X")
+            source_usd = yf.Ticker(f"{trading_currency}USD=X")
             source_data = source_usd.history(start=start_date, auto_adjust=False)
             
             # Get USD to portfolio currency conversion
@@ -233,7 +234,7 @@ class YahooFinanceService:
                 conversion_rate = portfolio_data['Close'] / source_data['Close']
                 return conversion_rate.to_frame('conversion_rate')
                 
-            raise ValueError(f"Could not fetch conversion data from {source_currency} to {portfolio_currency}")
+            raise ValueError(f"Could not fetch conversion data from {trading_currency} to {portfolio_currency}")
             
         except Exception as e:
             logger.error(f"Error fetching currency conversion data for {yahoo_symbol}: {str(e)}")
@@ -243,18 +244,12 @@ class YahooFinanceService:
 
     @staticmethod
     def apply_currency_conversion(data: pd.DataFrame, records: list, conversion_data: pd.DataFrame):
-        """
-        Apply currency conversion to historical price records.
-        
-        Args:
-            data: Original Yahoo Finance data DataFrame
-            records: List of tuples containing historical price records
-            conversion_data: DataFrame containing currency conversion rates
-            
-        Returns:
-            list: Updated records with converted values
-        """
         try:
+            logger.info(f"Starting currency conversion")
+            logger.info(f"Original records count: {len(records)}")
+            logger.info(f"Conversion data shape: {conversion_data.shape}")
+            logger.info(f"Conversion data index range: {conversion_data.index.min()} to {conversion_data.index.max()}")
+
             # Convert records to DataFrame for easier manipulation
             records_df = pd.DataFrame(records, columns=[
                 'stock_id', 'date', 'open', 'high', 'low', 'close', 
@@ -274,9 +269,21 @@ class YahooFinanceService:
                 how='left'
             )
             
+            # Log merge details
+            logger.info(f"Merged data shape: {merged_data.shape}")
+            logger.info(f"Rows with missing conversion rate: {merged_data['conversion_rate'].isna().sum()}")
+            
+            # Log the specific rows with missing conversion rates
+            missing_rate_rows = merged_data[merged_data['conversion_rate'].isna()]
+            if not missing_rate_rows.empty:
+                logger.warning("Rows with missing conversion rates:")
+                logger.warning(missing_rate_rows[['date']])
+            
             # Apply conversion to price columns
             price_columns = ['open', 'high', 'low', 'close', 'dividends']
             for col in price_columns:
+                # Use the last known conversion rate for rows with missing rates
+                merged_data['conversion_rate'] = merged_data['conversion_rate'].fillna(method='ffill')
                 merged_data[col] *= merged_data['conversion_rate']
             
             # Convert back to list of tuples, excluding conversion_rate column
@@ -284,11 +291,13 @@ class YahooFinanceService:
             merged_data['date'] = merged_data['date'].dt.strftime('%Y-%m-%d')
             converted_records = list(merged_data.drop('conversion_rate', axis=1).itertuples(index=False, name=None))
             
+            logger.info(f"Converted records count: {len(converted_records)}")
+            
             return converted_records
             
         except Exception as e:
-            logger.error(f"Error applying currency conversion: {str(e)}")
-            logger.exception("Detailed traceback:")
+            logger.error(f"Detailed error in apply_currency_conversion: {str(e)}")
+            logger.exception("Full traceback:")
             return records  # Return original records if conversion fails
 
     @staticmethod
