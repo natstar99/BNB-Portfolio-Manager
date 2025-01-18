@@ -226,7 +226,7 @@ class PortfolioStudyView(QWidget):
             config = yaml.safe_load(f)
             study_config = config.get('portfolio_study_view', {})
         
-        # Initialize configuration manager
+        # Initialise configuration manager
         self.study_config = StudyViewConfig(study_config)
         
         # Create option groups
@@ -238,12 +238,34 @@ class PortfolioStudyView(QWidget):
             'dividend_type': StudyOptionGroup('dividend_type', "Dividend Type")
         }
         
-        # Connect signals
+        # Connect signals and add option groups
         for group in self.option_groups.values():
             group.selection_changed.connect(self.on_option_selected)
             control_layout.addWidget(group)
             
-        # Initialize study type options
+            # After adding time_period group, add our zero start toggle
+            if group.level == 'time_period':
+                # Create a container for the zero start toggle without a title
+                zero_container = QFrame()
+                zero_layout = QVBoxLayout()
+                zero_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins for better spacing
+                
+                # Create and configure the toggle button
+                self.zero_start_button = QPushButton("Zero at Start Date")
+                self.zero_start_button.setCheckable(True)
+                self.zero_start_button.setChecked(False)
+                self.zero_start_button.clicked.connect(self.on_zero_start_toggled)
+                self.zero_start_button.setVisible(False)
+                
+                # Add button to container with some padding
+                zero_layout.addSpacing(5)  # Add a small space above
+                zero_layout.addWidget(self.zero_start_button)
+                zero_layout.addSpacing(5)  # Add a small space below
+                
+                zero_container.setLayout(zero_layout)
+                control_layout.addWidget(zero_container)
+            
+        # Initialise study type options
         study_options = self.study_config.get_available_options('study_type')
         self.option_groups['study_type'].update_options(study_options)
         
@@ -413,7 +435,19 @@ class PortfolioStudyView(QWidget):
                     ]
                     self.option_groups['time_period'].update_options(time_period_options)
         
+        # Show/hide zero start button based on time period
+        if level == 'time_period':
+            # Show the button only if we're in cumulative mode
+            self.zero_start_button.setVisible(value == 'cumulative')
+            # Reset button state when changing modes
+            self.zero_start_button.setChecked(False)
+
         # Update analysis if we have all required selections
+        self.update_analysis_if_ready()
+
+    def on_zero_start_toggled(self):
+        """Handle toggling of the Zero at Start Date button."""
+        logger.debug(f"Zero at start date toggled: {self.zero_start_button.isChecked()}")
         self.update_analysis_if_ready()
 
     def update_analysis_if_ready(self):
@@ -523,6 +557,11 @@ class PortfolioStudyView(QWidget):
                 params['metric'] = 'drp_shares_total' if time_period == 'cumulative' else 'drp_share'
             elif chart_type == 'combined':
                 params['metric'] = ['cash_dividends_total', 'drp_shares_total'] if time_period == 'cumulative' else ['cash_dividend', 'drp_share']
+
+        # Add zero_at_start parameter to the analysis parameters
+        params.update({
+            'zero_at_start': self.zero_start_button.isChecked() if hasattr(self, 'zero_start_button') else False
+        })
 
         # Emit update signal with validated parameters
         self.update_plot.emit(params)

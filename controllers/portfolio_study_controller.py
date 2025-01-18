@@ -285,11 +285,13 @@ class PortfolioStudyController:
     def plot_profitability(self, ax, params):
         """
         Plot profitability analysis with proper date axis formatting.
+        Supports zeroing values at start date for cumulative views.
         """
         try:
             view_type = params['view_type']
             time_period = params['calculation_type']  # 'daily' or 'cumulative'
             chart_type = params['chart_type']
+            zero_at_start = params.get('zero_at_start', False)
             
             # Convert dates to datetime if they aren't already
             self.data['date'] = pd.to_datetime(self.data['date'])
@@ -311,7 +313,15 @@ class PortfolioStudyController:
             if view_type == 'individual_stocks':
                 for stock in params['selected_stocks']:
                     stock_data = self.data[self.data['stock'] == stock].copy()
-                    ax.plot(stock_data['date'], stock_data[metric], label=stock)
+                    y_values = stock_data[metric]
+                    
+                    # Zero at start date if requested
+                    if zero_at_start and time_period == 'cumulative':
+                        start_value = y_values.iloc[0]
+                        y_values = y_values - start_value
+                        
+                    ax.plot(stock_data['date'], y_values, label=stock)
+
             else:  # portfolio_total
                 if chart_type == 'percentage':
                     # Calculate portfolio percentage return
@@ -324,18 +334,28 @@ class PortfolioStudyController:
                     grouped = self.data.groupby('date')[metric].sum()
                     y_values = grouped
                     
+                # Zero at start date if requested
+                if zero_at_start and time_period == 'cumulative':
+                    start_value = y_values.iloc[0]
+                    y_values = y_values - start_value
+                    
                 ax.plot(grouped.index, y_values.values, label='Portfolio Total', linewidth=2)
             
             # Add zero line for reference
             ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
-            
+
+            # Update ylabel if zeroed at start
+            if zero_at_start and time_period == 'cumulative':
+                ylabel = f"Change in {ylabel} from Start Date"
+                
             # Set axis limits based on actual data range
             min_date = self.data['date'].min()
             max_date = self.data['date'].max()
             ax.set_xlim(min_date, max_date)
             
             period_type = 'Daily' if time_period == 'daily' else 'Cumulative'
-            ax.set_title(f"Portfolio {period_type} Returns")
+            ax.set_title(f"Portfolio {period_type} Returns" + 
+                    (" (Change from Start Date)" if zero_at_start else ""))
             ax.set_xlabel("Date")
             ax.set_ylabel(ylabel)
             ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
