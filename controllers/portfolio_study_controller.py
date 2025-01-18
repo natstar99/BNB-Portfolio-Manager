@@ -20,8 +20,14 @@ class PortfolioStudyController:
         self.data = None
     
     def set_view(self, view):
-        """Set the view and connect signals."""
+        """
+        Set the view and connect signals.
+        
+        Args:
+            view: PortfolioStudyView instance to be controlled
+        """
         self.view = view
+        self.view.set_controller(self)
         self.view.update_plot.connect(self.analyse_portfolio)
     
     def set_portfolio(self, portfolio):
@@ -536,6 +542,88 @@ class PortfolioStudyController:
         for i, (metric, value) in enumerate(stats.items()):
             self.view.stats_table.setItem(i, 0, QTableWidgetItem(metric))
             self.view.stats_table.setItem(i, 1, QTableWidgetItem(str(value)))
+
+    def get_active_stocks_for_date_range(self, start_date, end_date):
+        """
+        Get stocks that have at least one non-zero market value within the date range.
+        Uses the portfolio_stocks linking table to find stocks associated with the current portfolio.
+        
+        Args:
+            start_date (datetime): Start date for filtering
+            end_date (datetime): End date for filtering
+                
+        Returns:
+            list: List of stock objects that have market activity in the date range
+        """
+        try:
+            logger.debug(f"Fetching active stocks between {start_date} and {end_date}")
+            logger.debug(f"Current portfolio ID: {self.current_portfolio.id}")
+            
+            # Modified query to use portfolio_stocks linking table
+            query = """
+                WITH stock_activity AS (
+                    SELECT 
+                        s.id,
+                        s.yahoo_symbol,
+                        s.name,
+                        COUNT(*) as total_days,
+                        SUM(CASE WHEN fm.market_value > 0 THEN 1 ELSE 0 END) as active_days,
+                        MAX(fm.market_value) as max_value
+                    FROM stocks s
+                    JOIN portfolio_stocks ps ON s.id = ps.stock_id
+                    JOIN final_metrics fm ON s.id = fm.stock_id
+                    WHERE fm.date BETWEEN :start_date AND :end_date
+                    AND ps.portfolio_id = :portfolio_id
+                    GROUP BY s.id, s.yahoo_symbol, s.name
+                )
+                SELECT 
+                    id,
+                    yahoo_symbol,
+                    name,
+                    total_days,
+                    active_days,
+                    max_value
+                FROM stock_activity
+                WHERE active_days > 0
+                ORDER BY yahoo_symbol;
+            """
+            
+            params = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'portfolio_id': self.current_portfolio.id
+            }
+            
+            logger.debug(f"Executing query with params: {params}")
+            results = self.db_manager.fetch_all_with_params(query, params)
+            logger.debug(f"Query returned {len(results)} results")
+            
+            # Log detailed information about each stock found
+            # Note: results are tuples with indices:
+            # 0: id, 1: yahoo_symbol, 2: name, 3: total_days, 4: active_days, 5: max_value
+            for row in results:
+                logger.debug(f"Stock {row[1]}: "  # row[1] is yahoo_symbol
+                            f"Total days: {row[3]}, "  # row[3] is total_days
+                            f"Active days: {row[4]}, "  # row[4] is active_days
+                            f"Max value: {row[5]}")    # row[5] is max_value
+            
+            # Convert results to stock objects
+            active_stocks = []
+            for row in results:
+                stock = self.current_portfolio.get_stock(row[1])  # row[1] is yahoo_symbol
+                if stock:
+                    active_stocks.append(stock)
+                    logger.debug(f"Added stock {stock.yahoo_symbol} to active stocks list")
+                else:
+                    logger.warning(f"Stock {row[1]} found in database but not in portfolio")
+            
+            logger.debug(f"Returning {len(active_stocks)} active stocks")
+            return active_stocks
+                
+        except Exception as e:
+            logger.error(f"Error getting active stocks: {str(e)}")
+            logger.exception("Detailed traceback:")
+            return []
     
     def get_view(self):
         """Return the view instance."""

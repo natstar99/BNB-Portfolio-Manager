@@ -22,7 +22,7 @@ class StudyViewConfig:
     """
     def __init__(self, config_data):
         """
-        Initialize with configuration loaded from yaml.
+        Initialise with configuration loaded from yaml.
         
         Args:
             config_data (dict): The loaded yaml configuration for portfolio_study_view
@@ -254,12 +254,14 @@ class PortfolioStudyView(QWidget):
         date_layout.addWidget(QLabel("From:"), 0, 0)
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
+        self.start_date.dateChanged.connect(self.on_date_range_changed) # Connection to date_range triggered update
         date_layout.addWidget(self.start_date, 0, 1)
         
         date_layout.addWidget(QLabel("To:"), 1, 0)
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(datetime.now())
+        self.end_date.dateChanged.connect(self.on_date_range_changed) # Connection to date_range triggered update
         date_layout.addWidget(self.end_date, 1, 1)
         
         date_group.setLayout(date_layout)
@@ -532,13 +534,16 @@ class PortfolioStudyView(QWidget):
         Args:
             stocks: List of Stock objects to display
         """
+        # Store scroll position
+        scroll_pos = self.stock_list.verticalScrollBar().value()
+        
+        # Clear and update list
         self.stock_list.clear()
         for stock in stocks:
             self.stock_list.addItem(f"{stock.yahoo_symbol} ({stock.name})")
-        
-        # Auto-select all stocks if list is short
-        if self.stock_list.count() <= 5:
-            self.stock_list.selectAll()
+            
+        # Restore scroll position
+        self.stock_list.verticalScrollBar().setValue(scroll_pos)
 
     def update_analysis(self):
         """
@@ -570,6 +575,35 @@ class PortfolioStudyView(QWidget):
             self.update_analysis_if_ready()
         finally:
             self.manual_update = False  # Clear flag after update
+
+    def on_date_range_changed(self):
+        """Handle changes to the date range selection."""
+        try:
+            start = self.start_date.date().toPython()
+            end = self.end_date.date().toPython()
+            
+            # Only update if we have valid dates
+            if start <= end:
+                # Get currently selected stocks before updating
+                selected_stocks = [
+                    item.text().split(" (")[0] 
+                    for item in self.stock_list.selectedItems()
+                ]
+                
+                # Update stock list
+                if hasattr(self, 'controller'):
+                    active_stocks = self.controller.get_active_stocks_for_date_range(start, end)
+                    self.update_portfolio_stocks(active_stocks)
+                    
+                    # Restore previous selections if stocks still exist
+                    for i in range(self.stock_list.count()):
+                        item = self.stock_list.item(i)
+                        stock_symbol = item.text().split(" (")[0]
+                        if stock_symbol in selected_stocks:
+                            item.setSelected(True)
+                            
+        except Exception as e:
+            logger.error(f"Error updating stock list on date change: {str(e)}")
         
     def clear_plot(self):
         """Clear the current plot."""
@@ -593,3 +627,12 @@ class PortfolioStudyView(QWidget):
         # Clear displays
         self.clear_plot()
         self.clear_statistics()
+
+    def set_controller(self, controller):
+        """
+        Set the controller for this view.
+        
+        Args:
+            controller: PortfolioStudyController instance to handle business logic
+        """
+        self.controller = controller
