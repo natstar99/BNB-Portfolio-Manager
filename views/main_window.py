@@ -3,7 +3,7 @@
 import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, 
                                QStackedWidget, QLabel, QHBoxLayout, QApplication)
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPalette, QBrush, QPixmap
 from PySide6.QtCore import Qt
 
 from controllers.portfolio_controller import PortfolioController
@@ -20,6 +20,27 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Bear No Bears - Portfolio Manager")
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(0, 0, screen.width(), screen.height()-0.07*screen.height())
+
+        # Set up the background
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        background_path = os.path.join(current_dir, "..", "wallpaper.png")
+        
+        # Create and set the palette for the background
+        palette = self.palette()
+        background_pixmap = QPixmap(background_path)
+        
+        # Scale the background to fit the window while maintaining aspect ratio
+        scaled_pixmap = background_pixmap.scaled(
+            self.size(), 
+            Qt.KeepAspectRatioByExpanding, 
+            Qt.SmoothTransformation
+        )
+        
+        palette.setBrush(QPalette.Window, QBrush(scaled_pixmap))
+        self.setPalette(palette)
+        
+        # Enable background auto-filling
+        self.setAutoFillBackground(True)
 
         self.db_manager = db_manager
 
