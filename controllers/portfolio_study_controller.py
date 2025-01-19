@@ -1,9 +1,13 @@
+# File: controllers/portfolio_study_controller.py
+
 import numpy as np
 import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
-from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+from PySide6.QtWidgets import (QMessageBox, QTableWidgetItem, QLabel, QSlider, 
+                               QWidget, QVBoxLayout, QTabWidget)
+from PySide6.QtCore import Qt
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,18 +56,18 @@ class PortfolioStudyController:
 
             # Map study types to database columns
             study_type_mapping = {
-                'market_value': 'market_value',
+                'market_value': ['market_value'],  # Changed to list for consistency
                 'profitability': ['total_return', 'market_value', 'daily_pl', 'daily_pl_pct', 'total_return_pct', 'cumulative_return_pct'],
                 'dividend_performance': ['cash_dividend', 'cash_dividends_total', 'drp_share', 'drp_shares_total']
             }
             
+            # Always include market_value for distribution charts
+            fields.append('market_value')
+            
             # Add required fields based on study type
             if params['study_type'] in study_type_mapping:
                 study_fields = study_type_mapping[params['study_type']]
-                if isinstance(study_fields, list):
-                    fields.extend(study_fields)
-                else:
-                    fields.append(study_fields)
+                fields.extend(study_fields)
                     
             # Add any specific metric if provided
             if 'metric' in params:
@@ -87,6 +91,7 @@ class PortfolioStudyController:
                     ORDER BY date
                 """
             logger.debug(f"Generated SQL query: {query}")
+            logger.debug(f"Fields being queried: {fields}")  # Added debug logging
             
             # Get data for selected stocks
             data_frames = []
@@ -152,6 +157,10 @@ class PortfolioStudyController:
             params: Dictionary containing analysis parameters
         """
         try:
+
+            # Clean up any existing distribution widgets before proceeding
+            self.cleanup_distribution_widgets()
+
             # Get data based on study type
             self.data = self.get_portfolio_data(params)
             
@@ -408,28 +417,145 @@ class PortfolioStudyController:
         ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
 
     def plot_distribution(self, ax):
-        """Plot portfolio distribution pie chart."""
-        # Get latest market values
-        latest_date = self.data['date'].max()
-        latest_values = self.data[self.data['date'] == latest_date]
+        """
+        Plot portfolio distribution pie chart with an interactive time slider.
+        The slider allows users to view portfolio distribution changes over time.
+        Handles missing weekend/holiday data using forward fill.
         
-        # Create pie chart
-        sizes = latest_values.groupby('stock')['market_value'].sum()
-        
-        # Only plot if we have positive values
-        if (sizes > 0).any():
-            # Create labels with stock name and value
-            labels = [f"{stock}\n(${value:,.0f})" for stock, value in sizes.items()]
+        Args:
+            ax: matplotlib axis object for the pie chart
+        """
+        try:
+            # Convert dates to datetime if needed
+            self.data['date'] = pd.to_datetime(self.data['date'])
+
+            # Create a copy of the data to avoid modifying original
+            plot_data = self.data.copy()
             
-            # Plot only positive values
-            positive_sizes = sizes[sizes > 0]
-            positive_labels = [labels[i] for i, size in enumerate(sizes) if size > 0]
+            # Set multi-index using date and stock, then unstack
+            plot_data.set_index(['date', 'stock'], inplace=True)
+            plot_data = plot_data['market_value'].unstack()
             
-            ax.pie(positive_sizes, labels=positive_labels, autopct='%1.1f%%')
-            ax.set_title("Current Portfolio Distribution")
-        else:
-            ax.text(0.5, 0.5, 'No positive market values to display',
-                   ha='center', va='center')
+            # Resample to daily frequency and forward fill missing values
+            plot_data = plot_data.asfreq('D').ffill()
+            
+            # Get all unique dates after forward filling
+            unique_dates = sorted(plot_data.index)
+            
+            if len(unique_dates) == 0:
+                ax.text(0.5, 0.5, 'No data available for selected date range',
+                    ha='center', va='center')
+                return
+            
+            # Find the charts tab and its layout
+            charts_tab = None
+            for i in range(self.view.findChild(QTabWidget).count()):
+                if self.view.findChild(QTabWidget).tabText(i) == "Charts":
+                    charts_tab = self.view.findChild(QTabWidget).widget(i)
+                    break
+            
+            if not charts_tab:
+                logger.error("Could not find Charts tab")
+                return
+                
+            # Create a container for our date controls
+            date_container = QWidget()
+            date_layout = QVBoxLayout(date_container)
+            date_layout.setContentsMargins(10, 0, 10, 10)  # Add some padding
+            
+            # Create total value label
+            total_value_label = QLabel()
+            total_value_label.setAlignment(Qt.AlignCenter)
+            total_value_label.setStyleSheet("QLabel { font-size: 12pt; margin: 2px; }")
+            date_layout.addWidget(total_value_label)
+            
+            # Create slider with some styling
+            time_slider = QSlider(Qt.Horizontal)
+            time_slider.setMinimum(0)
+            time_slider.setMaximum(len(unique_dates) - 1)
+            time_slider.setTickPosition(QSlider.TicksBelow)
+            time_slider.setTickInterval(max(1, len(unique_dates) // 10))
+            time_slider.setStyleSheet("""
+                QSlider::groove:horizontal {
+                    border: 1px solid #999999;
+                    height: 8px;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #B1B1B1, stop:1 #c4c4c4);
+                    margin: 2px 0;
+                }
+                QSlider::handle:horizontal {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #b4b4b4, stop:1 #8f8f8f);
+                    border: 1px solid #5c5c5c;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 3px;
+                }
+            """)
+            date_layout.addWidget(time_slider)
+            
+            # Add the date container to the charts tab layout
+            charts_tab.layout().addWidget(date_container)
+            
+            def update_distribution(position):
+                """Update the pie chart for the selected date position."""
+                ax.clear()
+                
+                # Get current date
+                current_date = unique_dates[position]
+                
+                # Get data for current date from the forward-filled dataset
+                current_data = plot_data.loc[current_date]
+                
+                # Calculate total portfolio value
+                total_portfolio_value = current_data.sum()
+                total_value_label.setText(f"Total Portfolio Value: ${total_portfolio_value:,.2f}")
+                
+                # Filter out zero values
+                positive_sizes = current_data[current_data > 0]
+                
+                if not positive_sizes.empty:
+                    # Create labels with stock name and value
+                    labels = [f"{stock}\n(${value:,.0f})" for stock, value in positive_sizes.items()]
+                    
+                    # Create pie chart
+                    wedges, texts, autotexts = ax.pie(
+                        positive_sizes,
+                        labels=labels,
+                        autopct='%1.1f%%',
+                        pctdistance=0.85,
+                        startangle=90,
+                        wedgeprops={'edgecolor': 'white', 'linewidth': 1}
+                    )
+                    
+                    ax.set_title(f"Portfolio Distribution on {current_date.strftime('%Y-%m-%d')}")
+                    plt.setp(autotexts, color='white', fontsize=8, weight='bold')
+                    plt.setp(texts, fontsize=8)
+                else:
+                    ax.text(0.5, 0.5, 'No positive market values to display',
+                        ha='center', va='center')
+                
+                self.view.canvas.draw()
+            
+            # Connect slider to update function
+            time_slider.valueChanged.connect(update_distribution)
+            
+            # Initial plot
+            update_distribution(0)
+            
+            # Store references for cleanup
+            self.date_container = date_container
+            
+        except Exception as e:
+            logger.error(f"Error creating distribution chart: {str(e)}")
+            logger.exception("Detailed traceback:")
+            ax.text(0.5, 0.5, 'Error creating distribution chart',
+                ha='center', va='center')
+            raise
+
+    def cleanup_distribution_widgets(self):
+        """Remove the time slider and date label when switching views or closing."""
+        if hasattr(self, 'date_container'):
+            self.date_container.deleteLater()
+            delattr(self, 'date_container')
 
     def setup_date_axis(self, ax):
         """
@@ -477,21 +603,6 @@ class PortfolioStudyController:
         ax.set_ylabel(ylabel)
         ax.legend(title="Stocks")
         plt.setp(ax.get_xticklabels(), rotation=45)
-
-    def plot_distribution(self, ax):
-        """Plot portfolio distribution pie chart."""
-        # Get latest market values
-        latest_date = self.data['date'].max()
-        latest_values = self.data[self.data['date'] == latest_date]
-        
-        # Create pie chart
-        sizes = latest_values.groupby('stock')['market_value'].sum()
-        ax.pie(
-            sizes,
-            labels=[f"{stock}\n(${value:,.0f})" for stock, value in sizes.items()],
-            autopct='%1.1f%%'
-        )
-        ax.set_title("Current Portfolio Distribution")
 
     def update_statistics_table(self, params):
         """Update statistics table with current analysis."""

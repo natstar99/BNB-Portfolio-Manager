@@ -13,7 +13,7 @@ class SettingsController:
     
     def __init__(self, db_manager):
         """
-        Initialize the settings controller.
+        Initialise the settings controller.
         
         Args:
             db_manager: Database manager instance for data operations

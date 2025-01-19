@@ -3,7 +3,6 @@
 
 from utils.yahoo_finance_service import YahooFinanceService
 from utils.date_utils import DateUtils
-from database.database_manager import PortfolioMetricsManager
 import logging
 
 logger = logging.getLogger(__name__)

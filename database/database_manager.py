@@ -6,14 +6,17 @@ import os
 import logging
 import pandas as pd
 import numpy as np
+import sys
 from database.final_metrics_manager import METRICS_COLUMNS, PortfolioMetricsManager
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+from config import DB_FILE
+
 class DatabaseManager:
-    def __init__(self, db_file):
+    def __init__(self, db_file=DB_FILE):
         self.db_file = db_file
         self.conn = None
         self.cursor = None
@@ -27,12 +30,28 @@ class DatabaseManager:
             self.conn.close()
 
     def init_db(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        schema_file = os.path.join(current_dir, 'schema.sql')
+        """Initialise the database using the schema file."""
+        schema_file = self.get_schema_path()
         with open(schema_file, 'r') as f:
             schema = f.read()
         self.conn.executescript(schema)
         self.conn.commit()
+
+    def get_schema_path(self):
+        """
+        Get the correct path to schema.sql whether running as script or executable.
+        
+        Returns:
+            str: The full path to schema.sql
+        """
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = sys._MEIPASS
+            return os.path.join(base_path, 'database', 'schema.sql')
+        else:
+            # Running as script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            return os.path.join(current_dir, 'schema.sql')
 
     def execute(self, sql, params=None):
         if params is None:

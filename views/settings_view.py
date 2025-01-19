@@ -18,7 +18,7 @@ class SettingsView(QWidget):
         self._setup_connections()
 
     def init_ui(self):
-        """Initialize the user interface components."""
+        """Initialise the user interface components."""
         layout = QVBoxLayout(self)
         
         # Title and description

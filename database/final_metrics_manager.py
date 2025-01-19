@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 import logging
 import yaml
+import sys
 logger = logging.getLogger(__name__)
 
 # Definition of the columns in the final_metrics table
@@ -46,11 +47,38 @@ class PortfolioMetricsManager:
     def __init__(self, db_manager):
         self.db_manager = db_manager
         self.queries = self.load_queries()
+
+    def get_queries_path(self):
+        """
+        Get the correct path to final_metrics.sql whether running as script or executable.
+        
+        Returns:
+            str: The full path to final_metrics.sql file
+        
+        This method handles path resolution differently based on whether the application
+        is running as a script or as a compiled executable, ensuring the SQL file can
+        be found in either case.
+        """
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = sys._MEIPASS
+            return os.path.join(base_path, 'database', 'final_metrics.sql')
+        else:
+            # Running as script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            return os.path.join(current_dir, "final_metrics.sql")
     
     def load_queries(self):
-        """Load SQL queries from file."""
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        queries_path = os.path.join(current_dir, "final_metrics.sql")
+        """
+        Load SQL queries from file.
+        
+        Returns:
+            dict: Dictionary containing all loaded SQL queries
+            
+        Raises:
+            Exception: If queries cannot be loaded
+        """
+        queries_path = self.get_queries_path()
         
         try:
             logger.debug(f"Attempting to load queries from: {queries_path}")

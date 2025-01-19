@@ -3,9 +3,17 @@ test/
 collect_code.py
 *.ipynb
 
+
 # Hide virtual environment
 venv/
 .venv/
+
+# Hide packaging folders and files
+dist/
+logs/
+build/
+*.spec
+
 
 # Hide database
 *.db

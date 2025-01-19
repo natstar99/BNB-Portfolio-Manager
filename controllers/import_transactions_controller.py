@@ -16,6 +16,7 @@ from utils.historical_data_collector import HistoricalDataCollector
 from database.final_metrics_manager import PortfolioMetricsManager
 from utils.fifo_hifo_lifo_calculator import RealisedPLCalculator, process_stock_matches, MatchingMethod
 import yaml
+import sys
 
 
 logging.basicConfig(level=logging.DEBUG, filename='import_transactions.log', filemode='w',
@@ -234,25 +235,54 @@ class ImportTransactionsController(QObject):
 
 
     def provide_template(self):
-        """Provide a template file for transaction import."""
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_path = os.path.join(current_dir, "..", "Transaction_Data_Template.xlsx")
+        """
+        Provide a template file for transaction import.
         
+        This method handles locating and copying the transaction template file to a 
+        user-selected location, working correctly whether running from source or as
+        an executable.
+        """
+        # Determine the correct template path based on environment
+        if getattr(sys, 'frozen', False):
+            # Running as executable
+            template_path = os.path.join(sys._MEIPASS, "BNB_Transaction_Data_Template.xlsx")
+        else:
+            # Running from source
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, "..", "BNB_Transaction_Data_Template.xlsx")
+
+        # Check if template exists
         if not os.path.exists(template_path):
-            QMessageBox.warning(self.view, "Template Not Found", 
-                              "The template file is missing from the application directory.")
+            QMessageBox.warning(
+                self.view, 
+                "Template Not Found", 
+                "The template file could not be found. Please check your installation."
+            )
             return
 
+        # Let user choose where to save the template
         save_path, _ = QFileDialog.getSaveFileName(
             self.view,
             "Save Template",
-            "Transaction_Data_Template.xlsx",
+            "BNB_Transaction_Data_Template.xlsx",
             "Excel Files (*.xlsx)"
         )
+
         if save_path:
-            shutil.copy2(template_path, save_path)
-            QMessageBox.information(self.view, "Template Saved", 
-                                  f"Template has been saved to {save_path}")
+            try:
+                # Copy the template to the chosen location
+                shutil.copy2(template_path, save_path)
+                QMessageBox.information(
+                    self.view, 
+                    "Template Saved", 
+                    f"Template has been saved to:\n{save_path}"
+                )
+            except Exception as e:
+                QMessageBox.warning(
+                    self.view,
+                    "Save Failed",
+                    f"Failed to save template: {str(e)}"
+                )
 
     def show_view(self):
         """Show the import transactions view."""

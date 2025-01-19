@@ -123,7 +123,7 @@ class StudyOptionGroup(QGroupBox):
     
     def __init__(self, level, title, parent=None):
         """
-        Initialize option group.
+        Initialise option group.
         
         Args:
             level (str): The hierarchy level this group represents
@@ -372,6 +372,7 @@ class PortfolioStudyView(QWidget):
         
         # If study type changed, reset everything
         if level == 'study_type':
+
             # Clear all other selections
             self.study_config.current_selections = {
                 'study_type': value,  # Keep new study type

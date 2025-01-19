@@ -154,7 +154,6 @@ portfolio_study_view:
             aggregated_percentage:
               name: Aggregated ROI %
               time_periods:
-                daily: Daily Changes
                 cumulative: Cumulative
         portfolio_total:
           name: Portfolio Total

@@ -39,6 +39,17 @@
             }
         },
         {
+            "name": "Python: Build Exe",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "build_exe.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
