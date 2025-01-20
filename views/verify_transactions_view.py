@@ -4,7 +4,8 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QTableWidget, QTableWidgetItem, QHeaderView,
                               QComboBox, QMessageBox, QLabel, QProgressDialog,
                               QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox,
-                              QCheckBox, QAbstractItemView, QLineEdit, QApplication)
+                              QCheckBox, QAbstractItemView, QLineEdit, QApplication,
+                              QFileDialog)
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
@@ -105,6 +106,11 @@ class VerifyTransactionsDialog(QDialog):
         self.manage_markets_btn = QPushButton("Manage Markets")
         self.manage_markets_btn.clicked.connect(self.show_manage_markets)
         left_buttons.addWidget(self.manage_markets_btn)
+
+        # Add reimport button in the button layout
+        self.reimport_btn = QPushButton("Reimport Transactions")
+        self.reimport_btn.clicked.connect(self.show_reimport_dialog)
+        left_buttons.addWidget(self.reimport_btn)
         
         button_layout.addLayout(left_buttons)
         button_layout.addStretch()
@@ -998,6 +1004,167 @@ class VerifyTransactionsDialog(QDialog):
         self.save_changes()
         event.accept()  # Allow the window to close
 
+    def show_reimport_dialog(self):
+        """Show dialog to reimport transactions."""
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Transaction File",
+            "",
+            "Excel Files (*.xlsx);;CSV Files (*.csv)"
+        )
+        
+        if file_name:
+            try:
+                # Read file
+                if file_name.endswith('.xlsx'):
+                    new_df = pd.read_excel(file_name)
+                else:
+                    new_df = pd.read_csv(file_name)
+                
+                # Get date format from user
+                sample_date = pd.to_datetime(new_df['Trade Date'].iloc[0])
+                date_dialog = DateFormatDialog(sample_date=sample_date, parent=self)
+                if not date_dialog.exec_():
+                    return  # User cancelled
+                    
+                # Parse dates with selected format
+                date_format = date_dialog.get_format()
+                new_df['Trade Date'] = pd.to_datetime(new_df['Trade Date'], format=date_format).dt.date
+                
+                # Initialize lists for new transactions and stocks
+                new_transactions = []
+                new_stocks = []
+                duplicate_count = 0
+                
+                # First pass: identify new stocks and transactions
+                for _, row in new_df.iterrows():
+                    instrument_code = row['Instrument Code']
+                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
+                    
+                    if stock:
+                        stock_id = stock[0]
+                    else:
+                        # Mark this as a new stock to be added later
+                        new_stocks.append(instrument_code)
+                        continue  # Skip transaction check until stock exists
+                    
+                    # Check if transaction exists
+                    existing = self.db_manager.fetch_one("""
+                        SELECT 1 FROM transactions 
+                        WHERE stock_id = ? AND date = ? AND quantity = ? 
+                        AND ABS(price - ?) < 0.0001 AND transaction_type = ?
+                    """, (stock_id, row['Trade Date'], row['Quantity'], 
+                        row['Price'], row['Transaction Type']))
+                    
+                    if existing:
+                        duplicate_count += 1
+                    else:
+                        new_transactions.append({
+                            'instrument_code': instrument_code,  # Store instrument_code instead of stock_id
+                            'date': row['Trade Date'],
+                            'quantity': row['Quantity'],
+                            'price': row['Price'],
+                            'transaction_type': row['Transaction Type']
+                        })
+                
+                if not new_transactions and not new_stocks:
+                    QMessageBox.information(
+                        self,
+                        "No New Data",
+                        f"All {duplicate_count} transactions already exist in the database."
+                    )
+                    return
+                
+                # Build confirmation message
+                msg = []
+                if new_stocks:
+                    msg.append(f"New stocks to add: {len(new_stocks)}")
+                    for stock in new_stocks:
+                        msg.append(f"  • {stock}")
+                if new_transactions:
+                    msg.append(f"\nNew transactions to add: {len(new_transactions)}")
+                if duplicate_count > 0:
+                    msg.append(f"\nDuplicate transactions to skip: {duplicate_count}")
+                
+                # Confirm with user
+                confirm = QMessageBox.question(
+                    self,
+                    "Confirm Import",
+                    "\n".join(msg) + "\n\nDo you want to proceed with the import?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                
+                if confirm == QMessageBox.Yes:
+                    try:
+                        # First add all new stocks
+                        for instrument_code in new_stocks:
+                            stock_id = self.db_manager.add_stock(
+                                yahoo_symbol=instrument_code,
+                                instrument_code=instrument_code,
+                                name=None,
+                                current_price=None,
+                                verification_status="Pending",
+                                trading_currency=None,
+                                current_currency=None
+                            )
+                            
+                            if self.portfolio_id:
+                                self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
+                        
+                        # Then add all transactions
+                        for transaction in new_transactions:
+                            # Get stock_id for the transaction
+                            stock = self.db_manager.get_stock_by_instrument_code(transaction['instrument_code'])
+                            stock_id = stock[0]
+                            
+                            self.db_manager.execute("""
+                                INSERT INTO transactions 
+                                (stock_id, date, quantity, price, transaction_type)
+                                VALUES (?, ?, ?, ?, ?)
+                            """, (
+                                stock_id,
+                                transaction['date'],
+                                transaction['quantity'],
+                                transaction['price'],
+                                transaction['transaction_type']
+                            ))
+                        
+                        # Commit all changes
+                        self.db_manager.conn.commit()
+                        
+                        # Refresh the verify transactions view
+                        self.populate_table()
+                        
+                        # Show success message
+                        msg = []
+                        if new_stocks:
+                            msg.append(f"Added {len(new_stocks)} new stocks")
+                        if new_transactions:
+                            msg.append(f"Imported {len(new_transactions)} new transactions")
+                        
+                        QMessageBox.information(
+                            self,
+                            "Import Successful",
+                            "\n".join(msg)
+                        )
+                        
+                    except Exception as e:
+                        self.db_manager.conn.rollback()
+                        QMessageBox.critical(
+                            self,
+                            "Import Error",
+                            f"Failed to import data: {str(e)}"
+                        )
+                        logger.error(f"Database import error: {str(e)}")
+            
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Import Error",
+                    f"Failed to process import file: {str(e)}"
+                )
+                logger.error(f"Error reimporting transactions: {str(e)}")
+
 class StockSplitsDialog(QDialog):
     def __init__(self, db_manager, instrument_code, initial_splits=None, parent=None):
         """
@@ -1268,3 +1435,95 @@ class AddInstrumentDialog(QDialog):
     def get_instrument_code(self):
         """Return the entered instrument code in uppercase."""
         return self.instrument_code.text().strip().upper()
+    
+class DateFormatDialog(QDialog):
+    def __init__(self, sample_date=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Date Format")
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        
+        # Instructions
+        instructions = QLabel(
+            "Please select the date format used in your import file.\n"
+            "Common formats are provided, or you can specify a custom format."
+        )
+        layout.addWidget(instructions)
+        
+        # Format selection
+        self.format_combo = QComboBox()
+        self.format_combo.addItems([
+            "DD/MM/YYYY",
+            "MM/DD/YYYY",
+            "YYYY-MM-DD",
+            "DD-MM-YYYY",
+            "Custom Format"
+        ])
+        layout.addWidget(self.format_combo)
+        
+        # Custom format input (initially hidden)
+        self.custom_format = QLineEdit()
+        self.custom_format.setPlaceholderText("Enter custom format (e.g., %d/%m/%Y)")
+        self.custom_format.hide()
+        layout.addWidget(self.custom_format)
+        
+        # Sample date preview
+        if sample_date:
+            self.preview_label = QLabel()
+            layout.addWidget(self.preview_label)
+            self.update_preview(sample_date)
+            
+            # Connect signal for format changes
+            self.format_combo.currentIndexChanged.connect(
+                lambda: self.update_preview(sample_date)
+            )
+        
+        # Format help
+        help_text = QLabel(
+            "Format codes:\n"
+            "%d = Day (01-31)\n"
+            "%m = Month (01-12)\n"
+            "%Y = Year (e.g., 2024)\n"
+            "%y = Year (e.g., 24)"
+        )
+        help_text.setStyleSheet("color: gray;")
+        layout.addWidget(help_text)
+        
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            parent=self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+        # Connect custom format visibility
+        self.format_combo.currentTextChanged.connect(self.toggle_custom_format)
+
+    def toggle_custom_format(self, text):
+        """Show/hide custom format input based on selection."""
+        self.custom_format.setVisible(text == "Custom Format")
+        
+    def update_preview(self, sample_date):
+        """Update the preview with the selected format."""
+        try:
+            date_format = self.get_format()
+            formatted_date = sample_date.strftime(date_format)
+            self.preview_label.setText(f"Preview: {formatted_date}")
+            self.preview_label.setStyleSheet("color: black;")
+        except Exception as e:
+            self.preview_label.setText(f"Invalid format: {str(e)}")
+            self.preview_label.setStyleSheet("color: red;")
+
+    def get_format(self):
+        """Get the selected date format string."""
+        format_map = {
+            "DD/MM/YYYY": "%d/%m/%Y",
+            "MM/DD/YYYY": "%m/%d/%Y",
+            "YYYY-MM-DD": "%Y-%m-%d",
+            "DD-MM-YYYY": "%d-%m-%Y",
+            "Custom Format": self.custom_format.text()
+        }
+        return format_map[self.format_combo.currentText()]
