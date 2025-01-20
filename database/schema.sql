@@ -159,7 +159,7 @@ INSERT OR IGNORE INTO supported_currencies (code, name, symbol) VALUES
 -- Market_Codes table
 CREATE TABLE IF NOT EXISTS market_codes (
     market_or_index TEXT NOT NULL PRIMARY KEY,
-    market_suffix TEXT NOT NULL UNIQUE
+    market_suffix TEXT
 );
 
 -- Yahoo market codes
