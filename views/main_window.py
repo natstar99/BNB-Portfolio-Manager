@@ -2,9 +2,10 @@
 
 import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, 
-                               QStackedWidget, QLabel, QHBoxLayout, QApplication)
+                               QStackedWidget, QLabel, QHBoxLayout, QApplication,
+                               QStyle)
 from PySide6.QtGui import QPalette, QBrush, QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 
 from controllers.portfolio_controller import PortfolioController
 from controllers.portfolio_view_controller import PortfolioViewController
@@ -28,18 +29,13 @@ class MainWindow(QMainWindow):
         # Create and set the palette for the background
         palette = self.palette()
         background_pixmap = QPixmap(background_path)
-        
-        # Scale the background to fit the window while maintaining aspect ratio
         scaled_pixmap = background_pixmap.scaled(
             self.size(), 
             Qt.KeepAspectRatioByExpanding, 
             Qt.SmoothTransformation
         )
-        
         palette.setBrush(QPalette.Window, QBrush(scaled_pixmap))
         self.setPalette(palette)
-        
-        # Enable background auto-filling
         self.setAutoFillBackground(True)
 
         self.db_manager = db_manager
@@ -50,32 +46,89 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
-        # Create and set up sidebar
+        # Create and set up sidebar with styling
         sidebar = QWidget()
-        sidebar.setMaximumWidth(210)
-        sidebar.setMinimumWidth(210)
+        sidebar.setMaximumWidth(220)
+        sidebar.setMinimumWidth(220)
         sidebar_layout = QVBoxLayout()
         sidebar.setLayout(sidebar_layout)
+        
+        # Set up sidebar with no margins to maximize space
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(10)  # Adjust spacing between elements
 
-        # Add logo
+        # Add logo with maximized size
         logo_label = QLabel()
-        current_dir = os.path.dirname(os.path.abspath(__file__))
         logo_path = os.path.join(current_dir, "..", "bnb_logo.png")
         logo_pixmap = QPixmap(logo_path)
-        logo_label.setPixmap(logo_pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        # Scale to sidebar width while maintaining aspect ratio
+        scaled_width = 220  # Match sidebar width
+        aspect_ratio = logo_pixmap.height() / logo_pixmap.width()
+        scaled_height = int(scaled_width * aspect_ratio)
+
+        logo_label.setPixmap(logo_pixmap.scaled(
+            scaled_width, 
+            scaled_height,
+            Qt.KeepAspectRatio, 
+            Qt.SmoothTransformation
+        ))
         logo_label.setAlignment(Qt.AlignCenter)
+
         sidebar_layout.addWidget(logo_label)
 
+        # Add some space after the logo
+        sidebar_layout.addSpacing(10)
+
+        # Style for navigation buttons
+        button_style = """
+            QPushButton {
+                text-align: left;
+                padding: 12px 15px;
+                border: none;
+                border-radius: 8px;
+                background-color: rgba(255, 255, 255, 0.9);
+                color: #2c3e50;
+                font-size: 14px;
+                font-weight: bold;
+                margin: 3px 10px;
+            }
+            QPushButton:hover {
+                background-color: rgba(77, 175, 71, 0.9);
+                color: white;
+            }
+            QPushButton:pressed {
+                background-color: rgba(77, 175, 71, 0.9);
+            }
+            QPushButton[selected=true] {
+                background-color: rgba(77, 175, 71, 0.9);
+                color: white;
+            }
+        """
+
+        # Navigation button configurations with more logical icons
+        nav_configs = [
+            ("Manage Portfolios", "SP_DialogOpenButton"),
+            ("My Portfolio", "SP_FileDialogDetailedView"),
+            ("Study Portfolio", "SP_FileDialogContentsView"),
+            ("Study Market (Beta)", "SP_ComputerIcon"),
+            ("Settings", "SP_DialogHelpButton")
+        ]
+        
         # Add navigation buttons
         self.nav_buttons = []
-        for button_text in [
-            "Manage Portfolios", 
-            "My Portfolio",
-            "Study Portfolio",
-            "Study Market (Beta)",
-            "Settings"
-        ]:
+        for button_text, icon_name in nav_configs:
             button = QPushButton(button_text)
+            button.setStyleSheet(button_style)
+            
+            # Add icon to button
+            icon = self.style().standardIcon(getattr(QStyle, icon_name))
+            button.setIcon(icon)
+            button.setIconSize(QSize(20, 20))
+            
+            # Set property for styling selected state
+            button.setProperty("selected", False)
+            
             button.clicked.connect(lambda checked, text=button_text: self.on_nav_button_clicked(text))
             sidebar_layout.addWidget(button)
             self.nav_buttons.append(button)
@@ -124,10 +177,14 @@ class MainWindow(QMainWindow):
             "Study Market (Beta)",
             "Settings"
         ].index(button_text)
+        
         self.content_widget.setCurrentIndex(index)
-        for button in self.nav_buttons:
-            button.setStyleSheet("")
-        self.nav_buttons[index].setStyleSheet("background-color: #ddd;")
+        
+        # Update button styles
+        for i, button in enumerate(self.nav_buttons):
+            button.setProperty("selected", i == index)
+            button.style().unpolish(button)  # Force style refresh
+            button.style().polish(button)
 
     def on_portfolio_selected(self, portfolio_name):
         portfolio = self.portfolio_controller.get_portfolio_by_name(portfolio_name)
@@ -136,5 +193,10 @@ class MainWindow(QMainWindow):
             self.portfolio_study_controller.set_portfolio(portfolio)
             self.market_analysis_controller.set_portfolio(portfolio)
             self.settings_controller.set_portfolio(portfolio)
-            self.content_widget.setCurrentIndex(1)
-            self.nav_buttons[1].setStyleSheet("background-color: #ddd;")
+            self.content_widget.setCurrentIndex(1)  # Switch to My Portfolio view
+            
+            # Update button styles - use the same mechanism as on_nav_button_clicked
+            for i, button in enumerate(self.nav_buttons):
+                button.setProperty("selected", i == 1)  # 1 is the index for "My Portfolio"
+                button.style().unpolish(button)
+                button.style().polish(button)
