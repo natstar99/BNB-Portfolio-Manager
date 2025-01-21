@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QComboBox, QMessageBox, QLabel, QProgressDialog,
                               QDateEdit, QDoubleSpinBox, QMenu, QDialogButtonBox,
                               QCheckBox, QAbstractItemView, QLineEdit, QApplication,
-                              QFileDialog)
+                              QFileDialog, QStyle)
 from PySide6.QtCore import Qt, Signal
 from datetime import datetime
 import yfinance as yf
@@ -14,7 +14,9 @@ import pandas as pd
 from utils.historical_data_collector import HistoricalDataCollector
 from views.historical_data_view import ManageHistoricalDataDialog
 from utils.yahoo_finance_service import YahooFinanceService
+from utils.fifo_hifo_lifo_calculator import calculate_all_pl_methods
 from database.final_metrics_manager import PortfolioMetricsManager
+from config import DB_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +52,77 @@ class VerifyTransactionsDialog(QDialog):
         )
         layout.addWidget(instructions)
         
+        # Top toolbar with management buttons
+        toolbar_layout = QHBoxLayout()
+        
+        # Left side management buttons group
+        management_buttons = QHBoxLayout()
+        self.add_instrument_btn = QPushButton("Create New Stock")
+        self.add_instrument_btn.clicked.connect(self.add_instrument)
+        management_buttons.addWidget(self.add_instrument_btn)
+        
+        self.remove_selected_btn = QPushButton("Delete Selected Stock")
+        self.remove_selected_btn.clicked.connect(self.remove_selected)
+        self.remove_selected_btn.setEnabled(False)
+        management_buttons.addWidget(self.remove_selected_btn)
+        
+        toolbar_layout.addLayout(management_buttons)
+        toolbar_layout.addStretch()  # Push management buttons to the left
+        
+        layout.addLayout(toolbar_layout)
+        
         # Main table
         self.table = QTableWidget()
+        self.setup_table()  # Move table setup to separate method
+        layout.addWidget(self.table)
+        
+        # Bottom button bar with clear grouping
+        bottom_bar = QHBoxLayout()
+        
+        # Left group - Action buttons
+        action_group = QHBoxLayout()
+        
+        self.verify_all_btn = QPushButton("Verify All with Yahoo")
+        self.verify_all_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.verify_all_btn.clicked.connect(self.verify_all_stocks)
+        action_group.addWidget(self.verify_all_btn)
+        
+        self.manage_markets_btn = QPushButton("Manage Markets")
+        self.manage_markets_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
+        self.manage_markets_btn.clicked.connect(self.show_manage_markets)
+        action_group.addWidget(self.manage_markets_btn)
+        
+        self.reimport_btn = QPushButton("Reimport Transactions")
+        self.reimport_btn.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
+        self.reimport_btn.clicked.connect(self.show_reimport_dialog)
+        action_group.addWidget(self.reimport_btn)
+        
+        bottom_bar.addLayout(action_group)
+        bottom_bar.addStretch()  # Pushes action buttons left, dialog buttons right
+        
+        # Right group - Dialog buttons
+        dialog_buttons = QDialogButtonBox(parent=self)
+        
+        update_btn = QPushButton("Save and Update Data")
+        update_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
+        dialog_buttons.addButton(update_btn, QDialogButtonBox.AcceptRole)
+        
+        exit_btn = QPushButton("Save and Exit")
+        exit_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        dialog_buttons.addButton(exit_btn, QDialogButtonBox.RejectRole)
+        
+        update_btn.clicked.connect(self.save_and_update)
+        exit_btn.clicked.connect(self.save_and_exit)
+        
+        bottom_bar.addWidget(dialog_buttons)
+        
+        layout.addLayout(bottom_bar)
+
+        # Initialise table data
+        self.populate_table()
+
+    def setup_table(self):
+        """Setup table configuration in a separate method for cleaner organization"""
         self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "Instrument Code",
@@ -68,71 +139,13 @@ class VerifyTransactionsDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
-        layout.addWidget(self.table)
         self.table.sortByColumn(0, Qt.AscendingOrder)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers) # Make table uneditable by default
-
-        # Add management buttons
-        management_layout = QHBoxLayout()
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         
-        self.add_instrument_btn = QPushButton("Add Instrument")
-        self.add_instrument_btn.clicked.connect(self.add_instrument)
-        management_layout.addWidget(self.add_instrument_btn)
-        
-        self.remove_selected_btn = QPushButton("Remove Selected")
-        self.remove_selected_btn.clicked.connect(self.remove_selected)
-        self.remove_selected_btn.setEnabled(False)  # Initially disabled
-        management_layout.addWidget(self.remove_selected_btn)
-        
-        management_layout.addStretch()
-        layout.insertLayout(1, management_layout)  # Add after instructions
-        
-        # Enable multi-selection in table
+        # Enable multi-selection
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        
-        # Connect selection changed signal
         self.table.itemSelectionChanged.connect(self.update_button_states)
-        
-        # Buttons bar
-        button_layout = QHBoxLayout()
-        
-        # Left side buttons
-        left_buttons = QHBoxLayout()
-        self.verify_all_btn = QPushButton("Verify All with Yahoo")
-        self.verify_all_btn.clicked.connect(self.verify_all_stocks)
-        left_buttons.addWidget(self.verify_all_btn)
-        
-        self.manage_markets_btn = QPushButton("Manage Markets")
-        self.manage_markets_btn.clicked.connect(self.show_manage_markets)
-        left_buttons.addWidget(self.manage_markets_btn)
-
-        # Add reimport button in the button layout
-        self.reimport_btn = QPushButton("Reimport Transactions")
-        self.reimport_btn.clicked.connect(self.show_reimport_dialog)
-        left_buttons.addWidget(self.reimport_btn)
-        
-        button_layout.addLayout(left_buttons)
-        button_layout.addStretch()
-        
-        # Right side buttons
-        self.buttons = QDialogButtonBox(parent=self)
-        update_btn = QPushButton("Save and Update Data")
-        exit_btn = QPushButton("Save and Exit")
-        
-        self.buttons.addButton(update_btn, QDialogButtonBox.AcceptRole)
-        self.buttons.addButton(exit_btn, QDialogButtonBox.RejectRole)
-        
-        # Connect the buttons to their respective slots
-        update_btn.clicked.connect(self.save_and_update)
-        exit_btn.clicked.connect(self.save_and_exit)
-        
-        button_layout.addWidget(self.buttons)
-        
-        layout.addLayout(button_layout)
-        
-        # Initialise table data
-        self.populate_table()
 
     def populate_table(self):
         """
@@ -1031,42 +1044,63 @@ class VerifyTransactionsDialog(QDialog):
                 date_format = date_dialog.get_format()
                 new_df['Trade Date'] = pd.to_datetime(new_df['Trade Date'], format=date_format).dt.date
                 
-                # Initialize lists for new transactions and stocks
-                new_transactions = []
-                new_stocks = []
+                # Initialise lists for new transactions and stocks
+                new_transactions = [] # create a list to store the new transactions
+                new_stocks = {}  # dict to store {instrument_code: transaction_count}
+                existing_stocks = {}  # dict for {instrument_code: transaction_count}
                 duplicate_count = 0
-                
+
                 # First pass: identify new stocks and transactions
                 for _, row in new_df.iterrows():
                     instrument_code = row['Instrument Code']
                     stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
                     
+                    # Check if transaction exists
                     if stock:
                         stock_id = stock[0]
+                        # Modified query handles both original and converted prices
+                        existing = self.db_manager.fetch_one("""
+                            SELECT 1 FROM transactions 
+                            WHERE stock_id = ? 
+                            AND date = ? 
+                            AND quantity = ? 
+                            AND (
+                                (original_price IS NULL AND ABS(price - ?) < 0.0001)
+                                OR 
+                                (original_price IS NOT NULL AND ABS(original_price - ?) < 0.0001)
+                            )
+                            AND transaction_type = ?
+                        """, (
+                            stock_id, 
+                            row['Trade Date'], 
+                            row['Quantity'],
+                            row['Price'],  # Used for both price comparisons
+                            row['Price'], 
+                            row['Transaction Type']
+                        ))
+
+                        if existing:
+                            duplicate_count += 1
+                        else:
+                            new_transactions.append({
+                                'instrument_code': instrument_code,
+                                'date': row['Trade Date'],
+                                'quantity': row['Quantity'],
+                                'price': row['Price'],
+                                'transaction_type': row['Transaction Type']
+                            })
+                            existing_stocks[instrument_code] = existing_stocks.get(instrument_code, 0) + 1
                     else:
-                        # Mark this as a new stock to be added later
-                        new_stocks.append(instrument_code)
-                        continue  # Skip transaction check until stock exists
-                    
-                    # Check if transaction exists
-                    existing = self.db_manager.fetch_one("""
-                        SELECT 1 FROM transactions 
-                        WHERE stock_id = ? AND date = ? AND quantity = ? 
-                        AND ABS(price - ?) < 0.0001 AND transaction_type = ?
-                    """, (stock_id, row['Trade Date'], row['Quantity'], 
-                        row['Price'], row['Transaction Type']))
-                    
-                    if existing:
-                        duplicate_count += 1
-                    else:
+                        # Add to new stocks AND add the transaction
+                        new_stocks[instrument_code] = new_stocks.get(instrument_code, 0) + 1
                         new_transactions.append({
-                            'instrument_code': instrument_code,  # Store instrument_code instead of stock_id
+                            'instrument_code': instrument_code,
                             'date': row['Trade Date'],
                             'quantity': row['Quantity'],
                             'price': row['Price'],
                             'transaction_type': row['Transaction Type']
                         })
-                
+
                 if not new_transactions and not new_stocks:
                     QMessageBox.information(
                         self,
@@ -1074,15 +1108,19 @@ class VerifyTransactionsDialog(QDialog):
                         f"All {duplicate_count} transactions already exist in the database."
                     )
                     return
-                
+
                 # Build confirmation message
                 msg = []
                 if new_stocks:
-                    msg.append(f"New stocks to add: {len(new_stocks)}")
-                    for stock in new_stocks:
-                        msg.append(f"  • {stock}")
-                if new_transactions:
-                    msg.append(f"\nNew transactions to add: {len(new_transactions)}")
+                    msg.append("New stocks to add:")
+                    for stock, count in new_stocks.items():
+                        msg.append(f"  • {stock} ({count} transactions)")
+
+                if existing_stocks:
+                    msg.append("\nExisting stocks:")
+                    for stock, count in existing_stocks.items():
+                        msg.append(f"  • {stock} ({count} transactions)")
+
                 if duplicate_count > 0:
                     msg.append(f"\nDuplicate transactions to skip: {duplicate_count}")
                 
@@ -1096,7 +1134,8 @@ class VerifyTransactionsDialog(QDialog):
                 
                 if confirm == QMessageBox.Yes:
                     try:
-                        # First add all new stocks
+                        # First add all new stocks and keep track of their IDs
+                        new_stock_ids = {}
                         for instrument_code in new_stocks:
                             stock_id = self.db_manager.add_stock(
                                 yahoo_symbol=instrument_code,
@@ -1107,27 +1146,41 @@ class VerifyTransactionsDialog(QDialog):
                                 trading_currency=None,
                                 current_currency=None
                             )
+                            new_stock_ids[instrument_code] = stock_id
                             
                             if self.portfolio_id:
                                 self.db_manager.add_stock_to_portfolio(self.portfolio_id, stock_id)
                         
                         # Then add all transactions
+                        transactions_to_insert = []
                         for transaction in new_transactions:
-                            # Get stock_id for the transaction
-                            stock = self.db_manager.get_stock_by_instrument_code(transaction['instrument_code'])
+                            instrument_code = transaction['instrument_code']
+                            # Get stock_id from either existing stock or newly created stock
+                            stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
                             stock_id = stock[0]
                             
-                            self.db_manager.execute("""
-                                INSERT INTO transactions 
-                                (stock_id, date, quantity, price, transaction_type)
-                                VALUES (?, ?, ?, ?, ?)
-                            """, (
+                            transactions_to_insert.append((
                                 stock_id,
                                 transaction['date'],
                                 transaction['quantity'],
                                 transaction['price'],
                                 transaction['transaction_type']
                             ))
+                        
+                        # Convert and insert transactions...
+                        self.db_manager.bulk_insert_transactions(transactions_to_insert)
+                        
+                        # Update realised profit/loss calculations
+                        try:
+                            calculate_all_pl_methods(DB_FILE)
+                            logger.info("Successfully updated realised P/L calculations")
+                        except Exception as e:
+                            logger.error(f"Error updating realised P/L calculations: {str(e)}")
+                            QMessageBox.warning(
+                                self,
+                                "Warning",
+                                "Transactions were imported but there was an error updating profit/loss calculations."
+                            )
                         
                         # Commit all changes
                         self.db_manager.conn.commit()

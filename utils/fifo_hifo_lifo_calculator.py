@@ -1,4 +1,4 @@
-# File: utils/fifo_hifo_lifo_calclator.py
+# File: utils/fifo_hifo_lifo_calculator.py
 
 import sqlite3
 from datetime import datetime
