@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QTableWidget, QTableWidgetItem, QHeaderView,
                               QMessageBox, QLabel, QLineEdit, QDialogButtonBox)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,9 @@ class ManageMarketsDialog(QDialog):
     Dialog for managing market codes in the database.
     Allows users to view, add, edit, and delete market codes.
     """
+     # Declare the signal as a class attribute outside __init__
+    markets_changed = Signal()
+
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
         self.db_manager = db_manager
@@ -22,7 +25,7 @@ class ManageMarketsDialog(QDialog):
     def init_ui(self):
         """Initialise the user interface components."""
         self.setWindowTitle("Manage Market Codes")
-        self.setMinimumWidth(600)
+        self.setMinimumWidth(650)
         self.setMinimumHeight(400)
         
         layout = QVBoxLayout(self)
@@ -123,6 +126,9 @@ class ManageMarketsDialog(QDialog):
             
             # Reload the table
             self.load_market_codes()
+
+            # Emit signal that markets have changed
+            self.markets_changed.emit()
             
         except Exception as e:
             logger.error(f"Error adding market code: {str(e)}")
@@ -173,6 +179,9 @@ class ManageMarketsDialog(QDialog):
                 
                 self.db_manager.conn.commit()
                 self.load_market_codes()
+
+                # Emit signal that markets have changed
+                self.markets_changed.emit()
                 
         except Exception as e:
             logger.error(f"Error deleting market code: {str(e)}")

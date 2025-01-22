@@ -283,7 +283,11 @@ class VerifyTransactionsDialog(QDialog):
             )
 
     def on_market_changed(self, row):
-        """Handle changes to the market selection dropdown."""
+        """
+        Handle when a user actively changes a stock's market assignment.
+        This should trigger a status update to Pending since the stock needs
+        to be re-verified with its new market code.
+        """
         try:
             instrument_code = self.table.item(row, 0).text()
             market_combo = self.table.cellWidget(row, 1)
@@ -304,7 +308,7 @@ class VerifyTransactionsDialog(QDialog):
                 yahoo_symbol_item.setText(instrument_code)
                 self.market_mappings[instrument_code] = ""
             
-            # Reset verification status
+            # Always update status to Pending when user changes market
             self.update_status(row, "Pending", Qt.gray)
             
         except Exception as e:
@@ -314,29 +318,54 @@ class VerifyTransactionsDialog(QDialog):
         """Show the manage markets dialog and refresh markets after closing."""
         from views.manage_markets_dialog import ManageMarketsDialog
         dialog = ManageMarketsDialog(self.db_manager, self)
+
+        # Connect to the markets_changed signal for immediate updates
+        dialog.markets_changed.connect(self.refresh_market_combos)
+
         if dialog.exec_():
             self.refresh_market_combos()
 
     def refresh_market_combos(self):
-        """Refresh all market combo boxes with updated market codes."""
-        market_codes = self.db_manager.get_all_market_codes()
-        
-        for row in range(self.table.rowCount()):
-            market_combo = self.table.cellWidget(row, 1)
-            current_market = market_combo.currentData()
+        """
+        Refresh all market combo boxes with updated market codes.
+        This method only updates the available options in the dropdowns,
+        without changing any existing market assignments or verification states.
+        """
+        try:
+            market_codes = self.db_manager.get_all_market_codes()
             
-            market_combo.clear()
-            market_combo.addItem("Select Market", "")
-            
-            for market_or_index, suffix in market_codes:
-                market_combo.addItem(market_or_index, market_or_index)
-            
-            if current_market:
-                index = market_combo.findData(current_market)
-                if index >= 0:
-                    market_combo.setCurrentIndex(index)
-                    
-            self.on_market_changed(row)  # Update Yahoo symbols
+            for row in range(self.table.rowCount()):
+                market_combo = self.table.cellWidget(row, 1)
+                current_market = market_combo.currentData()
+                
+                # Temporarily block signals to prevent triggering on_market_changed
+                market_combo.blockSignals(True)
+                
+                # Remember current selection
+                previous_selection = market_combo.currentData()
+                
+                # Update dropdown options
+                market_combo.clear()
+                market_combo.addItem("Select Market", "")
+                for market_or_index, suffix in market_codes:
+                    market_combo.addItem(market_or_index, market_or_index)
+                
+                # Restore previous selection if it still exists
+                if previous_selection:
+                    index = market_combo.findData(previous_selection)
+                    if index >= 0:
+                        market_combo.setCurrentIndex(index)
+                
+                # Re-enable signals
+                market_combo.blockSignals(False)
+                
+        except Exception as e:
+            logging.error(f"Error refreshing market combos: {str(e)}")
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Failed to refresh market selections: {str(e)}"
+            )
 
     def on_yahoo_symbol_changed(self, row):
         try:
