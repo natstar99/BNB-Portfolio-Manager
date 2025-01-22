@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class YahooFinanceService:
     """Handles all Yahoo Finance API interactions."""
-    
+
     @staticmethod
     def fetch_stock_data(db_manager, stock_id: int, yahoo_symbol: str, start_date: datetime, 
                         trading_currency: str, portfolio_currency: str) -> pd.DataFrame:
@@ -62,14 +62,42 @@ class YahooFinanceService:
                 logger.warning(f"No data returned from Yahoo for {yahoo_symbol}")
                 return None
                     
-            # Reset index and format dates
+
+            # Check if we need current market price
+            today = datetime.now().date()
+            today_data = data[data.index.date == today]
+
+            if today_data.empty or pd.isna(today_data['Close'].iloc[-1]):
+                # Get current market price
+                current_price, is_live = YahooFinanceService.get_current_market_price(yahoo_symbol)
+                
+                if current_price > 0 and is_live:
+                    logger.info(f"Adding live market price for {yahoo_symbol}: {current_price}")
+                    
+                    # Create a new row that matches the existing DataFrame structure
+                    new_row = pd.DataFrame({
+                        'Open': [current_price],
+                        'High': [current_price],
+                        'Low': [current_price],
+                        'Close': [current_price],
+                        'Volume': [0],
+                        'Dividends': [0],
+                        'Stock Splits': [1.0]
+                    }, index=[pd.Timestamp(today)])
+                    
+                    # Add to our historical data
+                    data = pd.concat([data, new_row])
+
             data = data.reset_index()
+            data = data.rename(columns={'index': 'Date'})
             data['Date'] = data['Date'].apply(lambda x: DateUtils.to_database_date(
                 DateUtils.normalise_yahoo_date(x)
             ))
-            
+
             # Prepare records for database insertion
             records = []
+            latest_close = None
+            
             for _, row in data.iterrows():
                 records.append((
                     stock_id,
@@ -82,6 +110,8 @@ class YahooFinanceService:
                     row.get('Dividends', 0.0),
                     row.get('Stock Splits', 1.0)
                 ))
+                if row['Date'] == today.strftime('%Y-%m-%d'):
+                    latest_close = row['Close']
             
             # Handle currency conversion if needed
             if (str(current_currency) != str(portfolio_currency)) or (str(trading_currency) != str(portfolio_currency)):
@@ -122,6 +152,22 @@ class YahooFinanceService:
             metrics_manager.update_metrics_for_stock(stock_id)
             logger.info(f"Metrics updated for stock {stock_id}")
             
+
+            # Update current price in stocks table if we have today's data
+            if latest_close is not None:
+                db_manager.execute("""
+                    UPDATE stocks 
+                    SET current_price = ?,
+                        last_updated = ?
+                    WHERE id = ?
+                """, (
+                    latest_close,
+                    datetime.now().replace(microsecond=0),
+                    stock_id
+                ))
+                db_manager.conn.commit()
+            
+            logger.info(f"Historical data and current price updated for stock {stock_id}")
             return data
                 
         except Exception as e:
@@ -365,3 +411,40 @@ class YahooFinanceService:
         except Exception as e:
             logger.error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
             return 1.0
+        
+    @staticmethod
+    def get_current_market_price(yahoo_symbol: str) -> tuple:
+        """
+        Fetches the most recent price for a stock, whether from current trading or last close.
+        
+        Args:
+            yahoo_symbol: Yahoo Finance stock symbol
+            
+        Returns:
+            tuple: (price, is_live_price) where is_live_price indicates if price is from current trading
+        """
+        try:
+            ticker = yf.Ticker(yahoo_symbol)
+            info = ticker.info
+            
+            # Try getting current trading price first
+            live_price = (
+                info.get('currentPrice', 0.0) or
+                info.get('regularMarketPrice', 0.0)
+            )
+            
+            # If we got a live price, return it with True flag
+            if live_price > 0:
+                return float(live_price), True
+                
+            # Otherwise fall back to previous close
+            last_price = (
+                info.get('previousClose', 0.0) or
+                info.get('lastPrice', 0.0)
+            )
+            
+            return float(last_price), False
+                
+        except Exception as e:
+            logger.error(f"Error getting current price for {yahoo_symbol}: {str(e)}")
+            return 0.0, False

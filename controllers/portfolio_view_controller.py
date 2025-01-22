@@ -48,13 +48,20 @@ class PortfolioViewController:
                 dialog.exec_()
 
     def refresh_data(self):
-        """Update current prices for all stocks"""
+        """
+        Updates all stock data in the current portfolio using historical data collector.
+        This method provides a comprehensive update including:
+        - Historical price data from earliest transaction
+        - Current prices
+        - Currency conversions if needed
+        - Portfolio metrics recalculation
+        """
         if not self.current_portfolio:
             return
 
-        # Create progress dialog
+        # Create progress dialog for user feedback
         progress = QProgressDialog(
-            "Updating stock prices...", 
+            "Updating portfolio data...", 
             "Cancel",
             0, 
             len(self.current_portfolio.stocks),
@@ -62,49 +69,55 @@ class PortfolioViewController:
         )
         progress.setWindowModality(Qt.WindowModal)
 
+        # Track any failures for summary message
+        failed_updates = []
+
         for i, stock in enumerate(self.current_portfolio.stocks.values()):
             if progress.wasCanceled():
                 break
 
             try:
-                # Use YahooFinanceService to verify stock and get info
-                result = YahooFinanceService.verify_stock(stock.yahoo_symbol)
+                # Update progress dialog with current stock
+                progress.setLabelText(f"Updating {stock.yahoo_symbol}...")
                 
-                if result['error']:
-                    raise Exception(result['error'])
-                    
-                # Update stock price and currency in database
-                self.db_manager.execute("""
-                    UPDATE stocks 
-                    SET current_price = ?,
-                        last_updated = ?
-                    WHERE id = ?
-                """, (
-                    result['current_price'],
-                    datetime.now().replace(microsecond=0),
-                    stock.id
-                ))
-                
-                # Update stock object
-                stock.current_price = result['current_price']
-                
-            except Exception as e:
-                logger.error(f"Failed to update price for {stock.yahoo_symbol}: {str(e)}")
-                QMessageBox.warning(
-                    self.view,
-                    "Update Failed",
-                    f"Failed to update price for {stock.yahoo_symbol}: {str(e)}"
+                # Process historical data using existing collector
+                success = HistoricalDataCollector.process_and_store_historical_data(
+                    db_manager=self.db_manager,
+                    stock_id=stock.id,
+                    yahoo_symbol=stock.yahoo_symbol,
+                    progress_callback=progress.setLabelText
                 )
+
+                if not success:
+                    failed_updates.append(stock.yahoo_symbol)
+
+            except Exception as e:
+                logger.error(f"Failed to update data for {stock.yahoo_symbol}: {str(e)}")
+                logger.exception("Detailed traceback:")
+                failed_updates.append(stock.yahoo_symbol)
 
             progress.setValue(i + 1)
 
         progress.close()
 
-        # Refresh portfolio after updates
+        # Refresh portfolio view with updated data
         self.current_portfolio.load_stocks()
         self.update_view()
-        QMessageBox.information(self.view, "Update Complete", "Portfolio prices have been updated.")
 
+        # Show completion message with any failures
+        if failed_updates:
+            QMessageBox.warning(
+                self.view,
+                "Update Complete with Errors",
+                f"Portfolio updated, but failed to update: {', '.join(failed_updates)}"
+            )
+        else:
+            QMessageBox.information(
+                self.view,
+                "Update Complete",
+                "Portfolio has been successfully updated with latest data."
+            )
+            
     def show_portfolio_manager(self):
         """Open the verification dialog for the portfolio and refresh view after"""
         if not self.current_portfolio:
@@ -130,15 +143,22 @@ class PortfolioViewController:
                 portfolio_id=self.current_portfolio.id
             )
             dialog.portfolio_id = self.current_portfolio.id
+            
+            # Connect signals for portfolio updates
+            dialog.update_portfolio_requested.connect(self.update_after_verification)
             dialog.verification_completed.connect(self.on_verification_completed)
-            if dialog.exec_():
-                # Refresh the portfolio data after dialog closes
-                self.current_portfolio.load_stocks()
-                self.update_view()
+            
+            # Just show the dialog - updates will happen through signals
+            dialog.exec_()
 
     def get_view(self):
         """Return the view instance"""
         return self.view
+        
+    def update_after_verification(self):
+        """Handler for when verification dialog requests a portfolio update"""
+        self.current_portfolio.load_stocks()
+        self.update_view()
     
     def on_verification_completed(self, verification_results):
         """Handle verification results and collect historical data."""

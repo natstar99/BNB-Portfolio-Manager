@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class VerifyTransactionsDialog(QDialog):
     verification_completed = Signal(dict)  # Emits final verification results
+    update_portfolio_requested = Signal() # This signal allows the table on the 'My Portfolio' view to be updated after completion of "save_and_update" method
 
     def __init__(self, transactions_data, db_manager, portfolio_id, parent=None):
         self.market_names = {}
@@ -848,6 +849,10 @@ class VerifyTransactionsDialog(QDialog):
                 progress.setValue(row + 1)
 
             progress.close()
+
+            # Emit signal to request portfolio update
+            self.update_portfolio_requested.emit()
+            
             self.reject()
 
         except Exception as e:

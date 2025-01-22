@@ -558,6 +558,7 @@ class DatabaseManager:
         Update transaction prices using currency conversion rates.
         Preserves original prices on first conversion and uses them for subsequent conversions.
         Always converts FROM the stock's native currency TO the portfolio currency using original prices.
+        Note: This method assumes the caller has already determined that conversion is necessary.
         
         Args:
             stock_id: The database ID of the stock
@@ -572,11 +573,6 @@ class DatabaseManager:
                 (stock_id,)
             )
             native_currency, current_currency = result if result else (None, None)
-
-            # Skip if already in correct currency
-            if current_currency == portfolio_currency:
-                logger.info(f"Skipping currency conversion for stock {stock_id}: already in {portfolio_currency}")
-                return
 
             logger.info(f"Converting stock {stock_id} from {native_currency} to {portfolio_currency} (current processing currency: {current_currency})")
 
