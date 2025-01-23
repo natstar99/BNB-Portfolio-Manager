@@ -295,6 +295,17 @@ class PortfolioStudyController:
         """
         Plot profitability analysis with proper date axis formatting.
         Supports zeroing values at start date for cumulative views.
+        Handles weekend/holiday data using forward fill.
+        Uses forward fill to maintain last known values for non-trading days.
+        
+        Return Calculations:
+        - Total Return $: Simple sum of profits/losses in dollar terms
+        - Total Return %: Return as percentage of total invested capital (affected by new investments)
+        - Aggregated ROI %: Time-weighted return using geometric mean (not affected by new investments)
+
+        Args:
+            ax: matplotlib axis object for plotting
+            params: Dictionary containing plot parameters including view_type and chart_type
         """
         try:
             view_type = params['view_type']
@@ -332,24 +343,64 @@ class PortfolioStudyController:
                     ax.plot(stock_data['date'], y_values, label=stock)
 
             else:  # portfolio_total
-                if chart_type == 'percentage':
-                    # Calculate portfolio percentage return
-                    grouped = self.data.groupby('date').agg({
-                        'total_return': 'sum',
-                        'market_value': 'sum'
-                    })
-                    y_values = grouped['total_return'] / grouped['market_value'] * 100
-                else:
-                    grouped = self.data.groupby('date')[metric].sum()
-                    y_values = grouped
+                if time_period == 'cumulative' and chart_type == 'dollar_value':
+                    # Create a copy of the data to avoid modifying original
+                    plot_data = self.data.copy()
                     
-                # Zero at start date if requested
-                if zero_at_start and time_period == 'cumulative':
-                    start_value = y_values.iloc[0]
-                    y_values = y_values - start_value
+                    # Set multi-index using date and stock
+                    plot_data.set_index(['date', 'stock'], inplace=True)
                     
-                ax.plot(grouped.index, y_values.values, label='Portfolio Total', linewidth=2)
-            
+                    # Unstack to get stock as columns
+                    plot_data = plot_data[metric].unstack()
+                    
+                    # Resample to daily frequency and forward fill
+                    plot_data = plot_data.asfreq('D').ffill()
+                    
+                    # Calculate portfolio total using the forward-filled values
+                    y_values = plot_data.sum(axis=1)
+                    
+                    # Zero at start date if requested
+                    if zero_at_start:
+                        start_value = y_values.iloc[0]
+                        y_values = y_values - start_value
+                    
+                    ax.plot(y_values.index, y_values.values, label='Portfolio Total', linewidth=2)
+                
+                # For portfolio total, percentage calculations
+                elif chart_type == 'percentage':
+                    if time_period == 'daily':
+                        # For daily changes, sum daily_pl and express as % of total portfolio value
+                        grouped = self.data.groupby('date').agg({
+                            'daily_pl': 'sum',
+                            'market_value': 'sum'
+                        })
+                        y_values = (grouped['daily_pl'] / grouped['market_value']) * 100
+                    else:  # cumulative
+                        # Handle weekend data for cumulative percentage return
+                        plot_data = self.data.copy()
+                        plot_data.set_index(['date', 'stock'], inplace=True)
+                        
+                        # Get required columns and unstack
+                        total_return_data = plot_data['total_return'].unstack()
+                        market_value_data = plot_data['market_value'].unstack()
+                        
+                        # Resample and forward fill both
+                        total_return_data = total_return_data.asfreq('D').ffill()
+                        market_value_data = market_value_data.asfreq('D').ffill()
+                        
+                        # Calculate portfolio percentage return
+                        portfolio_total_return = total_return_data.sum(axis=1)
+                        portfolio_total_value = market_value_data.sum(axis=1)
+                        y_values = (portfolio_total_return / portfolio_total_value) * 100
+                        
+                    # Zero at start date if requested
+                    if zero_at_start and time_period == 'cumulative':
+                        start_value = y_values.iloc[0]
+                        y_values = y_values - start_value
+                        
+                    # Use y_values.index instead of grouped.index
+                    ax.plot(y_values.index, y_values.values, label='Portfolio Total', linewidth=2)
+                
             # Add zero line for reference
             ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
 
