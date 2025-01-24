@@ -58,7 +58,7 @@ class PortfolioStudyController:
             study_type_mapping = {
                 'market_value': ['market_value'],  # Changed to list for consistency
                 'profitability': ['total_return', 'market_value', 'daily_pl', 'daily_pl_pct', 'total_return_pct', 'cumulative_return_pct'],
-                'dividend_performance': ['cash_dividend', 'cash_dividends_total', 'drp_share', 'drp_shares_total']
+                'dividend_performance': ['cash_dividend', 'cash_dividends_total', 'drp_share', 'drp_shares_total', 'close_price']
             }
             
             # Always include market_value for distribution charts
@@ -431,41 +431,130 @@ class PortfolioStudyController:
             raise
 
     def plot_dividends(self, ax, params):
-        """Plot dividend analysis."""
-        if params['view_type'] == "Cash Dividends":
-            metric = 'cash_dividends_total' if params['display'] == "Cumulative" else 'cash_dividend'
-            ylabel = "Dividends ($)"
-            value_format = lambda x, p: f'${x:,.2f}'
-        else:  # DRP
-            metric = 'drp_shares_total' if params['display'] == "Cumulative" else 'drp_share'
-            ylabel = "DRP Shares"
-            value_format = lambda x, p: f'{x:,.4f}'
+        """
+        Plot dividend analysis with all values represented in dollars.
+        Handles individual stocks and portfolio totals, showing either cash dividends,
+        DRP value, or total dividend value (cash + DRP combined).
         
-        # Group by date and sum values
-        dividend_data = self.data.groupby(['date', 'stock'])[metric].sum().unstack()
+        The method supports:
+        - Daily or cumulative views
+        - Individual stock or portfolio total analysis
+        - Cash dividends, DRP (converted to dollar value), or combined total
         
-        # Filter out dates with no dividends
-        dividend_data = dividend_data[dividend_data.sum(axis=1) > 0]
-        
-        if dividend_data.empty:
-            ax.text(0.5, 0.5, 'No dividend data for selected period',
-                   ha='center', va='center')
-            return
-        
-        # Plot bars for each stock
-        dividend_data.plot(kind='bar', ax=ax, width=0.8)
-        
-        ax.set_title(f"{'Cumulative ' if params['display'] == 'Cumulative' else ''}{'Cash Dividends' if params['view_type'] == 'Cash Dividends' else 'DRP Shares'}")
-        ax.set_xlabel("Date")
-        ax.set_ylabel(ylabel)
-        ax.legend(title="Stocks", bbox_to_anchor=(1.05, 1), loc='upper left')
-        
-        # Format x-axis dates
-        dates = pd.to_datetime(dividend_data.index)
-        ax.set_xticklabels([d.strftime('%Y-%m-%d') for d in dates], rotation=45)
-        
-        # Format y-axis
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
+        Args:
+            ax: matplotlib axis object for plotting
+            params: Dictionary containing:
+                - chart_type: 'cash', 'drp', or 'combined'
+                - time_period: 'daily' or 'cumulative'
+                - view_type: 'individual_stocks' or 'portfolio_total'
+        """
+        try:
+            logger.debug(f"Plotting dividends with parameters: {params}")
+            
+            # Create a copy of the data to avoid modifying original
+            plot_data = self.data.copy()
+            
+            # Convert date column to datetime if not already
+            plot_data['date'] = pd.to_datetime(plot_data['date'])
+            
+            # Calculate DRP value in dollars before setting index
+            if params['chart_type'] in ['drp', 'combined']:
+                # Convert DRP shares to dollar values using closing price
+                plot_data['drp_value'] = plot_data['drp_share'] * plot_data['close_price']
+                plot_data['drp_value_total'] = plot_data['drp_shares_total'] * plot_data['close_price']
+            
+            # Set multi-index using both date and stock
+            plot_data.set_index(['date', 'stock'], inplace=True)
+            
+            # Handle data based on chart type
+            if params['chart_type'] == 'cash':
+                # For cash dividends, use appropriate metric based on time period
+                metric = 'cash_dividends_total' if params['time_period'] == 'cumulative' else 'cash_dividend'
+                plot_data = plot_data[metric].unstack()
+                ylabel = "Cash Dividend Value ($)"
+                value_format = lambda x, p: f'${x:,.2f}'
+                
+            elif params['chart_type'] == 'drp':
+                # For DRP, use calculated dollar values instead of share counts
+                metric = 'drp_value_total' if params['time_period'] == 'cumulative' else 'drp_value'
+                plot_data = plot_data[metric].unstack()
+                ylabel = "DRP Value ($)"
+                value_format = lambda x, p: f'${x:,.2f}'
+                
+            else:  # combined view
+                # Get both cash and DRP data
+                if params['time_period'] == 'cumulative':
+                    cash_data = plot_data['cash_dividends_total'].unstack()
+                    drp_data = plot_data['drp_value_total'].unstack()
+                else:
+                    cash_data = plot_data['cash_dividend'].unstack()
+                    drp_data = plot_data['drp_value'].unstack()
+                
+                # Combine cash and DRP values into total dividend value
+                total_dividend_data = cash_data.fillna(0) + drp_data.fillna(0)
+                ylabel = "Total Dividend Value ($)"
+                value_format = lambda x, p: f'${x:,.2f}'
+
+            # For cumulative views, resample to daily frequency and forward fill
+            if params['time_period'] == 'cumulative':
+                if params['chart_type'] == 'combined':
+                    total_dividend_data = total_dividend_data.asfreq('D').ffill()
+                else:
+                    plot_data = plot_data.asfreq('D').ffill()
+
+            # Create visualization based on view type
+            if params['view_type'] == 'individual_stocks':
+                if params['chart_type'] == 'combined':
+                    # Plot total dividend value for each stock
+                    for stock in total_dividend_data.columns:
+                        ax.plot(total_dividend_data.index, total_dividend_data[stock],
+                            label=stock, linewidth=1.5)
+                else:
+                    # Plot individual metric for each stock
+                    for stock in plot_data.columns:
+                        ax.plot(plot_data.index, plot_data[stock],
+                            label=stock, linewidth=1.5)
+                        
+            else:  # portfolio_total
+                if params['chart_type'] == 'combined':
+                    # Calculate and plot portfolio total dividend value
+                    portfolio_total = total_dividend_data.sum(axis=1)
+                    ax.plot(portfolio_total.index, portfolio_total.values,
+                        label='Total Dividends', linewidth=2)
+                else:
+                    # Calculate and plot portfolio total for single metric
+                    portfolio_total = plot_data.sum(axis=1)
+                    ax.plot(portfolio_total.index, portfolio_total.values,
+                        label='Portfolio Total', linewidth=2)
+
+            # Set title and labels
+            period_type = 'Cumulative' if params['time_period'] == 'cumulative' else 'Daily'
+            chart_name = {
+                'cash': 'Cash Dividends',
+                'drp': 'DRP Value',
+                'combined': 'Total Dividend Value'
+            }[params['chart_type']]
+            
+            ax.set_title(f"{period_type} {chart_name}")
+            ax.set_xlabel("Date")
+            ax.set_ylabel(ylabel)
+            
+            # Format y-axis to show dollar values
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
+            
+            # Set up date axis consistently with other plots
+            self.setup_date_axis(ax)
+            
+            # Add legend with proper positioning
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            
+            # Adjust layout to prevent label cutoff
+            plt.tight_layout()
+            
+        except Exception as e:
+            logger.error(f"Error plotting dividends: {str(e)}")
+            logger.exception("Detailed traceback:")
+            raise
 
     def plot_distribution(self, ax):
         """
@@ -634,27 +723,6 @@ class PortfolioStudyController:
         # Use a tight layout to prevent label cutoff
         fig.tight_layout()
 
-    def plot_dividends(self, ax, params):
-        """Plot dividend analysis."""
-        if params['view_type'] == "Cash Dividends":
-            metric = 'cash_dividends_total' if params['display'] == "Cumulative" else 'cash_dividend'
-            ylabel = "Dividends ($)"
-        else:  # DRP
-            metric = 'drp_shares_total' if params['display'] == "Cumulative" else 'drp_share'
-            ylabel = "DRP Shares"
-        
-        # Group by date and sum values
-        dividend_data = self.data.groupby(['date', 'stock'])[metric].sum().unstack()
-        
-        # Plot bars for each stock
-        dividend_data.plot(kind='bar', ax=ax, width=0.8)
-        
-        ax.set_title(f"{'Cumulative ' if params['display'] == 'Cumulative' else ''}{'Cash Dividends' if params['view_type'] == 'Cash Dividends' else 'DRP Shares'}")
-        ax.set_xlabel("Date")
-        ax.set_ylabel(ylabel)
-        ax.legend(title="Stocks")
-        plt.setp(ax.get_xticklabels(), rotation=45)
-
     def update_statistics_table(self, params):
         """Update statistics table with current analysis."""
         study_type = params['study_type']
@@ -725,7 +793,7 @@ class PortfolioStudyController:
             self.view.stats_table.setItem(i, 0, QTableWidgetItem(metric))
             self.view.stats_table.setItem(i, 1, QTableWidgetItem(str(value)))
 
-    def get_active_stocks_for_date_range(self, start_date, end_date):
+    def get_active_stocks_for_date_range(self, start_date, end_date, dividend_type=None):
         """
         Get stocks that have at least one non-zero market value within the date range.
         Uses the portfolio_stocks linking table to find stocks associated with the current portfolio.
@@ -740,9 +808,10 @@ class PortfolioStudyController:
         try:
             logger.debug(f"Fetching active stocks between {start_date} and {end_date}")
             logger.debug(f"Current portfolio ID: {self.current_portfolio.id}")
+            logger.debug(f"Dividend type filter: {dividend_type}")
             
-            # Modified query to use portfolio_stocks linking table
-            query = """
+            # Base query for non-dividend analysis
+            base_query = """
                 WITH stock_activity AS (
                     SELECT 
                         s.id,
@@ -751,6 +820,24 @@ class PortfolioStudyController:
                         COUNT(*) as total_days,
                         SUM(CASE WHEN fm.market_value > 0 THEN 1 ELSE 0 END) as active_days,
                         MAX(fm.market_value) as max_value
+                """
+            
+            # Add dividend-specific metrics based on type
+            if dividend_type == 'cash':
+                base_query += """,
+                        SUM(CASE WHEN fm.cash_dividend > 0 THEN 1 ELSE 0 END) as dividend_days
+                """
+            elif dividend_type == 'drp':
+                base_query += """,
+                        SUM(CASE WHEN fm.drp_share > 0 THEN 1 ELSE 0 END) as dividend_days
+                """
+            elif dividend_type == 'combined':
+                base_query += """,
+                        SUM(CASE WHEN fm.cash_dividend > 0 OR fm.drp_share > 0 THEN 1 ELSE 0 END) as dividend_days
+                """
+                
+            # Complete the query
+            query = base_query + """
                     FROM stocks s
                     JOIN portfolio_stocks ps ON s.id = ps.stock_id
                     JOIN final_metrics fm ON s.id = fm.stock_id
@@ -765,10 +852,21 @@ class PortfolioStudyController:
                     total_days,
                     active_days,
                     max_value
+            """
+            
+            # Add dividend filtering if needed
+            if dividend_type:
+                query += """
+                FROM stock_activity
+                WHERE dividend_days > 0
+                """
+            else:
+                query += """
                 FROM stock_activity
                 WHERE active_days > 0
-                ORDER BY yahoo_symbol;
-            """
+                """
+                
+            query += " ORDER BY yahoo_symbol;"
             
             params = {
                 'start_date': start_date,
@@ -779,15 +877,6 @@ class PortfolioStudyController:
             logger.debug(f"Executing query with params: {params}")
             results = self.db_manager.fetch_all_with_params(query, params)
             logger.debug(f"Query returned {len(results)} results")
-            
-            # Log detailed information about each stock found
-            # Note: results are tuples with indices:
-            # 0: id, 1: yahoo_symbol, 2: name, 3: total_days, 4: active_days, 5: max_value
-            for row in results:
-                logger.debug(f"Stock {row[1]}: "  # row[1] is yahoo_symbol
-                            f"Total days: {row[3]}, "  # row[3] is total_days
-                            f"Active days: {row[4]}, "  # row[4] is active_days
-                            f"Max value: {row[5]}")    # row[5] is max_value
             
             # Convert results to stock objects
             active_stocks = []

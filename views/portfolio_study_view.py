@@ -364,6 +364,22 @@ class PortfolioStudyView(QWidget):
         
         # Get current study type
         study_type = self.study_config.get_selection('study_type')
+
+        # Create filter for dividends (to avoid plotting dividends that don't pay dividends)
+        if study_type == 'dividend_performance' and level == 'chart_type':
+            # Get current date range
+            start_date = self.start_date.date().toPython()
+            end_date = self.end_date.date().toPython()
+            
+            # Update stock list considering dividend type
+            if hasattr(self, 'controller'):
+                active_stocks = self.controller.get_active_stocks_for_date_range(
+                    start_date, 
+                    end_date,
+                    dividend_type=value  # Pass the selected chart type
+                )
+                self.update_portfolio_stocks(active_stocks)
+
         if not study_type:
             return
             
