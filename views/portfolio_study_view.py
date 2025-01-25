@@ -379,6 +379,16 @@ class PortfolioStudyView(QWidget):
                     dividend_type=value  # Pass the selected chart type
                 )
                 self.update_portfolio_stocks(active_stocks)
+        # Reset stock list when switching away from dividend performance
+        elif level == 'study_type' and value != 'dividend_performance':
+            if hasattr(self, 'controller'):
+                start_date = self.start_date.date().toPython()
+                end_date = self.end_date.date().toPython()
+                active_stocks = self.controller.get_active_stocks_for_date_range(
+                    start_date,
+                    end_date
+                )
+                self.update_portfolio_stocks(active_stocks)
 
         if not study_type:
             return
@@ -388,7 +398,6 @@ class PortfolioStudyView(QWidget):
         
         # If study type changed, reset everything
         if level == 'study_type':
-
             # Clear all other selections
             self.study_config.current_selections = {
                 'study_type': value,  # Keep new study type
