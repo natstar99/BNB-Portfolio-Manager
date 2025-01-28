@@ -283,3 +283,12 @@ class SettingsView(QWidget):
             message (str): The success message to display
         """
         QMessageBox.information(self, "Success", message)
+
+    def show_error(self, message):
+        """
+        Display an error message using QMessageBox.
+        
+        Args:
+            message (str): The error message to display
+        """
+        QMessageBox.warning(self, "Error", message)

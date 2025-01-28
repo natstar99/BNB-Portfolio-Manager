@@ -22,9 +22,18 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     def __init__(self, db_manager):
         super().__init__()
+        self.db_manager = db_manager
+        self.portfolio_controller = PortfolioController(self.db_manager)
+        self.settings_controller = SettingsController(self.db_manager)
         self.setWindowTitle("Bear No Bears - Portfolio Manager")
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(0, 0, screen.width(), screen.height()-0.07*screen.height())
+
+        # Load portfolios and check if there's only one portfolio
+        self.portfolio_controller.load_portfolios()
+        portfolios = self.portfolio_controller.portfolios
+        if len(portfolios) == 1:
+            self.portfolio_controller.select_portfolio(portfolios[0].name)
 
         # Set up the background
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -170,7 +179,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.content_widget)
 
-        # Setup and initialize the ticker
+        # Setup and initialise the ticker
         self.setup_ticker()
 
         # Load initial data and update ticker
@@ -315,7 +324,7 @@ class StockTicker(QWidget):
         self.led_down_color = QColor(255, 0, 0)
         self.led_glow = QColor(255, 140, 0, 100)
         
-        # Initialize variables
+        # Initialise variables
         self.offset = 0
         self.show_welcome = True  # Flag to control welcome message
         self.stocks_text = ""
