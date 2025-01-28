@@ -218,7 +218,7 @@ running_calculations AS (
 		                FROM realised_pl rpl
 		                WHERE rpl.stock_id = d.stock_id
 		                AND rpl.sell_id = d.transaction_id  -- Join on the transaction ID
-		                AND rpl.method = 'fifo'
+		                AND rpl.method = :pl_method
 		            ),
 		            0
 		        )

@@ -2,6 +2,7 @@
 
 import logging
 from views.settings_view import SettingsView
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ class SettingsController:
         self.db_manager = db_manager
         self.view = SettingsView()
         self.current_portfolio = None
+        self._load_config()
+        self._set_initial_pl_method()
         
         # Connect signals
         self.view.save_button.clicked.connect(self.save_changes)
@@ -59,26 +62,75 @@ class SettingsController:
             logger.error(f"Error loading supported currencies: {str(e)}")
             self.view.show_error("Failed to load supported currencies")
 
+    def _load_config(self):
+        """Load configuration from config.yaml"""
+        try:
+            with open('config.yaml', 'r') as f:
+                self.config = yaml.safe_load(f) or {}
+            if 'profit_loss_calculations' not in self.config:
+                self.config['profit_loss_calculations'] = {
+                    'default_method': 'fifo',
+                    'available_methods': ['fifo', 'lifo', 'hifo']
+                }
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            self.config = {
+                "profit_loss_calculations": {
+                    "default_method": "fifo",
+                    "available_methods": ['fifo', 'lifo', 'hifo']
+                }
+            }
+
+    def _set_initial_pl_method(self):
+        """Set initial P/L calculation method from config"""
+        method = self.config['profit_loss_calculations']['default_method']
+        self.view.set_current_pl_method(method)
+
     def save_changes(self):
-        """Save the current currency settings to the database."""
+        """Save currency and P/L method settings"""
         if not self.current_portfolio:
             return
             
         try:
+            # Save currency settings
             new_currency = self.view.get_selected_currency()
             self.db_manager.execute(
                 "UPDATE portfolios SET portfolio_currency = ? WHERE id = ?",
                 (new_currency, self.current_portfolio.id)
             )
-            self.db_manager.conn.commit()
             
-            logger.info(f"Updated portfolio {self.current_portfolio.id} currency to {new_currency}")
+            # Save P/L method while preserving other config
+            new_method = self.view.get_selected_pl_method().lower()
+            
+            # Load existing config
+            with open('config.yaml', 'r') as f:
+                config = yaml.safe_load(f) or {}
+                
+            # Only update the profit_loss_calculations section
+            if 'profit_loss_calculations' not in config:
+                config['profit_loss_calculations'] = {}
+                
+            config['profit_loss_calculations']['default_method'] = new_method
+            
+            # Write back the config preserving order and style
+            with open('config.yaml', 'w') as f:
+                yaml.dump(
+                    config, 
+                    f, 
+                    sort_keys=False,  # Don't sort the keys
+                    default_flow_style=False,  # Use block style for main structure
+                    allow_unicode=True,  # Preserve unicode characters
+                    width=float("inf"),  # Prevent line wrapping
+                    indent=2  # Maintain indentation
+                )
+            
+            self.db_manager.conn.commit()
             self.view.save_button.setEnabled(False)
-            self.view.show_success("Currency settings updated successfully")
+            self.view.show_success("Settings updated successfully")
             
         except Exception as e:
-            logger.error(f"Error updating portfolio currency: {str(e)}")
-            self.view.show_error("Failed to update currency setting")
+            logger.error(f"Error updating settings: {str(e)}")
+            self.view.show_error("Failed to update settings")
 
     def get_view(self):
         """
