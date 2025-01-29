@@ -24,6 +24,7 @@ class WelcomeDialog(QWizard):
         super().__init__(parent)
         self.portfolio_controller = portfolio_controller
         self.settings_controller = settings_controller
+        self.current_portfolio = None  # Store the created portfolio at wizard level
         self.init_ui()
         
     def init_ui(self):
@@ -58,7 +59,7 @@ class WelcomeDialog(QWizard):
         """Handle wizard completion."""
         if result == QWizard.Accepted and self.import_page.should_import:
             # Emit signal with the portfolio name
-            portfolio_name = self.portfolio_page.current_portfolio.name
+            portfolio_name = self.current_portfolio.name
             self.import_requested.emit(portfolio_name)
 
 class WelcomePage(QWizardPage):
@@ -144,15 +145,22 @@ class CreatePortfolioPage(QWizardPage):
         
         layout.addStretch()
         self.setLayout(layout)
-    
+
     def validatePage(self):
         """Validate and create the portfolio."""
         portfolio_name = self.name_input.text().strip()
         
         try:
-            # Create the portfolio and store it as an attribute
-            self.current_portfolio = self.portfolio_controller.create_portfolio(portfolio_name)
+            # Create the portfolio
+            portfolio = self.portfolio_controller.create_portfolio(portfolio_name)
+            # Store it in the wizard
+            wizard = self.wizard()
+            if wizard:
+                wizard.current_portfolio = portfolio
+                # Update settings controller with the new portfolio
+                wizard.settings_controller.set_portfolio(portfolio)
             return True
+            
         except Exception as e:
             QMessageBox.warning(
                 self,
@@ -270,16 +278,20 @@ class SettingsPage(QWizardPage):
             currency_code = self.currency_combo.currentData()
             pl_method = self.pl_combo.currentData()
             
-            print(f"Saving settings - Currency: {currency_code}, Method: {pl_method}")
-            
-            # Update database currency setting
-            if self.settings_controller.current_portfolio:
-                portfolio_id = self.settings_controller.current_portfolio.id
+            # Get portfolio from wizard
+            wizard = self.wizard()
+            if wizard and wizard.current_portfolio:
+                portfolio_id = wizard.current_portfolio.id
+                
+                # Update database currency setting
                 self.settings_controller.db_manager.execute(
                     "UPDATE portfolios SET portfolio_currency = ? WHERE id = ?",
                     (currency_code, portfolio_id)
                 )
-                print(f"Updated currency in database for portfolio {portfolio_id}")
+                self.settings_controller.db_manager.conn.commit()  # Ensure changes are committed
+                
+            else:
+                raise ValueError("No portfolio available for settings update")
             
             # Update config file for P/L method
             try:
