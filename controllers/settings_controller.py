@@ -47,6 +47,10 @@ class SettingsController:
             )
             if result:
                 self.view.set_current_currency(result[0])
+                
+            # Reload config and update P/L method
+            self._load_config()
+            self._set_initial_pl_method()
         else:
             self.view.save_button.setEnabled(False)
 
