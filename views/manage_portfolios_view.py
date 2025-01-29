@@ -3,13 +3,52 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, 
                                QPushButton, QLabel, QLineEdit, QMessageBox,
                                QDialog, QDialogButtonBox, QFormLayout)
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 
 class CreatePortfolioDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create New Portfolio")
         self.layout = QFormLayout(self)
+        
+        # Style the dialog
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f5f5;
+                border-radius: 8px;
+            }
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border-color: #4DAF47;
+            }
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton[text="OK"] {
+                background-color: #4DAF47;
+                color: white;
+                border: none;
+            }
+            QPushButton[text="OK"]:hover {
+                background-color: #45a33e;
+            }
+            QPushButton[text="Cancel"] {
+                background-color: #f0f0f0;
+                border: 2px solid #ddd;
+            }
+            QPushButton[text="Cancel"]:hover {
+                background-color: #e5e5e5;
+            }
+        """)
 
         self.name_input = QLineEdit(self)
         self.layout.addRow("Portfolio Name:", self.name_input)
@@ -32,11 +71,91 @@ class ManagePortfoliosView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        # Add style to the view
+        self.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 10px 0;
+            }
+            QListWidget {
+                background-color: white;
+                border: 2px solid #ddd;
+                border-radius: 8px;
+                padding: 10px;
+                font-size: 14px;
+                selection-background-color: #4DAF47;
+                selection-color: white;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-radius: 4px;
+            }
+            QListWidget::item:hover {
+                background-color: #f0f0f0;
+            }
+            QListWidget::item:selected {
+                background-color: #4DAF47;
+                color: white;
+            }
+            QPushButton {
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                margin: 5px;
+            }
+            QPushButton#createButton {
+                background-color: #4DAF47;
+                color: white;
+                border: none;
+            }
+            QPushButton#createButton:hover {
+                background-color: #45a33e;
+            }
+            QPushButton#viewButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+            }
+            QPushButton#viewButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton#importButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+            }
+            QPushButton#importButton:hover {
+                background-color: #d68910;
+            }
+            QPushButton#deleteButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+            }
+            QPushButton#deleteButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
+
         layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
 
         # Portfolio list
         self.portfolio_list = QListWidget()
-        layout.addWidget(QLabel("Your Portfolios:"))
+        list_label = QLabel("Your Portfolios:")
+        list_label.setAlignment(Qt.AlignLeft)
+        layout.addWidget(list_label)
         layout.addWidget(self.portfolio_list)
 
         # Buttons
@@ -45,15 +164,20 @@ class ManagePortfoliosView(QWidget):
         self.delete_button = QPushButton("Delete Portfolio")
         self.view_button = QPushButton("View Portfolio")
         self.import_button = QPushButton("Import Transactions")
-        self.delete_button.setEnabled(False)
-        self.view_button.setEnabled(False)
-        self.import_button.setEnabled(False)
+
+        # Set object names for specific styling
+        self.create_button.setObjectName("createButton")
+        self.delete_button.setObjectName("deleteButton")
+        self.view_button.setObjectName("viewButton")
+        self.import_button.setObjectName("importButton")
+
+        # Add buttons to layout
         button_layout.addWidget(self.create_button)
-        button_layout.addWidget(self.delete_button)
         button_layout.addWidget(self.view_button)
         button_layout.addWidget(self.import_button)
-        layout.addLayout(button_layout)
+        button_layout.addWidget(self.delete_button)
 
+        layout.addLayout(button_layout)
         self.setLayout(layout)
 
         # Connect signals

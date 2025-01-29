@@ -119,18 +119,18 @@ class MainWindow(QMainWindow):
             }
         """
 
-        # Navigation button configurations with more logical icons
-        nav_configs = [
-            ("Manage Portfolios", "SP_DialogOpenButton"),
-            ("My Portfolio", "SP_FileDialogDetailedView"),
-            ("Study Portfolio", "SP_FileDialogContentsView"),
-            ("Study Market (Beta)", "SP_ComputerIcon"),
-            ("Settings", "SP_DialogHelpButton")
+        # Navigation button configurations with logical icons
+        self.nav_configs = [
+            ("Manage Portfolios", "SP_DialogOpenButton", True),  # Always visible
+            ("My Portfolio", "SP_FileDialogDetailedView", False),  # Initially hidden
+            ("Study Portfolio", "SP_FileDialogContentsView", False),  # Initially hidden
+            ("Study Market (Beta)", "SP_ComputerIcon", False),  # Initially hidden
+            ("Settings", "SP_DialogHelpButton", False)  # Initially hidden
         ]
         
         # Add navigation buttons
         self.nav_buttons = []
-        for button_text, icon_name in nav_configs:
+        for button_text, icon_name, initially_visible in self.nav_configs:
             button = QPushButton(button_text)
             button.setStyleSheet(button_style)
             
@@ -141,6 +141,9 @@ class MainWindow(QMainWindow):
             
             # Set property for styling selected state
             button.setProperty("selected", False)
+            
+            # Set initial visibility
+            button.setVisible(initially_visible)
             
             button.clicked.connect(lambda checked, text=button_text: self.on_nav_button_clicked(text))
             sidebar_layout.addWidget(button)
@@ -187,6 +190,7 @@ class MainWindow(QMainWindow):
         self.update_ticker_data()  # Initial ticker update
 
     def on_nav_button_clicked(self, button_text):
+        """Handle navigation button clicks."""
         index = [
             "Manage Portfolios",
             "My Portfolio",
@@ -196,28 +200,36 @@ class MainWindow(QMainWindow):
         ].index(button_text)
         
         self.content_widget.setCurrentIndex(index)
-        
-        # Update button styles
+        self._update_button_styles(index)
+
+    def _update_button_styles(self, selected_index):
+        """Update the styles of all buttons."""
         for i, button in enumerate(self.nav_buttons):
-            button.setProperty("selected", i == index)
-            button.style().unpolish(button)  # Force style refresh
-            button.style().polish(button)
+            if button.isVisible():  # Only update style if button is visible
+                button.setProperty("selected", i == selected_index)
+                button.style().unpolish(button)
+                button.style().polish(button)
 
     def on_portfolio_selected(self, portfolio_name):
+        """Handle portfolio selection and update button visibility."""
         portfolio = self.portfolio_controller.get_portfolio_by_name(portfolio_name)
         if portfolio:
+            # Update controllers
             self.portfolio_view_controller.set_portfolio(portfolio)
             self.portfolio_study_controller.set_portfolio(portfolio)
             self.market_analysis_controller.set_portfolio(portfolio)
             self.settings_controller.set_portfolio(portfolio)
-            self.content_widget.setCurrentIndex(1)  # Switch to My Portfolio view
             
-            # Update button styles - use the same mechanism as on_nav_button_clicked
-            for i, button in enumerate(self.nav_buttons):
-                button.setProperty("selected", i == 1)  # 1 is the index for "My Portfolio"
-                button.style().unpolish(button)
-                button.style().polish(button)
-
+            # Show all navigation buttons
+            for button, (button_text, _, _) in zip(self.nav_buttons, self.nav_configs):
+                # Keep "Manage Portfolios" visible and show others
+                if button_text != "Manage Portfolios":
+                    button.setVisible(True)
+            
+            # Switch to My Portfolio view and update button styles
+            self.content_widget.setCurrentIndex(1)  # Switch to My Portfolio view
+            self._update_button_styles(1)  # Update styles with My Portfolio selected
+            
             # Force ticker update with new portfolio
             self.update_ticker_data()
 
@@ -452,7 +464,7 @@ class StockTicker(QWidget):
             'E': [(0,0), (1,0), (2,0), (3,0), (4,0), (0,1), (0,2), (0,3), (1,3), (2,3),
                 (0,4), (0,5), (0,6), (1,6), (2,6), (3,6), (4,6)],
             'F': [(0,0), (1,0), (2,0), (3,0), (4,0), (0,1), (0,2), (0,3), (1,3), (2,3), (0,4), (0,5), (0,6)],
-            'G': [(1,0), (2,0), (3,0), (0,1), (0,2), (0,3), (0,4), (0,5), (1,6), (2,6), (3,6), (4,6), (4,5), (4,4), (3,3)],
+            'G': [(1,0), (2,0), (3,0), (0,1), (0,2), (0,3), (0,4), (0,5), (1,6), (2,6), (3,6), (4,6), (4,5), (4,4), (4,3), (3,3)],
             'H': [(0,0), (0,1), (0,2), (0,3), (0,4), (0,5), (0,6), (4,0), (4,1), (4,2), (4,3), (4,4), (4,5), (4,6), (1,3), (2,3), (3,3)],
             'I': [(0,0), (1,0), (2,0), (3,0), (4,0), (2,1), (2,2), (2,3), (2,4), (2,5), (0,6), (1,6), (2,6), (3,6), (4,6)],
             'J': [(3,0), (4,0), (4,1), (4,2), (4,3), (4,4), (0,5), (4,5), (1,6), (2,6), (3,6)],
