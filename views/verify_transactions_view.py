@@ -40,6 +40,50 @@ class VerifyTransactionsDialog(QDialog):
         self.setWindowTitle("Verify Imported Transactions")
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(0.1*screen.width(), 0.1*screen.height(), 0.8*screen.width(), 0.8*screen.height())
+
+        # Define button style
+        button_style = """
+            QPushButton {
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+                margin: 3px;
+            }
+            QPushButton#createButton {
+                background-color: #4DAF47;
+                color: white;
+                border: none;
+            }
+            QPushButton#createButton:hover {
+                background-color: #45a33e;
+            }
+            QPushButton#deleteButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+            }
+            QPushButton#deleteButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton#actionButton {
+                background-color: #f8f9fa;
+                border: 1px solid #ddd;
+                color: #2c3e50;
+            }
+            QPushButton#actionButton:hover {
+                background-color: #e9ecef;
+            }
+            QPushButton#dialogButton {
+                background-color: white;
+                border: 1px solid #ddd;
+                color: #2c3e50;
+            }
+            QPushButton#dialogButton:hover {
+                background-color: #f8f9fa;
+            }
+        """
+        self.setStyleSheet(button_style)
         
         layout = QVBoxLayout(self)
         
@@ -59,10 +103,12 @@ class VerifyTransactionsDialog(QDialog):
         # Left side management buttons group
         management_buttons = QHBoxLayout()
         self.add_instrument_btn = QPushButton("Create New Stock")
+        self.add_instrument_btn.setObjectName("createButton")
         self.add_instrument_btn.clicked.connect(self.add_instrument)
         management_buttons.addWidget(self.add_instrument_btn)
         
         self.remove_selected_btn = QPushButton("Delete Selected Stock")
+        self.remove_selected_btn.setObjectName("deleteButton")
         self.remove_selected_btn.clicked.connect(self.remove_selected)
         self.remove_selected_btn.setEnabled(False)
         management_buttons.addWidget(self.remove_selected_btn)
@@ -84,16 +130,19 @@ class VerifyTransactionsDialog(QDialog):
         action_group = QHBoxLayout()
         
         self.verify_all_btn = QPushButton("Verify All with Yahoo")
+        self.verify_all_btn.setObjectName("dialogButton")
         self.verify_all_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
         self.verify_all_btn.clicked.connect(self.verify_all_stocks)
         action_group.addWidget(self.verify_all_btn)
         
         self.manage_markets_btn = QPushButton("Manage Markets")
+        self.manage_markets_btn.setObjectName("dialogButton")
         self.manage_markets_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
         self.manage_markets_btn.clicked.connect(self.show_manage_markets)
         action_group.addWidget(self.manage_markets_btn)
         
         self.reimport_btn = QPushButton("Reimport Transactions")
+        self.reimport_btn.setObjectName("dialogButton")
         self.reimport_btn.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
         self.reimport_btn.clicked.connect(self.show_reimport_dialog)
         action_group.addWidget(self.reimport_btn)
@@ -105,15 +154,11 @@ class VerifyTransactionsDialog(QDialog):
         dialog_buttons = QDialogButtonBox(parent=self)
         
         update_btn = QPushButton("Save and Update Data")
-        update_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
+        update_btn.setObjectName("dialogButton")
+        update_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         dialog_buttons.addButton(update_btn, QDialogButtonBox.AcceptRole)
         
-        exit_btn = QPushButton("Save and Exit")
-        exit_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        dialog_buttons.addButton(exit_btn, QDialogButtonBox.RejectRole)
-        
         update_btn.clicked.connect(self.save_and_update)
-        exit_btn.clicked.connect(self.save_and_exit)
         
         bottom_bar.addWidget(dialog_buttons)
         
@@ -267,7 +312,8 @@ class VerifyTransactionsDialog(QDialog):
                 )
                 
                 # Create Actions Button (Column 9)
-                actions_btn = QPushButton("Actions ▼")
+                actions_btn = QPushButton("• • •")  # Three dots for menu indicator
+                actions_btn.setObjectName("actionButton")
                 actions_btn.clicked.connect(lambda _, r=row: self.show_actions_menu(r))
                 self.table.setCellWidget(row, 9, actions_btn)
 
@@ -861,71 +907,6 @@ class VerifyTransactionsDialog(QDialog):
             QMessageBox.warning(self, "Error", f"Failed to update with fresh data: {str(e)}")
             self.reject()
 
-    def save_and_exit(self):
-        """Use existing data, calculate metrics, save to db"""
-        try:
-            # 1. Save stock meta data
-            self.save_changes()
-            logger.info("Basic stock data saved")
-
-            progress = QProgressDialog(
-                "Calculating metrics with existing data...",
-                "Cancel",
-                0,
-                self.table.rowCount(),
-                self
-            )
-            progress.setWindowModality(Qt.WindowModal)
-
-            for row in range(self.table.rowCount()):
-                if progress.wasCanceled():
-                    break
-
-                instrument_code = self.table.item(row, 0).text()
-                verification_status = self.table.item(row, 8).text()
-
-                if verification_status == "Verified":
-                    stock = self.db_manager.get_stock_by_instrument_code(instrument_code)
-                    if stock and stock[0]:
-                        stock_id = stock[0]
-                        yahoo_symbol = stock[1]
-                        transactions = self.db_manager.get_transactions_for_stock(stock_id)
-                        if transactions:
-                            # 2. Get existing Yahoo data from db
-                            logger.info(f"Reading existing data for {yahoo_symbol}")
-                            existing_yahoo_data = self.db_manager.get_existing_yahoo_data(
-                                stock_id=stock_id
-                            )
-
-                            # 3. Calculate metrics using existing data
-                            logger.info(f"Calculating metrics for {yahoo_symbol}")
-                            metrics = HistoricalDataCollector.calculate_historical_metrics(
-                                stock_id=stock_id,
-                                transactions=transactions,
-                                yahoo_data=existing_yahoo_data
-                            )
-
-                            # 4. Save updated metrics to db
-                            if metrics:
-                                logger.debug(f"About to insert {len(metrics)} records")
-                                self.db_manager.bulk_insert_historical_prices(metrics)
-                                logger.debug("Insert completed")
-
-                progress.setValue(row + 1)
-
-            progress.close()
-            self.reject()
-
-        except Exception as e:
-            logger.error(f"Error in save_and_exit: {str(e)}")
-            logger.exception("Detailed traceback:")
-            QMessageBox.warning(
-                self,
-                "Error",
-                f"Failed to calculate metrics with existing data: {str(e)}"
-            )
-            self.reject()
-
     def save_changes(self):
         """
         Save the current state of all stocks to the database and update metrics.
@@ -1048,7 +1029,6 @@ class VerifyTransactionsDialog(QDialog):
 
     def closeEvent(self, event):
         """Handle the window close event (X button)"""
-        self.save_changes()
         event.accept()  # Allow the window to close
 
     def show_reimport_dialog(self):

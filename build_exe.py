@@ -28,10 +28,10 @@ def create_version_file(dist_dir):
     
     # Create the version information
     version_info = f"""BNB Portfolio Manager
-Build Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Version: 3.7.6
-Copyright: Bear No Bears
-"""
+        Build Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        Version: 3.9.4
+        Copyright: Bear No Bears
+        """
     # Write the version file directly to the dist directory
     with open(version_file_path, 'w') as f:
         f.write(version_info)

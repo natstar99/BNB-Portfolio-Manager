@@ -21,40 +21,146 @@ class MyPortfolioView(QWidget):
     def init_ui(self):
         """Initialise the user interface."""
         layout = QVBoxLayout()
+        layout.setSpacing(1)
+        
+        self.setStyleSheet("""
+            QWidget {
+                background-color: white;
+            }
+            
+            /* Portfolio Metrics Styling */
+            QLabel#portfolioName {
+                font-size: 18px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 5px 0;
+            }
+            
+            QLabel#metricValue {
+                font-size: 14px;
+                color: #2c3e50;
+                padding: 1px 1px;
+                background-color: rgba(255, 255, 255, 0.9);
+                border-radius: 8px;
+                margin: 2px 0;
+            }
+            
+            /* Button Styling */
+            QPushButton {
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                margin: 5px;
+            }
+            
+            QPushButton#refreshButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+            }
+            QPushButton#refreshButton:hover {
+                background-color: #2980b9;
+            }
+            
+            QPushButton#manageButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+            }
+            QPushButton#manageButton:hover {
+                background-color: #d68910;
+            }
+            
+            QPushButton#historyButton {
+                background-color: #4DAF47;
+                color: white;
+                border: none;
+            }
+            QPushButton#historyButton:hover {
+                background-color: #45a33e;
+            }
+            
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+            
+            /* Checkbox Styling */
+            QCheckBox {
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:unchecked {
+                border: 2px solid #bdc3c7;
+                background-color: white;
+                border-radius: 4px;
+            }
+            QCheckBox::indicator:checked {
+                border: 2px solid #4DAF47;
+                background-color: #4DAF47;
+                border-radius: 4px;
+            }
+        """)
+
+        # Create metrics container
+        metrics_container = QWidget()
+        metrics_container.setFixedWidth(200)
+        metrics_layout = QVBoxLayout(metrics_container)
+        metrics_layout.setSpacing(1)
 
         # Portfolio name and summary
         self.portfolio_name_label = QLabel("Portfolio Name")
+        self.portfolio_name_label.setObjectName("portfolioName")
+        
         self.portfolio_value_label = QLabel("Portfolio Value: $0.00")
         self.portfolio_cost_basis_label = QLabel("Cost Basis: $0.00")
         self.portfolio_pl_dollar_label = QLabel("Total P/L: $0.00")
         self.portfolio_pl_percent_label = QLabel("Total Return: 0.00%")
 
-        # Add all labels to layout
-        layout.addWidget(self.portfolio_name_label)
-        layout.addWidget(self.portfolio_value_label)
-        layout.addWidget(self.portfolio_cost_basis_label)
-        layout.addWidget(self.portfolio_pl_dollar_label)
-        layout.addWidget(self.portfolio_pl_percent_label)
+        # Set object names for styling
+        for label in [self.portfolio_value_label, self.portfolio_cost_basis_label,
+                    self.portfolio_pl_dollar_label, self.portfolio_pl_percent_label]:
+            label.setObjectName("metricValue")
+
+        # Add metrics to layout
+        metrics_layout.addWidget(self.portfolio_name_label)
+        metrics_layout.addWidget(self.portfolio_value_label)
+        metrics_layout.addWidget(self.portfolio_cost_basis_label)
+        metrics_layout.addWidget(self.portfolio_pl_dollar_label)
+        metrics_layout.addWidget(self.portfolio_pl_percent_label)
+        
+        layout.addWidget(metrics_container)
 
         # Create Buttons and Toggle
         button_layout = QHBoxLayout()
 
-        # Add toggle for zero shares
         self.show_zero_shares = QCheckBox("Show Zero Share Positions")
-        self.show_zero_shares.setChecked(True)  # Default to showing all
+        self.show_zero_shares.setChecked(True)
         self.show_zero_shares.stateChanged.connect(self.on_toggle_zero_shares)
         button_layout.addWidget(self.show_zero_shares)
-        button_layout.addStretch()  # Add stretch to separate toggle from buttons
+        button_layout.addStretch()
+
+        # Create buttons with object names for styling
+        self.view_history_button = QPushButton("View History")
+        self.view_history_button.setObjectName("historyButton")
+        self.view_history_button.setVisible(False)  # Start hidden (this is shown once a stock is selected)
 
         self.refresh_button = QPushButton("Refresh Data")
+        self.refresh_button.setObjectName("refreshButton")
+        
         self.manage_portfolio_button = QPushButton("Manage Portfolio")
-        self.view_history_button = QPushButton("View History")
-        self.view_history_button.setEnabled(False)
-
-        # Add buttons to widget
+        self.manage_portfolio_button.setObjectName("manageButton")
+        
+        # Add buttons to layout
+        button_layout.addWidget(self.view_history_button)
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.manage_portfolio_button)
-        button_layout.addWidget(self.view_history_button)
+
         layout.addLayout(button_layout)
 
         # Stocks Table
@@ -102,8 +208,9 @@ class MyPortfolioView(QWidget):
             self.view_history.emit(yahoo_symbol)
 
     def on_selection_changed(self):
-        """Enable/disable the history button based on selection."""
+        """Show/hide and enable/disable the history button based on selection."""
         selected = bool(self.stocks_table.selectedItems())
+        self.view_history_button.setVisible(selected)  # Show/hide based on selection
         self.view_history_button.setEnabled(selected)
 
     def update_portfolio(self, portfolio):

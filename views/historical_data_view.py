@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QDateEdit, QDialogButtonBox, QCheckBox,
                               QAbstractItemView, QComboBox, QMessageBox,
                               QDoubleSpinBox, QFormLayout, QSpinBox, QHeaderView,
-                              QApplication, QProgressDialog)
+                              QApplication, QProgressDialog, QFrame)
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime
 import logging
@@ -32,24 +32,63 @@ class HistoricalDataDialog(QDialog):
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(0.1*screen.width(), 0.1*screen.height(), 0.8*screen.width(), 0.8*screen.height())
 
+        # Set styling for the view
+        self.setStyleSheet("""
+            QPushButton {
+                padding: 6px 16px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                margin: 3px;
+                min-width: 80px;  /* Control button width */
+                max-width: 160px;  /* Prevent excessive width */
+            }
+            
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+            }
+            
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+            
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                min-width: 100px;
+            }
+            
+            QDateEdit {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                min-width: 100px;
+            }
+        """)
+
+        # 1. Initial setup
         layout = QVBoxLayout(self)
-        
-        # Add title with stock information
+
+        # 2. Add title with stock information
         title = QLabel(f"Historical Data - {self.stock.name} ({self.stock.yahoo_symbol})")
         title.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title)
 
-        # Create toolbar
-        toolbar = QHBoxLayout()
-        
-        # View mode selector
-        toolbar.addWidget(QLabel("View Mode:"))
+        # 3. Initialize UI components
+        # 3a. View mode controls
         self.view_mode_combo = QComboBox()
         self.view_mode_combo.addItems(["Simple", "Detailed", "Custom"])
         self.view_mode_combo.currentTextChanged.connect(self.on_view_mode_changed)
-        toolbar.addWidget(self.view_mode_combo)
-        
-        # Group visibility toggles
+
+        # 3b. Group toggles
         self.group_toggles = {}
         for group_name in self.config['column_groups'].keys():
             display_name = group_name.replace('_', ' ').title()
@@ -57,54 +96,106 @@ class HistoricalDataDialog(QDialog):
             checkbox.setChecked(True)
             checkbox.stateChanged.connect(self.on_group_visibility_changed)
             self.group_toggles[group_name] = checkbox
-            toolbar.addWidget(checkbox)
 
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
-
-        # Transaction management buttons
-        button_bar = QHBoxLayout()
-        
-        # Left side buttons
+        # 3c. Management buttons
         self.manage_data_btn = QPushButton("Manage Historical Data")
         self.manage_data_btn.clicked.connect(self.show_manage_dialog)
-        button_bar.addWidget(self.manage_data_btn)
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.clicked.connect(self.show_settings_dialog)
 
-        # Right side buttons
-        settings_btn = QPushButton("Settings")
-        settings_btn.clicked.connect(self.show_settings_dialog)
-        button_bar.addWidget(settings_btn)
-        
-        layout.addLayout(button_bar)
-
-        # Filter controls
-        filter_layout = QHBoxLayout()
-        
-        # Date range filter
-        filter_layout.addWidget(QLabel("From:"))
+        # 3d. Date filter controls
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
-        filter_layout.addWidget(self.date_from)
-        
-        filter_layout.addWidget(QLabel("To:"))
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate())
-        filter_layout.addWidget(self.date_to)
-
-        # Apply filters button
         self.apply_filter_btn = QPushButton("Apply Filters")
         self.apply_filter_btn.clicked.connect(self.apply_filters)
-        filter_layout.addWidget(self.apply_filter_btn)
-
-        # Reset filters button
         self.reset_filter_btn = QPushButton("Reset Filters")
         self.reset_filter_btn.clicked.connect(self.reset_filters)
-        filter_layout.addWidget(self.reset_filter_btn)
 
-        layout.addLayout(filter_layout)
+        # 4. Frame styling (used by all frames)
+        frame_style = """
+            QFrame {
+                background-color: rgba(255, 255, 255, 0.8);
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin: 5px;
+                padding: 5px;
+            }
+            QLabel[frameTitle="true"] {
+                color: #666;
+                font-weight: bold;
+                font-size: 12px;
+                padding-bottom: 5px;
+            }
+        """
 
-        # Main table
+        # 5. Create and setup view controls group
+        # 5a. Create group box with title
+        view_controls_group = QGroupBox("View Controls")
+        view_controls_group.setStyleSheet("""
+            QGroupBox {
+                background-color: rgba(255, 255, 255, 0.8);
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin: 5px;
+                padding: 5px;
+            }
+            QGroupBox::title {
+                color: #666;
+                font-weight: bold;
+                font-size: 12px;
+            }
+        """)
+
+        # 5b. Create and add view controls layout
+        view_controls = QHBoxLayout(view_controls_group)
+        view_controls.addWidget(QLabel("View Mode:"))
+        view_controls.addWidget(self.view_mode_combo)
+        view_controls.addStretch()
+        for checkbox in self.group_toggles.values():
+            view_controls.addWidget(checkbox)
+
+        # 6. Create horizontal layout for bottom controls
+        bottom_controls = QHBoxLayout()
+
+        # 7. Create and setup filter controls group (left side)
+        # 7a. Create group box with title
+        filter_controls_group = QGroupBox("Date Filters")
+        filter_controls_group.setStyleSheet(view_controls_group.styleSheet())
+
+        # 7b. Create and add filter controls layout
+        filter_controls = QHBoxLayout(filter_controls_group)
+        filter_controls.addWidget(QLabel("From:"))
+        filter_controls.addWidget(self.date_from)
+        filter_controls.addSpacing(10)
+        filter_controls.addWidget(QLabel("To:"))
+        filter_controls.addWidget(self.date_to)
+        filter_controls.addStretch()
+        filter_controls.addWidget(self.apply_filter_btn)
+        filter_controls.addWidget(self.reset_filter_btn)
+
+        # 8. Create and setup management controls group (right side)
+        # 8a. Create group box with title
+        management_group = QGroupBox("Management")
+        management_group.setStyleSheet(view_controls_group.styleSheet())
+
+        # 8b. Create and add management buttons layout
+        button_layout = QHBoxLayout(management_group)
+        button_layout.addWidget(self.manage_data_btn)
+        button_layout.addWidget(self.settings_btn)
+
+        # 9. Add groups to layouts
+        # 9a. Add view controls to main layout
+        layout.addWidget(view_controls_group)
+
+        # 9b. Add filter and management groups to bottom layout
+        bottom_controls.addWidget(filter_controls_group, stretch=2)  # More space for filters
+        bottom_controls.addWidget(management_group, stretch=1)      # Less space for management
+        layout.addLayout(bottom_controls)  # Add this line to connect bottom controls to main layout
+
+        # 10. Setup main table
         self.table = QTableWidget()
         self.table.setSortingEnabled(True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -112,6 +203,7 @@ class HistoricalDataDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.table)
 
+        # 11. Finalise layout
         self.setLayout(layout)
         self.resize(1200, 800)
 
