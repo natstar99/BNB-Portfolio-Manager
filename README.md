@@ -17,6 +17,8 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 
 ![alt text](resources/welcome_image.png)
 
+![alt text](resources/main_window.png)
+
 ![alt text](resources/stacked_portfolio_plot.png)
 
 
@@ -31,6 +33,8 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 
 ![alt text](resources/verify_transactions_screen.png)
 
+![alt text](resources/historical_data_view.png)
+
 ### Portfolio Analysis
 - Interactive portfolio performance visualisation
 - Multiple chart types (line, area, pie charts)
@@ -41,6 +45,8 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 - Custom date range analysis for targeted performance review
 
 ![alt text](resources/portfolio_total_plot.png)
+
+![alt text](resources/portfolio_pie_chart.png)
 
 ![alt text](resources/correlation_matrix.png)
 
