@@ -15,6 +15,11 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 3. Run the BNB_Portfolio_Manager.exe file
 4. Create a new portfolio, import your transactions, and start managing your portfolio
 
+![alt text](resources/welcome_image.png)
+
+![alt text](resources/stacked_portfolio_plot.png)
+
+
 ## Core Features
 
 ### Portfolio Management
@@ -24,6 +29,8 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 - Dividend reinvestment (DRP) tracking and management
 - Tax optimisation calculation support for realised profit/loss (FIFO/LIFO/HIFO)
 
+![alt text](resources/verify_transactions_screen.png)
+
 ### Portfolio Analysis
 - Interactive portfolio performance visualisation
 - Multiple chart types (line, area, pie charts)
@@ -32,6 +39,10 @@ The Bear No Bears (BNB) Portfolio Manager is an advanced, open-source portfolio 
 - Dividend performance analysis and reinvestment tracking
 - Portfolio distribution insights with dynamic updates
 - Custom date range analysis for targeted performance review
+
+![alt text](resources/portfolio_total_plot.png)
+
+![alt text](resources/correlation_matrix.png)
 
 ### Market Support
 - International market support from 60+ global exchanges (Any stock available on Yahoo Finance)
@@ -172,4 +183,4 @@ This software uses data from Yahoo Finance. Usage of this data is subject to Yah
 This software is provided "as is", without warranty of any kind, express or implied. See the AGPL-3.0 license for details.
 
 ## 
-© 2024 Bear No Bears. All Rights Reserved.
+© 2025 Bear No Bears. All Rights Reserved.
