@@ -701,3 +701,59 @@ class PortfolioStudyView(QWidget):
             controller: PortfolioStudyController instance to handle business logic
         """
         self.controller = controller
+
+    def setup_line_picking(self, lines, labels):
+        """
+        Configure click-to-highlight functionality for plotted lines.
+        
+        Args:
+            lines: List of Line2D objects from the plot
+            labels: List of labels corresponding to the lines
+        """
+        # Store references to all lines and their original styles
+        self.plot_lines = lines
+        self.plot_labels = labels
+        self.highlighted_line = None
+        
+        # Make lines pickable (clickable)
+        for line in lines:
+            line.set_picker(5)  # 5 points tolerance for picking
+        
+        # Connect to the pick event
+        self.canvas.mpl_connect('pick_event', self.on_line_picked)
+
+    def on_line_picked(self, event):
+        """Handle pick events on the plot lines."""
+        # Only process line picks
+        if not hasattr(event.artist, 'get_label'):
+            return
+            
+        # Get the clicked line and its label
+        picked_line = event.artist
+        picked_label = picked_line.get_label()
+        
+        # Reset all lines to default style
+        for line in self.plot_lines:
+            line.set_linewidth(1.5)  # Default linewidth
+            line.set_alpha(0.7)      # Slightly transparent
+            
+        # Highlight the picked line
+        picked_line.set_linewidth(3.0)  # Thicker line
+        picked_line.set_alpha(1.0)      # Fully opaque
+        
+        # Find the legend and highlight the corresponding entry
+        legend = self.figure.axes[0].get_legend()
+        if legend:
+            for text, line in zip(legend.get_texts(), legend.get_lines()):
+                if text.get_text() == picked_label:
+                    text.set_weight('bold')  # Bold text in legend
+                    line.set_linewidth(3.0)  # Thicker line in legend
+                else:
+                    text.set_weight('normal')  # Normal text weight
+                    line.set_linewidth(1.5)   # Default line width
+        
+        # Store the highlighted line
+        self.highlighted_line = picked_line
+        
+        # Redraw the canvas
+        self.canvas.draw()

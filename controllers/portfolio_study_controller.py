@@ -250,22 +250,30 @@ class PortfolioStudyController:
         plot_data = plot_data['market_value'].unstack()
         plot_data = plot_data.asfreq('D').ffill()
         
+        # Create a list to store the lines and labels
+        lines = []
+        labels = []
+        
         # Check view type using the correct mapped value
-        if params['view_type'] == "individual_stocks":  # This should match the value in config.yaml
+        if params['view_type'] == "individual_stocks":
             # Plot individual stock values
             for stock in params['selected_stocks']:
                 if stock in plot_data.columns:
-                    ax.plot(plot_data.index, plot_data[stock], 
-                        label=stock, linewidth=1.5)
-                    
+                    line = ax.plot(plot_data.index, plot_data[stock], 
+                        label=stock, linewidth=1.5, alpha=0.7)[0]  # Get the Line2D object
+                    lines.append(line)
+                    labels.append(stock)
+                        
         else:  # Portfolio Total
             # Check chart type using the correct mapped value
-            if params['chart_type'] == "line_chart":  # This should match the value in config.yaml
+            if params['chart_type'] == "line_chart":
                 # Sum market values by date using the forward-filled values
                 portfolio_total = plot_data.sum(axis=1)
-                ax.plot(plot_data.index, portfolio_total.values,
-                    label='Total Portfolio', linewidth=2)
-            elif params['chart_type'] == "stacked_area":  # This should match the value in config.yaml
+                line = ax.plot(plot_data.index, portfolio_total.values,
+                    label='Total Portfolio', linewidth=2, alpha=0.7)[0]
+                lines.append(line)
+                labels.append('Total Portfolio')
+            elif params['chart_type'] == "stacked_area": # This should match the value in config.yaml
                 # Fill any remaining NaN values with 0 for stacking
                 plot_data = plot_data.fillna(0)
                 
@@ -290,6 +298,9 @@ class PortfolioStudyController:
         
         # Format y-axis to use comma separator for thousands
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+
+        # Set up line picking after the plot is created
+        self.view.setup_line_picking(lines, labels)
 
     def plot_profitability(self, ax, params):
         """
@@ -330,6 +341,10 @@ class PortfolioStudyController:
                 ylabel = "Return (%)"
                 value_format = lambda x, p: f'{x:.1f}%'
             
+            # Create lists to store lines and labels
+            lines = []
+            labels = []
+            
             if view_type == 'individual_stocks':
                 for stock in params['selected_stocks']:
                     stock_data = self.data[self.data['stock'] == stock].copy()
@@ -340,7 +355,9 @@ class PortfolioStudyController:
                         start_value = y_values.iloc[0]
                         y_values = y_values - start_value
                         
-                    ax.plot(stock_data['date'], y_values, label=stock)
+                    line = ax.plot(stock_data['date'], y_values, label=stock, linewidth=1.5, alpha=0.7)[0]
+                    lines.append(line)
+                    labels.append(stock)
 
             else:  # portfolio_total
                 if time_period == 'cumulative' and chart_type == 'dollar_value':
@@ -364,7 +381,10 @@ class PortfolioStudyController:
                         start_value = y_values.iloc[0]
                         y_values = y_values - start_value
                     
-                    ax.plot(y_values.index, y_values.values, label='Portfolio Total', linewidth=2)
+                    line = ax.plot(y_values.index, y_values.values, label='Portfolio Total', 
+                                linewidth=2, alpha=0.7)[0]
+                    lines.append(line)
+                    labels.append('Portfolio Total')
                 
                 # For portfolio total, percentage calculations
                 elif chart_type == 'percentage':
@@ -399,7 +419,10 @@ class PortfolioStudyController:
                         y_values = y_values - start_value
                         
                     # Use y_values.index instead of grouped.index
-                    ax.plot(y_values.index, y_values.values, label='Portfolio Total', linewidth=2)
+                    line = ax.plot(y_values.index, y_values.values, label='Portfolio Total', 
+                                linewidth=2, alpha=0.7)[0]
+                    lines.append(line)
+                    labels.append('Portfolio Total')
                 
             # Add zero line for reference
             ax.axhline(y=0, color='r', linestyle='--', alpha=0.3)
@@ -424,6 +447,9 @@ class PortfolioStudyController:
             # Format axes
             self.setup_date_axis(ax)
             ax.yaxis.set_major_formatter(plt.FuncFormatter(value_format))
+            
+            # Set up line picking
+            self.view.setup_line_picking(lines, labels)
             
         except Exception as e:
             logger.error(f"Error plotting profitability: {str(e)}")
@@ -466,6 +492,10 @@ class PortfolioStudyController:
             # Set multi-index using both date and stock
             plot_data.set_index(['date', 'stock'], inplace=True)
             
+            # Create lists to store lines and labels
+            lines = []
+            labels = []
+            
             # Handle data based on chart type
             if params['chart_type'] == 'cash':
                 # For cash dividends, use appropriate metric based on time period
@@ -507,25 +537,33 @@ class PortfolioStudyController:
                 if params['chart_type'] == 'combined':
                     # Plot total dividend value for each stock
                     for stock in total_dividend_data.columns:
-                        ax.plot(total_dividend_data.index, total_dividend_data[stock],
-                            label=stock, linewidth=1.5)
+                        line = ax.plot(total_dividend_data.index, total_dividend_data[stock],
+                            label=stock, linewidth=1.5, alpha=0.7)[0]
+                        lines.append(line)
+                        labels.append(stock)
                 else:
                     # Plot individual metric for each stock
                     for stock in plot_data.columns:
-                        ax.plot(plot_data.index, plot_data[stock],
-                            label=stock, linewidth=1.5)
+                        line = ax.plot(plot_data.index, plot_data[stock],
+                            label=stock, linewidth=1.5, alpha=0.7)[0]
+                        lines.append(line)
+                        labels.append(stock)
                         
             else:  # portfolio_total
                 if params['chart_type'] == 'combined':
                     # Calculate and plot portfolio total dividend value
                     portfolio_total = total_dividend_data.sum(axis=1)
-                    ax.plot(portfolio_total.index, portfolio_total.values,
-                        label='Total Dividends', linewidth=2)
+                    line = ax.plot(portfolio_total.index, portfolio_total.values,
+                        label='Total Dividends', linewidth=2, alpha=0.7)[0]
+                    lines.append(line)
+                    labels.append('Total Dividends')
                 else:
                     # Calculate and plot portfolio total for single metric
                     portfolio_total = plot_data.sum(axis=1)
-                    ax.plot(portfolio_total.index, portfolio_total.values,
-                        label='Portfolio Total', linewidth=2)
+                    line = ax.plot(portfolio_total.index, portfolio_total.values,
+                        label='Portfolio Total', linewidth=2, alpha=0.7)[0]
+                    lines.append(line)
+                    labels.append('Portfolio Total')
 
             # Set title and labels
             period_type = 'Cumulative' if params['time_period'] == 'cumulative' else 'Daily'
@@ -550,6 +588,9 @@ class PortfolioStudyController:
             
             # Adjust layout to prevent label cutoff
             plt.tight_layout()
+            
+            # Set up line picking
+            self.view.setup_line_picking(lines, labels)
             
         except Exception as e:
             logger.error(f"Error plotting dividends: {str(e)}")
