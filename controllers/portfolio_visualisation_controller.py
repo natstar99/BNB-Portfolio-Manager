@@ -71,11 +71,11 @@ class PortfoliovisualisationController:
             if len(weights) == 1:
                 # Single stock case
                 ticker = list(weights.keys())[0]
-                prices[ticker] = data['Adj Close']
+                prices[ticker] = data['Close']
             else:
                 # Multiple stocks case
                 for ticker in weights.keys():
-                    prices[ticker] = data['Adj Close'][ticker]
+                    prices[ticker] = data['Close'][ticker]
             
             # Calculate portfolio and individual stock performances
             portfolio_values = pd.DataFrame(index=prices.index)

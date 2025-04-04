@@ -414,20 +414,6 @@ class VerifyTransactionsDialog(QDialog):
                 f"Failed to refresh market selections: {str(e)}"
             )
 
-    def on_yahoo_symbol_changed(self, row):
-        try:
-            instrument_code = self.table.item(row, 0).text()
-            yahoo_symbol = self.table.item(row, 2).text()
-            
-            # Update the database with the manual override
-            self.db_manager.update_stock_yahoo_override(instrument_code, yahoo_symbol)
-            
-            # Reset verification status
-            self.update_status(row, "Pending", Qt.gray)
-            
-        except Exception as e:
-            print(f"Error in on_yahoo_symbol_changed: {str(e)}")
-
     def verify_all_stocks(self):
         progress = QProgressDialog("Verifying stocks with Yahoo Finance...", "Cancel", 0, self.table.rowCount(), self)
         progress.setWindowModality(Qt.WindowModal)

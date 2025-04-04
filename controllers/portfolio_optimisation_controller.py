@@ -52,7 +52,7 @@ class PortfolioOptimisationController:
             start_date = datetime.now() - timedelta(days=years*365)
             
             # Download data
-            data = yf.download(tickers, start=start_date, end=datetime.now())['Adj Close']
+            data = yf.download(tickers, start=start_date, end=datetime.now())['Close']
             returns = data.pct_change().dropna()
             
             # Initialise optimisation parameters
