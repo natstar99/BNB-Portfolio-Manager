@@ -143,6 +143,7 @@ def build_executable():
             '--hidden-import=matplotlib',
             '--hidden-import=seaborn',
             '--hidden-import=yaml',
+            '--hidden-import=appdirs',
             'main.py'
         ]
         
