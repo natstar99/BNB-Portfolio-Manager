@@ -34,6 +34,14 @@ class HistoricalDataDialog(QDialog):
 
         # Set styling for the view
         self.setStyleSheet("""
+            QDialog {
+                background-color: white;
+            }
+            
+            QWidget {
+                background-color: white;
+            }
+            
             QPushButton {
                 padding: 6px 16px;
                 border-radius: 4px;
@@ -71,6 +79,32 @@ class HistoricalDataDialog(QDialog):
                 border: 1px solid #bdc3c7;
                 border-radius: 4px;
                 min-width: 100px;
+            }
+            
+            /* Table Styling - Fix black background issue */
+            QTableWidget {
+                background-color: white;
+                gridline-color: #ddd;
+                selection-background-color: #e3f2fd;
+            }
+            
+            QTableWidget::item {
+                padding: 8px;
+                background-color: white;
+                border-bottom: 1px solid #eee;
+            }
+            
+            QTableWidget::item:selected {
+                background-color: #e3f2fd;
+                color: black;
+            }
+            
+            QHeaderView::section {
+                background-color: #f5f5f5;
+                color: black;
+                padding: 8px;
+                border: 1px solid #ddd;
+                font-weight: bold;
             }
         """)
 

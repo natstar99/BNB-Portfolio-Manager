@@ -24,8 +24,24 @@ class MyPortfolioView(QWidget):
         layout.setSpacing(1)
         
         self.setStyleSheet("""
-            QWidget {
-                background-color: white;
+            MyPortfolioView {
+                background-color: transparent;
+            }
+            
+            /* Metrics Container Styling */
+            QWidget#metricsContainer {
+                background-color: transparent;
+                padding: 0px;
+                margin: 0px;
+            }
+            
+            /* Individual Metric Box Styling - Button-like */
+            QWidget#metricBox {
+                background-color: rgba(255, 255, 255, 0.9);
+                border: 2px solid rgba(77, 175, 71, 0.3);
+                border-radius: 8px;
+                padding: 12px 15px;
+                margin: 3px 5px;
             }
             
             /* Portfolio Metrics Styling */
@@ -34,14 +50,15 @@ class MyPortfolioView(QWidget):
                 font-weight: bold;
                 color: #2c3e50;
                 padding: 5px 0;
+                background-color: transparent;
             }
             
             QLabel#metricValue {
                 font-size: 14px;
+                font-weight: bold;
                 color: #2c3e50;
-                padding: 1px 1px;
-                background-color: rgba(255, 255, 255, 0.9);
-                border-radius: 8px;
+                padding: 4px 8px;
+                background-color: transparent;
                 margin: 2px 0;
             }
             
@@ -105,34 +122,101 @@ class MyPortfolioView(QWidget):
                 background-color: #4DAF47;
                 border-radius: 4px;
             }
+            
+            /* Table Styling - Only for My Portfolio View */
+            MyPortfolioView QTableWidget {
+                background-color: rgba(255, 255, 255, 0.9);
+                border: 2px solid rgba(77, 175, 71, 0.3);
+                border-radius: 8px;
+                gridline-color: rgba(77, 175, 71, 0.2);
+                selection-background-color: rgba(77, 175, 71, 0.3);
+            }
+            
+            MyPortfolioView QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid rgba(77, 175, 71, 0.1);
+                background-color: transparent;
+            }
+            
+            MyPortfolioView QTableWidget::item:selected {
+                background-color: rgba(77, 175, 71, 0.3);
+                color: #2c3e50;
+            }
+            
+            MyPortfolioView QHeaderView::section {
+                background-color: rgba(77, 175, 71, 0.8);
+                color: white;
+                padding: 10px;
+                border: none;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            
+            MyPortfolioView QHeaderView::section:hover {
+                background-color: rgba(77, 175, 71, 0.9);
+            }
         """)
 
         # Create metrics container
         metrics_container = QWidget()
-        metrics_container.setFixedWidth(200)
-        metrics_layout = QVBoxLayout(metrics_container)
-        metrics_layout.setSpacing(1)
+        metrics_container.setObjectName("metricsContainer")
+        metrics_layout = QHBoxLayout(metrics_container)
+        metrics_layout.setSpacing(15)
 
-        # Portfolio name and summary
+        # Portfolio name label (keeping reference for updates but not displaying)
         self.portfolio_name_label = QLabel("Portfolio Name")
         self.portfolio_name_label.setObjectName("portfolioName")
         
+        # Create individual metric boxes
+        metric_box_1 = QWidget()
+        metric_box_1.setObjectName("metricBox")
+        metric_layout_1 = QVBoxLayout(metric_box_1)
+        metric_layout_1.setContentsMargins(5, 5, 5, 5)
+        metric_layout_1.setSpacing(2)
+        
         self.portfolio_value_label = QLabel("Portfolio Value: $0.00")
+        self.portfolio_value_label.setObjectName("metricValue")
+        self.portfolio_value_label.setAlignment(Qt.AlignCenter)
+        metric_layout_1.addWidget(self.portfolio_value_label)
+        
+        metric_box_2 = QWidget()
+        metric_box_2.setObjectName("metricBox")
+        metric_layout_2 = QVBoxLayout(metric_box_2)
+        metric_layout_2.setContentsMargins(5, 5, 5, 5)
+        metric_layout_2.setSpacing(2)
+        
         self.portfolio_cost_basis_label = QLabel("Cost Basis: $0.00")
+        self.portfolio_cost_basis_label.setObjectName("metricValue")
+        self.portfolio_cost_basis_label.setAlignment(Qt.AlignCenter)
+        metric_layout_2.addWidget(self.portfolio_cost_basis_label)
+        
+        metric_box_3 = QWidget()
+        metric_box_3.setObjectName("metricBox")
+        metric_layout_3 = QVBoxLayout(metric_box_3)
+        metric_layout_3.setContentsMargins(5, 5, 5, 5)
+        metric_layout_3.setSpacing(2)
+        
         self.portfolio_pl_dollar_label = QLabel("Total P/L: $0.00")
+        self.portfolio_pl_dollar_label.setObjectName("metricValue")
+        self.portfolio_pl_dollar_label.setAlignment(Qt.AlignCenter)
+        metric_layout_3.addWidget(self.portfolio_pl_dollar_label)
+        
+        metric_box_4 = QWidget()
+        metric_box_4.setObjectName("metricBox")
+        metric_layout_4 = QVBoxLayout(metric_box_4)
+        metric_layout_4.setContentsMargins(5, 5, 5, 5)
+        metric_layout_4.setSpacing(2)
+        
         self.portfolio_pl_percent_label = QLabel("Total Return: 0.00%")
+        self.portfolio_pl_percent_label.setObjectName("metricValue")
+        self.portfolio_pl_percent_label.setAlignment(Qt.AlignCenter)
+        metric_layout_4.addWidget(self.portfolio_pl_percent_label)
 
-        # Set object names for styling
-        for label in [self.portfolio_value_label, self.portfolio_cost_basis_label,
-                    self.portfolio_pl_dollar_label, self.portfolio_pl_percent_label]:
-            label.setObjectName("metricValue")
-
-        # Add metrics to layout
-        metrics_layout.addWidget(self.portfolio_name_label)
-        metrics_layout.addWidget(self.portfolio_value_label)
-        metrics_layout.addWidget(self.portfolio_cost_basis_label)
-        metrics_layout.addWidget(self.portfolio_pl_dollar_label)
-        metrics_layout.addWidget(self.portfolio_pl_percent_label)
+        # Add metrics to horizontal layout
+        metrics_layout.addWidget(metric_box_1)
+        metrics_layout.addWidget(metric_box_2)
+        metrics_layout.addWidget(metric_box_3)
+        metrics_layout.addWidget(metric_box_4)
         
         layout.addWidget(metrics_container)
 
@@ -191,6 +275,10 @@ class MyPortfolioView(QWidget):
         
         self.stocks_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.stocks_table)
+        
+        # Add bottom spacing
+        layout.addSpacing(20)
+        layout.setContentsMargins(10, 10, 10, 20)
 
         self.setLayout(layout)
 

@@ -82,6 +82,37 @@ class VerifyTransactionsDialog(QDialog):
             QPushButton#dialogButton:hover {
                 background-color: #f8f9fa;
             }
+            
+            /* ComboBox Styling - Fix height in table cells */
+            QComboBox {
+                padding: 0px 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: white;
+                min-height: 25px;
+                max-height: 25px;
+                font-size: 13px;
+                margin: 0px 2px;
+            }
+            
+            QComboBox:focus {
+                border-color: #4DAF47;
+            }
+            
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+                border: 1px solid #aaa;
+                width: 0px;
+                height: 0px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #aaa;
+            }
         """
         self.setStyleSheet(button_style)
         
@@ -187,6 +218,9 @@ class VerifyTransactionsDialog(QDialog):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        
+        # Set row height to accommodate comboboxes and other widgets
+        self.table.verticalHeader().setDefaultSectionSize(35)
         
         # Enable multi-selection
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)

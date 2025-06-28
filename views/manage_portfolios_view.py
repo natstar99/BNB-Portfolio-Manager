@@ -14,7 +14,7 @@ class CreatePortfolioDialog(QDialog):
         # Style the dialog
         self.setStyleSheet("""
             QDialog {
-                background-color: #f5f5f5;
+                background-color: white;
                 border-radius: 8px;
             }
             QLineEdit {
@@ -73,8 +73,12 @@ class ManagePortfoliosView(QWidget):
     def init_ui(self):
         # Add style to the view
         self.setStyleSheet("""
-            QWidget {
+            ManagePortfoliosView {
                 background-color: transparent;
+            }
+            
+            QWidget {
+                background-color: white;
             }
             QLabel {
                 color: #2c3e50;
@@ -144,6 +148,29 @@ class ManagePortfoliosView(QWidget):
             QPushButton:disabled {
                 background-color: #bdc3c7;
                 color: #7f8c8d;
+            }
+            
+            /* List Widget Styling - Fix background issues */
+            QListWidget {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            
+            QListWidget::item {
+                padding: 8px;
+                background-color: white;
+                border-bottom: 1px solid #eee;
+            }
+            
+            QListWidget::item:selected {
+                background-color: #e3f2fd;
+                color: black;
+            }
+            
+            QListWidget::item:hover {
+                background-color: #f5f5f5;
             }
         """)
 
