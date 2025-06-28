@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import QMessageBox
 import logging
-from controllers.portfolio_optimisation_controller import PortfolioOptimisationController
 from controllers.portfolio_visualisation_controller import PortfoliovisualisationController
 
 logger = logging.getLogger(__name__)
@@ -19,14 +18,12 @@ class MarketAnalysisController:
         self.db_manager = db_manager
         self.view = None
         self.current_portfolio = None
-        self.optimisation_controller = PortfolioOptimisationController(db_manager)
         self.visualisation_controller = PortfoliovisualisationController(db_manager)
     
     def set_view(self, view):
         """Set the view and connect signals."""
         self.view = view
         self.view.analyse_correlation.connect(self.generate_correlation_matrix)
-        self.optimisation_controller.set_view(self.view.optimisation_view)
         self.visualisation_controller.set_view(self.view.visualisation_view)
     
     def set_portfolio(self, portfolio):
@@ -34,7 +31,6 @@ class MarketAnalysisController:
         self.current_portfolio = portfolio
         if self.view:
             self.view.update_portfolio_stocks(portfolio.stocks.values())
-            self.optimisation_controller.set_portfolio(portfolio)
             self.visualisation_controller.set_portfolio(portfolio)
     
     def generate_correlation_matrix(self, params):

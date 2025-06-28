@@ -42,45 +42,57 @@ class MarketAnalysisView(QWidget):
         description.setWordWrap(True)
         correlation_layout.addWidget(description)
         
-        # Stock selection section
-        selection_layout = QHBoxLayout()
+        # Create main horizontal layout for left/right split
+        main_horizontal_layout = QHBoxLayout()
+        
+        # Left side - Controls (15%)
+        left_controls_layout = QVBoxLayout()
         
         # Portfolio stocks list
-        portfolio_layout = QVBoxLayout()
-        portfolio_layout.addWidget(QLabel("Portfolio Stocks:"))
+        left_controls_layout.addWidget(QLabel("Portfolio Stocks:"))
         self.portfolio_list = QListWidget()
         self.portfolio_list.setSelectionMode(QListWidget.ExtendedSelection)
-        portfolio_layout.addWidget(self.portfolio_list)
-        selection_layout.addLayout(portfolio_layout)
+        self.portfolio_list.setMinimumHeight(200)  # Reduced height for compact layout
+        left_controls_layout.addWidget(self.portfolio_list)
         
         # Custom tickers input
-        custom_layout = QVBoxLayout()
-        custom_layout.addWidget(QLabel("Additional Tickers:"))
+        left_controls_layout.addWidget(QLabel("Additional Tickers:"))
         self.custom_tickers = QLineEdit()
-        self.custom_tickers.setPlaceholderText("Enter tickers separated by commas (e.g., MSFT,AAPL)")
-        custom_layout.addWidget(self.custom_tickers)
+        self.custom_tickers.setPlaceholderText("Enter tickers separated by commas")
+        left_controls_layout.addWidget(self.custom_tickers)
         
-        # Analysis options
-        custom_layout.addWidget(QLabel("Analysis Period:"))
+        # Analysis period
+        left_controls_layout.addWidget(QLabel("Analysis Period:"))
         self.period_combo = QComboBox()
         self.period_combo.addItems(["1 Month", "3 Months", "6 Months", "1 Year", "3 Years", "5 Years"])
         self.period_combo.setCurrentText("1 Year")
-        custom_layout.addWidget(self.period_combo)
+        left_controls_layout.addWidget(self.period_combo)
         
-        selection_layout.addLayout(custom_layout)
-        correlation_layout.addLayout(selection_layout)
-        
-        # Analysis buttons
-        button_layout = QHBoxLayout()
+        # Analysis button
         self.analyse_btn = QPushButton("Generate Correlation Matrix")
         self.analyse_btn.clicked.connect(self.on_analyse_clicked)
-        button_layout.addWidget(self.analyse_btn)
-        correlation_layout.addLayout(button_layout)
+        left_controls_layout.addWidget(self.analyse_btn)
+        
+        # Add stretch to push controls to top
+        left_controls_layout.addStretch()
+        
+        # Right side - Correlation matrix (85%)
+        right_plot_layout = QVBoxLayout()
         
         # Matplotlib figure for displaying the correlation matrix
         self.figure = Figure(figsize=(10, 8))
         self.canvas = FigureCanvas(self.figure)
-        correlation_layout.addWidget(self.canvas)
+        right_plot_layout.addWidget(self.canvas)
+        
+        # Add left and right layouts to main horizontal layout
+        main_horizontal_layout.addLayout(left_controls_layout)
+        main_horizontal_layout.addLayout(right_plot_layout)
+        
+        # Set proportions: 15% for controls, 85% for plot
+        main_horizontal_layout.setStretch(0, 15)
+        main_horizontal_layout.setStretch(1, 85)
+        
+        correlation_layout.addLayout(main_horizontal_layout)
         
         # Set the layout for the correlation tab
         correlation_tab.setLayout(correlation_layout)
@@ -88,15 +100,11 @@ class MarketAnalysisView(QWidget):
         # Add the correlation tab to the tab widget
         self.tab_widget.addTab(correlation_tab, "Correlation Analysis")
         
-        # Portfolio optimisation tab
-        from views.portfolio_optimisation_view import PortfoliooptimisationView
-        self.optimisation_view = PortfoliooptimisationView()
-        self.tab_widget.addTab(self.optimisation_view, "Portfolio Optimisation")
         
-        # Portfolio visualisation tab
+        # Portfolio vs Indices tab
         from views.portfolio_visualisation_view import PortfolioVisualisationView
         self.visualisation_view = PortfolioVisualisationView()
-        self.tab_widget.addTab(self.visualisation_view, "Portfolio Visualisation")
+        self.tab_widget.addTab(self.visualisation_view, "Portfolio vs Indices")
         
         layout.addWidget(self.tab_widget)
         self.setLayout(layout)
