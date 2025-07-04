@@ -1,0 +1,53 @@
+.App {
+  min-height: 100vh;
+  background-color: var(--background-color);
+}
+
+.App-header {
+  background-color: var(--primary-color);
+  padding: 20px;
+  color: white;
+}
+
+.App-main {
+  padding: 20px;
+}
+
+/* Layout styles */
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 250px;
+  background-color: var(--surface-color);
+  border-right: 1px solid var(--border-color);
+  padding: 20px;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px;
+  background-color: var(--background-color);
+}
+
+/* Navigation styles */
+.nav-item {
+  display: block;
+  padding: 10px 15px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 6px;
+  margin-bottom: 5px;
+  transition: background-color 0.2s;
+}
+
+.nav-item:hover {
+  background-color: var(--background-color);
+}
+
+.nav-item.active {
+  background-color: var(--primary-color);
+  color: white;
+}
