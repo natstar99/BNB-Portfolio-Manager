@@ -308,17 +308,53 @@ def validate_import():
                 except Exception as e:
                     validation_errors.append(f"Row {index + 1}: {str(e)}")
             
+            # Calculate unique stocks and transaction breakdown
+            unique_stocks = set()
+            transaction_breakdown = {}
+            
+            for transaction in validated_transactions:
+                instrument_code = transaction['instrument_code']
+                transaction_type = transaction['transaction_type'].upper()
+                
+                unique_stocks.add(instrument_code)
+                
+                if instrument_code not in transaction_breakdown:
+                    transaction_breakdown[instrument_code] = {'BUY': 0, 'SELL': 0, 'DIVIDEND': 0, 'SPLIT': 0, 'total': 0}
+                
+                if transaction_type in transaction_breakdown[instrument_code]:
+                    transaction_breakdown[instrument_code][transaction_type] += 1
+                transaction_breakdown[instrument_code]['total'] += 1
+            
+            # Determine which stocks are new vs existing in portfolio
+            from app.models.stock import Stock
+            new_stock_symbols = []
+            existing_stock_symbols = []
+            
+            for instrument_code in unique_stocks:
+                existing_stock = Stock.get_by_instrument_code(instrument_code)
+                if existing_stock:
+                    existing_stock_symbols.append(instrument_code)
+                else:
+                    new_stock_symbols.append(instrument_code)
+            
             return jsonify({
                 'success': True,
                 'data': {
+                    'filename': file.filename,
                     'total_rows': len(df_mapped),
                     'valid_rows': len(validated_transactions),
+                    'unique_stocks': len(unique_stocks),
+                    'new_stocks': len(new_stock_symbols),
+                    'existing_stocks': len(existing_stock_symbols),
+                    'new_stock_symbols': new_stock_symbols,
+                    'existing_stock_symbols': existing_stock_symbols,
                     'validation_errors': validation_errors,
                     'validated_transactions': validated_transactions,
+                    'transaction_breakdown': transaction_breakdown,
                     'column_mapping': column_mapping,
                     'date_format': date_format
                 },
-                'message': f'Processed {len(df_mapped)} rows: {len(validated_transactions)} valid, {len(validation_errors)} errors'
+                'message': f'Processed {len(df_mapped)} rows: {len(validated_transactions)} valid, {len(validation_errors)} errors, {len(new_stock_symbols)} new stocks'
             })
             
         else:

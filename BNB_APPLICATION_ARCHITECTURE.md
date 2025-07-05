@@ -32,7 +32,7 @@
 4. Remove and restart components that don't align
 5. **NO PREMATURE ABSTRACTION** - build exactly what's needed
 
-### Complete Workflow Steps (EXACT USER REQUIREMENTS)
+### Complete 5-Step Workflow (EXACT USER REQUIREMENTS)
 
 #### Step 1: File Upload & Column Mapping + Date Format Selection
 - **Status**: ✅ IMPLEMENTED AND WORKING
@@ -47,51 +47,46 @@
 - **Files**: `ColumnMapping.tsx`, `FileUpload.tsx`
 - **Database Impact**: None (file analysis only)
 
-#### Step 2: Raw Data Confirmation (CRITICAL TERMINOLOGY)
-- **Status**: 🔄 NEEDS FRONTEND IMPLEMENTATION
-- **CRITICAL TERMINOLOGY**: Must use "Confirm Raw Data" - NOT "verify"
+#### Step 2: Map Columns (Already Handled in Step 1)
+- **Note**: Combined with Step 1 for efficiency
+
+#### Step 3: Confirm Transactions (CRITICAL TERMINOLOGY)
+- **Status**: ✅ IMPLEMENTED AND WORKING
+- **CRITICAL TERMINOLOGY**: Must use "Confirm Transactions" - NOT "verify"
 - **"Verify" is reserved EXCLUSIVELY for Yahoo Finance API calls**
 - **ZERO external API calls during this step**
 
-**Detailed Process**:
-1. **Data Quality Validation**: 
-   - Validate all dates parse correctly with selected format
-   - Ensure all required fields present (no missing gaps)
-   - Check data type conversions (quantities, prices)
-   - Validate transaction types against allowed values
+**User Interface Requirements**: ✅ COMPLETED
+- **Full confirmation screen** (not popup)
+- **Summary Display**:
+  1. **File**: Filename (displayed in title)
+  2. **Total Rows**: Total transactions in file
+  3. **New Stocks**: Unique stocks not in portfolio 
+  4. **New Transactions**: Non-duplicate transactions
+  5. **View Details**: Expandable transaction breakdown per stock in separate tile
+     - Shows only BUY/SELL transactions (DIVIDEND/SPLIT removed as requested)
+     - Styled with centered colored toggle button
 
-2. **Duplicate Detection**:
-   - Compare against existing portfolio transactions
-   - Exact match on: date, instrument_code, quantity, price, transaction_type
-   - Count duplicates (these will be skipped in import)
-
-3. **Summary Statistics**:
-   - Total transactions in file
-   - New transactions (not duplicates)
-   - Duplicate transactions (will be skipped)
-   - New stock tickers found (not in portfolio)
-   - Existing stock tickers (already in portfolio)
-
-4. **User Confirmation Interface**:
-   - **Present as popup confirmation dialog**
-   - Show all summary statistics clearly
-   - Two options: "Confirm and Proceed" or "Go Back to Fix Data"
-   - **NO PROCEEDING** until user explicitly confirms
+**User Actions**: ✅ COMPLETED
+- **"Confirm Transactions" button**: Centered below tiles, proceeds to Step 4
+- **"Go Back" button**: Styled as underlined link, returns to column mapping
+- **Column mapping summary**: Horizontal layout to save vertical space
+- **NO auto-advancement**: User must explicitly confirm
 
 **Database Flow**:
 ```
-File Data → STG_RAW_TRANSACTIONS (with import_batch_id)
+User Confirmation → STG_RAW_TRANSACTIONS (with import_batch_id)
 ├── processed_flag = FALSE  
 ├── validation_errors = NULL (if valid) or error details
 └── Data staged but NOT processed into fact tables yet
 ```
 
-**API**: `POST /api/import/validate` → Enhanced validation with summary
-**Files**: `DataPreview.tsx` (major update needed), `TransactionImportService.confirm_raw_data()`
+**API**: `POST /api/import/validate` → Enhanced validation with summary + transaction breakdown
+**Files**: `DataPreview.tsx` ✅ COMPLETED - All UI fixes implemented
 
-#### Step 3: Stock Market Assignment & Lightweight Verification
+#### Step 4: Verify Stocks (Market Assignment & Lightweight Verification)
 - **Status**: 🔄 NEEDS COMPLETE IMPLEMENTATION  
-- **Purpose**: Assign market codes to construct proper Yahoo Finance symbols
+- **Purpose**: Assign market codes to construct proper Yahoo Finance symbols + lightweight verification
 - **CRITICAL**: Only triggers for NEW stocks not already in portfolio
 
 **The Market Code Problem**:
@@ -132,6 +127,7 @@ File Data → STG_RAW_TRANSACTIONS (with import_batch_id)
 5. Verification populates stock name/currency if successful
 6. User can mark stocks as delisted to skip verification
 7. User can set DRP flags for portfolio-specific settings
+8. **Proceed button**: Only enabled when satisfied with verified stocks
 
 **Database Flow**:
 ```
@@ -153,41 +149,57 @@ Portfolio Settings → PORTFOLIO_STOCK_CONFIG
 - `POST /api/import/assign-markets` → Assigns markets and verifies stocks
 - `POST /api/stocks/verify-lightweight` → Individual stock verification
 
-**Files**: `StockMarketAssignment.tsx` (needs creation), `MarketDataService.verify_stock_lightweight()`
+**Files**: `StockVerification.tsx` (needs creation), `MarketDataService.verify_stock_lightweight()`
 
-#### Step 4: Final Transaction Import  
+#### Step 5: Import Transactions (Historical Data + Fact Table Processing)
 - **Status**: 🔄 NEEDS IMPLEMENTATION
-- **Purpose**: Process validated data into database fact tables
-- **Prerequisite**: All stocks must be assigned markets (verified or marked delisted)
+- **Purpose**: Collect historical data for verified stocks and process to fact tables
+- **Prerequisite**: User has completed stock verification in Step 4
+
+**Process Flow**:
+1. **Historical Data Collection**:
+   - For each **verified stock**: Retrieve historical price data from Yahoo Finance
+   - **Unverified stocks**: Remain in staging table for future processing
+   - Store historical data in appropriate tables
+
+2. **Fact Table Processing**:
+   - Process **only verified stock transactions** to `FACT_TRANSACTIONS`
+   - Update `PORTFOLIO_POSITIONS` with new transaction impacts
+   - Mark processed transactions: `STG_RAW_TRANSACTIONS.processed_flag = TRUE`
+
+3. **Unverified Stock Handling**:
+   - Leave unverified stock transactions in staging (`processed_flag = FALSE`)
+   - User can return later to verify these stocks and process them
 
 **Database Transaction Flow**:
 ```
-STG_RAW_TRANSACTIONS (processed_flag=FALSE) 
+VERIFIED STOCKS ONLY:
+STG_RAW_TRANSACTIONS (processed_flag=FALSE, verified stocks) 
+↓
+Historical Data Collection (Yahoo Finance API)
 ↓
 FACT_TRANSACTIONS (with all dimension keys resolved)
 ↓  
 PORTFOLIO_POSITIONS (updated with new transactions)
 ↓
-STG_RAW_TRANSACTIONS (processed_flag=TRUE)
+STG_RAW_TRANSACTIONS (processed_flag=TRUE for verified stocks only)
+
+UNVERIFIED STOCKS:
+STG_RAW_TRANSACTIONS (processed_flag=FALSE) → Remain for future processing
 ```
 
-**Skip Logic**:
-- **Duplicate transactions**: Identified in Step 2, marked for skipping
-- **Unverified stocks**: If user chooses to skip unverified stocks
-- **Delisted stocks**: User-marked delisted stocks can be imported or skipped per user choice
-
 **Position Calculations**:
-- Update `PORTFOLIO_POSITIONS` with new transaction impacts
+- Update `PORTFOLIO_POSITIONS` with verified stock transactions only
 - Recalculate average cost, current quantity, unrealized P&L
 - Handle different transaction types (BUY/SELL/DIVIDEND/SPLIT)
 
 **Error Handling**:
-- **Atomic operation**: All transactions succeed or all rollback
+- **Atomic operation**: All verified stock transactions succeed or all rollback
 - **Detailed reporting**: Report exactly which transactions succeeded/failed
-- **Next import behavior**: Failed transactions remain in staging for retry
+- **Next import behavior**: Failed and unverified transactions remain in staging for retry
 
-**API**: `POST /api/import/transactions` → Complete import processing
-**Files**: `ImportSummary.tsx`, `TransactionImportService.process_file_import()`
+**API**: `POST /api/import/transactions` → Complete import processing with historical data collection
+**Files**: `ImportSummary.tsx`, `TransactionImportService.process_verified_transactions()`
 
 ### Critical Database Flow Analysis
 
@@ -482,9 +494,9 @@ app/api/
 - [x] 2.2 Create stock market assignment APIs
 - [ ] 2.3 Modify final import process
 
-### Phase 3: Frontend UI Development ❌ PENDING
-- [ ] 3.1 Update DataPreview component for confirmation
-- [ ] 3.2 Create StockMarketAssignment component
+### Phase 3: Frontend UI Development 🔄 IN PROGRESS
+- [x] 3.1 Update DataPreview component for confirmation ✅ COMPLETED
+- [ ] 3.2 Create StockMarketAssignment component ❌ PENDING
 
 ---
 
@@ -664,4 +676,31 @@ app/api/
 - Document any architectural decisions or technical debt
 - Record performance optimization decisions and results
 
-**LAST UPDATED**: 2025-01-04 - Phase 2.2 (Stock Market Assignment APIs) completed
+**LAST UPDATED**: 2025-07-05 - Phase 3.1 (DataPreview Component UI Fixes) completed
+
+## RECENT UPDATE (July 5, 2025) - Step 3 UI Completion
+
+### DataPreview Component - All UI Fixes Implemented ✅
+**Problem**: Step 3 (Confirm Transactions) had several UI issues that needed refinement for better user experience.
+
+**6 UI Issues Fixed**:
+1. **Date format config removal** ✅ - Removed from Step 3, only on Step 2 now
+2. **Column mapping layout** ✅ - Changed to horizontal layout to save vertical space  
+3. **Filename placement** ✅ - Moved to title area: "Confirm Transaction Import - {filename}"
+4. **Transaction breakdown columns** ✅ - Removed DIVIDEND/SPLIT, showing only BUY/SELL
+5. **View Details styling** ✅ - Made separate expandable tile with centered colored toggle button
+6. **Confirm button placement** ✅ - Moved out of tile, centered underneath with styled "Go Back" link
+
+**Files Updated**:
+- `DataPreview.tsx` - Complete UI restructuring for Step 3
+- CSS classes updated: `.mapping-grid.horizontal`, `.breakdown-toggle`, `.confirmation-actions-centered`, `.btn-link`, `.action-buttons-centered`
+
+**User Experience Improvements**:
+- **Space efficiency**: Horizontal column mapping saves vertical space
+- **Visual hierarchy**: Clear separation between summary, details, and actions
+- **Button styling**: Centered colored toggle button, underlined Go Back link
+- **Action clarity**: Prominent "Confirm Transactions" button with proper spacing
+
+**Next Steps**: 
+- Step 4 (StockVerification.tsx) - Market assignment table interface
+- Step 5 (ImportSummary.tsx) - Historical data collection and final import

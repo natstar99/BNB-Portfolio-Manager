@@ -4,6 +4,7 @@ import { FileUpload } from '../components/import/FileUpload';
 import { ColumnMapping } from '../components/import/ColumnMapping';
 import { DataPreview } from '../components/import/DataPreview';
 import { ImportSummary } from '../components/import/ImportSummary';
+import { StockVerification } from '../components/import/StockVerification';
 import '../styles/transaction-import.css';
 
 export interface ImportData {
@@ -72,18 +73,25 @@ export const TransactionImport: React.FC = () => {
       current: currentStep === 1,
     },
     {
-      key: 'preview',
+      key: 'confirm',
       title: 'Confirm Transactions',
       description: 'Review and confirm your transaction data',
-      completed: Boolean(importData.validationResults),
+      completed: Boolean(importData.validationResults?.confirmed),
       current: currentStep === 2,
     },
     {
-      key: 'import',
-      title: 'Import',
-      description: 'Import transactions to your portfolio',
-      completed: Boolean(importData.importResults?.success),
+      key: 'verify',
+      title: 'Verify Stocks',
+      description: 'Assign markets and verify new stocks',
+      completed: Boolean(importData.validationResults?.stocksVerified),
       current: currentStep === 3,
+    },
+    {
+      key: 'import',
+      title: 'Import Transactions',
+      description: 'Process verified stocks to portfolio',
+      completed: Boolean(importData.importResults?.success),
+      current: currentStep === 4,
     },
   ];
 
@@ -142,10 +150,25 @@ export const TransactionImport: React.FC = () => {
 
   const handleValidation = (validationResults: any) => {
     setImportData(prev => ({ ...prev, validationResults }));
-    // Auto-proceed to import if validation is successful
-    if (validationResults.valid_rows > 0) {
-      setCurrentStep(3);
-    }
+    // NO auto-advancement - user must click "Confirm Transactions" button
+  };
+
+  const handleConfirmTransactions = () => {
+    // Mark transactions as confirmed and proceed to stock verification
+    setImportData(prev => ({ 
+      ...prev, 
+      validationResults: { ...prev.validationResults, confirmed: true }
+    }));
+    setCurrentStep(3);
+  };
+
+  const handleStockVerification = (verificationResults: any) => {
+    // Mark stocks as verified and proceed to final import
+    setImportData(prev => ({ 
+      ...prev, 
+      validationResults: { ...prev.validationResults, stocksVerified: true }
+    }));
+    setCurrentStep(4);
   };
 
   const handleImport = (importResults: any) => {
@@ -172,7 +195,8 @@ export const TransactionImport: React.FC = () => {
     switch (stepIndex) {
       case 1: return Boolean(importData.file);
       case 2: return Object.keys(importData.columnMapping).length > 0;
-      case 3: return Boolean(importData.validationResults);
+      case 3: return Boolean(importData.validationResults?.confirmed);
+      case 4: return Boolean(importData.validationResults?.stocksVerified);
       default: return true;
     }
   };
@@ -309,10 +333,19 @@ export const TransactionImport: React.FC = () => {
             dateFormat={importData.dateFormat}
             portfolioId={parseInt(portfolioId!)}
             onValidation={handleValidation}
+            onConfirm={handleConfirmTransactions}
           />
         )}
 
         {currentStep === 3 && importData.validationResults && (
+          <StockVerification
+            validationResults={importData.validationResults}
+            portfolioId={parseInt(portfolioId!)}
+            onStockVerification={handleStockVerification}
+          />
+        )}
+
+        {currentStep === 4 && importData.validationResults && (
           <ImportSummary
             file={importData.file}
             columnMapping={importData.columnMapping}

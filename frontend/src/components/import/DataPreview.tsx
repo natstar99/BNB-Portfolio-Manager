@@ -6,6 +6,7 @@ interface DataPreviewProps {
   dateFormat: string;
   portfolioId: number;
   onValidation: (validationResults: any) => void;
+  onConfirm: () => void;
 }
 
 interface ValidationError {
@@ -29,21 +30,13 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
   dateFormat,
   portfolioId,
   onValidation,
+  onConfirm,
 }) => {
   const [validating, setValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
 
-  const dateFormats = [
-    { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD (2023-12-31)' },
-    { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY (12/31/2023)' },
-    { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY (31/12/2023)' },
-    { value: 'DD-MM-YYYY', label: 'DD-MM-YYYY (31-12-2023)' },
-    { value: 'MM-DD-YYYY', label: 'MM-DD-YYYY (12-31-2023)' },
-    { value: 'YYYYMMDD', label: 'YYYYMMDD (20231231)' },
-    { value: 'DD-MMM-YYYY', label: 'DD-MMM-YYYY (31-Dec-2023)' },
-    { value: 'MMM DD, YYYY', label: 'MMM DD, YYYY (Dec 31, 2023)' },
-  ];
 
   useEffect(() => {
     validateData();
@@ -164,40 +157,88 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
 
   return (
     <div className="data-preview-section">
-      {/* Date Format Display */}
-      <div className="date-format-section glass">
+      {/* Column Mapping Summary */}
+      <div className="column-mapping-summary glass">
         <div className="section-header">
-          <h3>Date Format Configuration</h3>
-          <p>Using date format: <strong>{dateFormats.find(f => f.value === dateFormat)?.label || dateFormat}</strong></p>
+          <h3>Column Mapping Applied</h3>
+        </div>
+        <div className="mapping-grid horizontal">
+          {Object.entries(columnMapping).map(([field, column]) => (
+            <div key={field} className="mapping-item">
+              <span className="field-name">{field}</span>
+              <span className="arrow">→</span>
+              <span className="column-name">{column}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Validation Summary */}
-      <div className="validation-summary glass">
+      {/* Transaction Confirmation Summary */}
+      <div className="confirmation-summary glass">
         <div className="summary-header">
-          <h3>Transaction Summary</h3>
+          <h3>Confirm Transaction Import - {validationResults.filename}</h3>
           {getValidationStatusIcon(validationResults.validation_errors?.length > 0)}
         </div>
         
         <div className="summary-stats">
           <div className="stat-card">
-            <div className="stat-value">{validationResults.total_rows}</div>
             <div className="stat-label">Total Rows</div>
-          </div>
-          <div className="stat-card success">
-            <div className="stat-value">{validationResults.valid_rows}</div>
-            <div className="stat-label">Valid Rows</div>
-          </div>
-          <div className="stat-card error">
-            <div className="stat-value">{validationResults.validation_errors?.length || 0}</div>
-            <div className="stat-label">Errors</div>
+            <div className="stat-value">{validationResults.total_rows}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-value">{validationResults.unique_instruments}</div>
-            <div className="stat-label">Unique Stocks</div>
+            <div className="stat-label">New Stocks</div>
+            <div className="stat-value">{validationResults.new_stocks || 0}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">New Transactions</div>
+            <div className="stat-value">{validationResults.valid_rows}</div>
           </div>
         </div>
+
+
       </div>
+
+      {/* Transaction Breakdown - View Details */}
+      {validationResults.transaction_breakdown && Object.keys(validationResults.transaction_breakdown).length > 0 && (
+        <div className="transaction-breakdown glass">
+          <div className="breakdown-header">
+            <h3>View Details</h3>
+          </div>
+          <div className="breakdown-toggle">
+            <button 
+              onClick={() => setShowBreakdown(!showBreakdown)}
+              className={`btn ${showBreakdown ? 'btn-secondary' : 'btn-primary'}`}
+            >
+              {showBreakdown ? 'Hide' : 'Show'} Transaction Breakdown
+            </button>
+          </div>
+          
+          {showBreakdown && (
+            <div className="breakdown-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Stock</th>
+                    <th>Total Transactions</th>
+                    <th>BUY</th>
+                    <th>SELL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(validationResults.transaction_breakdown).map(([stock, breakdown]: [string, any]) => (
+                    <tr key={stock}>
+                      <td className="stock-code">{stock}</td>
+                      <td className="total-transactions">{breakdown.total}</td>
+                      <td className="buy-count">{breakdown.BUY || 0}</td>
+                      <td className="sell-count">{breakdown.SELL || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Validation Errors */}
       {validationResults.validation_errors && validationResults.validation_errors.length > 0 && (
@@ -269,60 +310,43 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
         </div>
       )}
 
-      {/* Column Mapping Summary */}
-      <div className="mapping-summary glass">
-        <h3>Column Mapping Used</h3>
-        <div className="mapping-grid">
-          {Object.entries(validationResults.column_mapping).map(([field, column]) => (
-            <div key={field} className="mapping-item">
-              <span className="field-name">{field}</span>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="9,18 15,12 9,6"/>
-              </svg>
-              <span className="column-name">{String(column)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Action Buttons */}
-      <div className="preview-actions">
-        {validationResults.valid_rows > 0 ? (
-          <div className="success-actions">
-            <p className="action-message">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                <polyline points="22,4 12,14.01 9,11.01"/>
-              </svg>
-              Ready to import {validationResults.valid_rows} valid transaction{validationResults.valid_rows !== 1 ? 's' : ''}
-            </p>
-            <button 
-              onClick={() => onValidation(validationResults)}
-              className="btn btn-primary"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="9,18 15,12 9,6"/>
-              </svg>
-              Proceed to Import
-            </button>
-          </div>
-        ) : (
-          <div className="error-actions">
+      {/* Confirmation Actions */}
+      <div className="confirmation-actions-centered">
+        {validationResults.validation_errors?.length > 0 ? (
+          <div className="error-state">
             <p className="action-message error">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10"/>
                 <line x1="15" y1="9" x2="9" y2="15"/>
                 <line x1="9" y1="9" x2="15" y2="15"/>
               </svg>
-              No valid transactions found. Please fix the errors and try again.
+              Please fix the validation errors before proceeding.
             </p>
-            <button onClick={validateData} className="btn btn-outline">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="1,4 1,10 7,10"/>
-                <path d="M3.51,15a9,9 0 1,0 2.13-9.36L1,10"/>
-              </svg>
-              Retry Validation
+            <button className="btn-link" onClick={() => window.history.back()}>
+              ← Go Back to Fix Errors
             </button>
+          </div>
+        ) : (
+          <div className="success-state">
+            <p className="action-message">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22,4 12,14.01 9,11.01"/>
+              </svg>
+              Ready to confirm {validationResults.valid_rows} valid transaction{validationResults.valid_rows !== 1 ? 's' : ''} for stock verification.
+            </p>
+            <div className="action-buttons-centered">
+              <button className="btn-link" onClick={() => window.history.back()}>
+                ← Go Back
+              </button>
+              <button className="btn btn-primary btn-large" onClick={onConfirm}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20,6 9,17 4,12"/>
+                </svg>
+                Confirm Transactions
+              </button>
+            </div>
           </div>
         )}
       </div>
