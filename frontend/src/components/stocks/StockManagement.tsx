@@ -9,7 +9,7 @@ interface Stock {
   name: string | null;
   market: string | null;
   yahoo_symbol: string | null;
-  verification_status: 'pending' | 'verified' | 'delisted' | 'error';
+  verification_status: 'pending' | 'verified' | 'inactive' | 'error';
   verification_error: string | null;
   created_at: string;
   updated_at: string;
@@ -34,7 +34,7 @@ export const StockManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedStocks, setSelectedStocks] = useState<number[]>([]);
   const [bulkAction, setBulkAction] = useState<string>('');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'verified' | 'delisted' | 'error'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'verified' | 'inactive' | 'error'>('all');
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
 
   useEffect(() => {
@@ -154,7 +154,7 @@ export const StockManagement: React.FC = () => {
 
   const handleBulkMarkDelisted = async (stockIds: number[]) => {
     try {
-      const response = await fetch(`/api/portfolio/${portfolioId}/stocks/bulk-delisted`, {
+      const response = await fetch(`/api/portfolio/${portfolioId}/stocks/bulk-inactive`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,12 +163,12 @@ export const StockManagement: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Bulk mark delisted failed');
+        throw new Error('Bulk mark inactive failed');
       }
 
       await loadStocks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk mark delisted failed');
+      setError(err instanceof Error ? err.message : 'Bulk mark inactive failed');
     }
   };
 
@@ -240,7 +240,7 @@ export const StockManagement: React.FC = () => {
             <path d="M12 6v6l4 2"/>
           </svg>
         );
-      case 'delisted':
+      case 'inactive':
         return (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-error">
             <circle cx="12" cy="12" r="10"/>
@@ -265,7 +265,7 @@ export const StockManagement: React.FC = () => {
     switch (status) {
       case 'verified': return 'Verified';
       case 'pending': return 'Pending';
-      case 'delisted': return 'Delisted';
+      case 'inactive': return 'Inactive';
       case 'error': return 'Error';
       default: return 'Unknown';
     }
@@ -275,7 +275,7 @@ export const StockManagement: React.FC = () => {
     switch (status) {
       case 'verified': return 'status-verified';
       case 'pending': return 'status-pending';
-      case 'delisted': return 'status-delisted';
+      case 'inactive': return 'status-inactive';
       case 'error': return 'status-error';
       default: return '';
     }
@@ -357,7 +357,7 @@ export const StockManagement: React.FC = () => {
             <option value="all">All Stocks</option>
             <option value="pending">Pending Verification</option>
             <option value="verified">Verified</option>
-            <option value="delisted">Delisted</option>
+            <option value="inactive">Inactive</option>
             <option value="error">Errors</option>
           </select>
         </div>

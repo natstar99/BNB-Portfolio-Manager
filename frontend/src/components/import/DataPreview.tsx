@@ -51,6 +51,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
       formData.append('file', file);
       formData.append('column_mapping', JSON.stringify(columnMapping));
       formData.append('date_format', dateFormat);
+      formData.append('portfolio_id', portfolioId.toString());
 
       const response = await fetch('/api/import/validate', {
         method: 'POST',

@@ -11,16 +11,13 @@ CREATE TABLE STG_RAW_TRANSACTIONS (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     import_batch_id VARCHAR(50) NOT NULL,
     portfolio_id INTEGER NOT NULL,
-    raw_date TEXT NOT NULL,
+    raw_date INT NOT NULL,
     raw_instrument_code TEXT NOT NULL,
     raw_transaction_type TEXT NOT NULL,
-    raw_quantity TEXT NOT NULL,
-    raw_price TEXT NOT NULL,
-    raw_currency TEXT,
-    import_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    processed_flag BOOLEAN DEFAULT FALSE,
-    validation_errors TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    raw_quantity NUMERIC NOT NULL,
+    raw_price NUMERIC NOT NULL,
+    raw_import_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    processed_flag BOOLEAN DEFAULT FALSE
 );
 
 -- =============================================
@@ -30,22 +27,24 @@ CREATE TABLE STG_RAW_TRANSACTIONS (
 -- Stock dimension table
 CREATE TABLE DIM_STOCK (
     stock_key INTEGER PRIMARY KEY AUTOINCREMENT,
-    instrument_code VARCHAR(20) NOT NULL UNIQUE,
+    portfolio_key INTEGER NOT NULL,
+    market_key INTEGER,
+    instrument_code VARCHAR(20) NOT NULL,
     yahoo_symbol VARCHAR(20) NOT NULL,
     name VARCHAR(255) NOT NULL,
-    market_key INTEGER,
     sector VARCHAR(100),
     industry VARCHAR(100),
     exchange VARCHAR(50),
-    currency VARCHAR(10) DEFAULT 'USD',
     country VARCHAR(50),
     market_cap DECIMAL(20, 2),
     verification_status VARCHAR(20) DEFAULT 'pending',
+    drp_enabled BOOLEAN DEFAULT FALSE,
     current_price DECIMAL(10, 4) DEFAULT 0.0,
+    currency VARCHAR(10),
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (market_key) REFERENCES DIM_YAHOO_MARKET_CODES(market_key)
+    FOREIGN KEY (portfolio_key) REFERENCES DIM_PORTFOLIO(portfolio_key),
+    FOREIGN KEY (market_key) REFERENCES DIM_YAHOO_MARKET_CODES(market_key),
+    UNIQUE(portfolio_key, instrument_code)
 );
 
 -- Portfolio dimension table
@@ -163,18 +162,6 @@ CREATE TABLE PORTFOLIO_POSITIONS (
     UNIQUE(portfolio_key, stock_key)
 );
 
--- Portfolio-specific stock configuration
-CREATE TABLE PORTFOLIO_STOCK_CONFIG (
-    config_key INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_key INTEGER NOT NULL,
-    stock_key INTEGER NOT NULL,
-    drp_enabled BOOLEAN DEFAULT FALSE,  -- Dividend Reinvestment Plan
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (portfolio_key) REFERENCES DIM_PORTFOLIO(portfolio_key),
-    FOREIGN KEY (stock_key) REFERENCES DIM_STOCK(stock_key),
-    UNIQUE(portfolio_key, stock_key)
-);
 
 -- =============================================
 -- INDEXES FOR PERFORMANCE
@@ -184,10 +171,14 @@ CREATE TABLE PORTFOLIO_STOCK_CONFIG (
 CREATE INDEX idx_stg_raw_batch ON STG_RAW_TRANSACTIONS(import_batch_id);
 CREATE INDEX idx_stg_raw_processed ON STG_RAW_TRANSACTIONS(processed_flag);
 CREATE INDEX idx_stg_raw_portfolio ON STG_RAW_TRANSACTIONS(portfolio_id);
+CREATE INDEX idx_stg_raw_instrument ON STG_RAW_TRANSACTIONS(raw_instrument_code);
+CREATE INDEX idx_stg_raw_portfolio_instrument ON STG_RAW_TRANSACTIONS(portfolio_id, raw_instrument_code);
 
 -- Dimension table indexes
+CREATE INDEX idx_dim_stock_portfolio ON DIM_STOCK(portfolio_key);
 CREATE INDEX idx_dim_stock_instrument ON DIM_STOCK(instrument_code);
 CREATE INDEX idx_dim_stock_yahoo ON DIM_STOCK(yahoo_symbol);
+CREATE INDEX idx_dim_stock_verification ON DIM_STOCK(verification_status);
 CREATE INDEX idx_dim_portfolio_name ON DIM_PORTFOLIO(portfolio_name);
 CREATE INDEX idx_dim_transaction_type ON DIM_TRANSACTION_TYPE(transaction_type);
 CREATE INDEX idx_dim_date_value ON DIM_DATE(date_value);
@@ -206,9 +197,6 @@ CREATE INDEX idx_positions_stock ON PORTFOLIO_POSITIONS(stock_key);
 -- Market codes table indexes
 CREATE INDEX idx_market_codes_suffix ON DIM_YAHOO_MARKET_CODES(market_suffix);
 
--- Portfolio stock config indexes
-CREATE INDEX idx_portfolio_stock_config_portfolio ON PORTFOLIO_STOCK_CONFIG(portfolio_key);
-CREATE INDEX idx_portfolio_stock_config_stock ON PORTFOLIO_STOCK_CONFIG(stock_key);
 
 -- Stock table index for market_key
 CREATE INDEX idx_dim_stock_market ON DIM_STOCK(market_key);

@@ -6,7 +6,7 @@ interface Stock {
   name: string | null;
   market: string | null;
   yahoo_symbol: string | null;
-  verification_status: 'pending' | 'verified' | 'delisted' | 'error';
+  verification_status: 'pending' | 'verified' | 'inactive' | 'error';
   verification_error: string | null;
   current_price: number | null;
 }
@@ -303,13 +303,13 @@ export const StockEditor: React.FC<StockEditorProps> = ({
                   </div>
                 ) : (
                   <div className="result-details">
-                    <p>This symbol was not found on Yahoo Finance. Please check the symbol or mark as delisted.</p>
+                    <p>This symbol was not found on Yahoo Finance. Please check the symbol or mark as inactive.</p>
                     <div className="not-found-actions">
                       <button 
-                        onClick={() => handleInputChange('verification_status', 'delisted')}
+                        onClick={() => handleInputChange('verification_status', 'inactive')}
                         className="btn btn-sm btn-outline"
                       >
-                        Mark as Delisted
+                        Mark as Inactive
                       </button>
                     </div>
                   </div>

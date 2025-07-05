@@ -19,11 +19,11 @@ export const BulkStockActions: React.FC<BulkActionsProps> = ({
   onClearSelection,
   loading = false,
 }) => {
-  const [action, setAction] = useState<'verify' | 'delisted' | 'reset' | ''>('');
+  const [action, setAction] = useState<'verify' | 'inactive' | 'reset' | ''>('');
   const [executing, setExecuting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
-  const handleActionSelect = (selectedAction: 'verify' | 'delisted' | 'reset') => {
+  const handleActionSelect = (selectedAction: 'verify' | 'inactive' | 'reset') => {
     setAction(selectedAction);
     setShowConfirmation(true);
   };
@@ -37,7 +37,7 @@ export const BulkStockActions: React.FC<BulkActionsProps> = ({
         case 'verify':
           await onBulkVerify(selectedStocks);
           break;
-        case 'delisted':
+        case 'inactive':
           await onBulkMarkDelisted(selectedStocks);
           break;
         case 'reset':
@@ -74,10 +74,10 @@ export const BulkStockActions: React.FC<BulkActionsProps> = ({
           confirmText: 'Verify Stocks',
           confirmClass: 'btn-primary'
         };
-      case 'delisted':
+      case 'inactive':
         return {
-          title: 'Mark as Delisted',
-          description: `This will mark ${selectedStocks.length} stock${selectedStocks.length !== 1 ? 's' : ''} as delisted. Delisted stocks will no longer be verified against Yahoo Finance.`,
+          title: 'Mark as Inactive',
+          description: `This will mark ${selectedStocks.length} stock${selectedStocks.length !== 1 ? 's' : ''} as inactive. Inactive stocks will no longer be verified against Yahoo Finance.`,
           icon: (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
@@ -85,7 +85,7 @@ export const BulkStockActions: React.FC<BulkActionsProps> = ({
               <line x1="9" y1="9" x2="15" y2="15"/>
             </svg>
           ),
-          confirmText: 'Mark as Delisted',
+          confirmText: 'Mark as Inactive',
           confirmClass: 'btn-warning'
         };
       case 'reset':
@@ -192,17 +192,17 @@ export const BulkStockActions: React.FC<BulkActionsProps> = ({
         </button>
 
         <button
-          onClick={() => handleActionSelect('delisted')}
-          className="bulk-action-btn delisted-btn"
+          onClick={() => handleActionSelect('inactive')}
+          className="bulk-action-btn inactive-btn"
           disabled={loading}
-          title="Mark selected stocks as delisted"
+          title="Mark selected stocks as inactive"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10"/>
             <line x1="15" y1="9" x2="9" y2="15"/>
             <line x1="9" y1="9" x2="15" y2="15"/>
           </svg>
-          Mark Delisted
+          Mark Inactive
         </button>
 
         <button

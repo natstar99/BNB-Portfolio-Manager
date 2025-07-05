@@ -52,7 +52,11 @@ echo Backend: http://localhost:5000
 echo Frontend: http://localhost:3000
 echo.
 
-start "BNB Backend" cmd /k "cd /d %CD%\backend && call venv\Scripts\activate.bat && python run.py"
+if "%~1"=="" (
+    start "BNB Backend" cmd /k "cd /d %CD%\backend && call venv\Scripts\activate.bat && python run.py"
+) else (
+    start "BNB Backend" cmd /k "cd /d %CD%\backend && call venv\Scripts\activate.bat && %~1"
+)
 timeout /t 3 >nul
 start "BNB Frontend" cmd /k "cd /d %CD%\frontend && npm start"
 

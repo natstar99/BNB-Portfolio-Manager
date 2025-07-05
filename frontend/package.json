@@ -43,5 +43,9 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:5000"
+  "proxy": "http://localhost:5000",
+  "devDependencies": {
+    "depcheck": "^1.4.7",
+    "ts-unused-exports": "^11.0.1"
+  }
 }

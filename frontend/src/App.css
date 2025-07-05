@@ -1,10 +1,10 @@
 .App {
   min-height: 100vh;
-  background-color: var(--background-color);
+  background: var(--color-background);
 }
 
 .App-header {
-  background-color: var(--primary-color);
+  background-color: var(--color-primary);
   padding: 20px;
   color: white;
 }
@@ -21,22 +21,22 @@
 
 .sidebar {
   width: 250px;
-  background-color: var(--surface-color);
-  border-right: 1px solid var(--border-color);
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
   padding: 20px;
 }
 
 .main-content {
   flex: 1;
   padding: 20px;
-  background-color: var(--background-color);
+  background-color: var(--color-background);
 }
 
 /* Navigation styles */
 .nav-item {
   display: block;
   padding: 10px 15px;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   text-decoration: none;
   border-radius: 6px;
   margin-bottom: 5px;
@@ -44,10 +44,10 @@
 }
 
 .nav-item:hover {
-  background-color: var(--background-color);
+  background-color: var(--color-background);
 }
 
 .nav-item.active {
-  background-color: var(--primary-color);
+  background-color: var(--color-primary);
   color: white;
 }

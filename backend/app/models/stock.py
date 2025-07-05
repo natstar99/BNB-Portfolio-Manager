@@ -8,25 +8,31 @@ class Stock(db.Model):
     __tablename__ = 'DIM_STOCK'
     
     stock_key = db.Column(db.Integer, primary_key=True)
-    instrument_code = db.Column(db.String(20), nullable=False, unique=True)
+    portfolio_key = db.Column(db.Integer, db.ForeignKey('DIM_PORTFOLIO.portfolio_key'), nullable=False)
+    market_key = db.Column(db.Integer, db.ForeignKey('DIM_YAHOO_MARKET_CODES.market_key'))
+    instrument_code = db.Column(db.String(20), nullable=False)
     yahoo_symbol = db.Column(db.String(20), nullable=False)
     name = db.Column(db.String(255), nullable=False)
-    market_key = db.Column(db.Integer, db.ForeignKey('DIM_YAHOO_MARKET_CODES.market_key'))
     sector = db.Column(db.String(100))
     industry = db.Column(db.String(100))
     exchange = db.Column(db.String(50))
-    currency = db.Column(db.String(10), default='USD')
     country = db.Column(db.String(50))
     market_cap = db.Column(db.Numeric(20, 2))
     verification_status = db.Column(db.String(20), default='pending')
+    drp_enabled = db.Column(db.Boolean, default=False)
     current_price = db.Column(db.Numeric(10, 4), default=0.0)
+    currency = db.Column(db.String(10))
     last_updated = db.Column(db.DateTime, default=datetime.utcnow)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    is_active = db.Column(db.Boolean, default=True)
     
     # Relationships
+    portfolio = db.relationship('Portfolio', backref='stocks')
     transactions = db.relationship('Transaction', back_populates='stock')
     positions = db.relationship('PortfolioPosition', back_populates='stock')
+    
+    # Table constraints
+    __table_args__ = (
+        db.UniqueConstraint('portfolio_key', 'instrument_code', name='uq_portfolio_instrument'),
+    )
     
     def __repr__(self):
         return f'<Stock {self.instrument_code} - {self.name}>'
@@ -34,6 +40,7 @@ class Stock(db.Model):
     def to_dict(self):
         return {
             'stock_key': self.stock_key,
+            'portfolio_key': self.portfolio_key,
             'instrument_code': self.instrument_code,
             'yahoo_symbol': self.yahoo_symbol,
             'name': self.name,
@@ -45,16 +52,16 @@ class Stock(db.Model):
             'country': self.country,
             'market_cap': float(self.market_cap) if self.market_cap else None,
             'verification_status': self.verification_status,
+            'drp_enabled': self.drp_enabled,
             'current_price': float(self.current_price) if self.current_price else 0.0,
-            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'is_active': self.is_active
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None
         }
     
     @staticmethod
-    def create(instrument_code: str, yahoo_symbol: str, name: str, **kwargs):
+    def create(portfolio_key: int, instrument_code: str, yahoo_symbol: str, name: str, **kwargs):
         """Create a new stock"""
         stock = Stock(
+            portfolio_key=portfolio_key,
             instrument_code=instrument_code,
             yahoo_symbol=yahoo_symbol,
             name=name,
@@ -66,8 +73,8 @@ class Stock(db.Model):
     
     @staticmethod
     def get_all():
-        """Get all active stocks"""
-        return Stock.query.filter_by(is_active=True).all()
+        """Get all stocks"""
+        return Stock.query.all()
     
     @staticmethod
     def get_by_id(stock_key: int):
@@ -75,14 +82,27 @@ class Stock(db.Model):
         return Stock.query.get(stock_key)
     
     @staticmethod
+    def get_by_portfolio_and_instrument(portfolio_key: int, instrument_code: str):
+        """Get stock by portfolio and instrument code"""
+        return Stock.query.filter_by(
+            portfolio_key=portfolio_key, 
+            instrument_code=instrument_code
+        ).first()
+    
+    @staticmethod
     def get_by_instrument_code(instrument_code: str):
-        """Get stock by instrument code"""
-        return Stock.query.filter_by(instrument_code=instrument_code, is_active=True).first()
+        """Get stock by instrument code (returns first match - consider using get_by_portfolio_and_instrument instead)"""
+        return Stock.query.filter_by(instrument_code=instrument_code).first()
+    
+    @staticmethod
+    def get_by_portfolio(portfolio_key: int):
+        """Get all stocks for a portfolio"""
+        return Stock.query.filter_by(portfolio_key=portfolio_key).all()
     
     @staticmethod
     def get_by_yahoo_symbol(yahoo_symbol: str):
-        """Get stock by Yahoo symbol"""
-        return Stock.query.filter_by(yahoo_symbol=yahoo_symbol, is_active=True).first()
+        """Get stock by Yahoo symbol (returns first match)"""
+        return Stock.query.filter_by(yahoo_symbol=yahoo_symbol).first()
     
     def update(self, **kwargs):
         """Update stock fields"""
@@ -93,10 +113,9 @@ class Stock(db.Model):
         db.session.commit()
         return self
     
-    def soft_delete(self):
-        """Soft delete stock by setting is_active to False"""
-        self.is_active = False
-        self.last_updated = datetime.utcnow()
+    def delete(self):
+        """Delete stock"""
+        db.session.delete(self)
         db.session.commit()
     
     def update_price(self, price: float):

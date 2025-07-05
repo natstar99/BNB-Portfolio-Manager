@@ -107,7 +107,7 @@
   border-color: var(--color-success);
 }
 
-.delisted-btn:hover:not(:disabled) {
+.inactive-btn:hover:not(:disabled) {
   background: var(--color-error);
   color: white;
   border-color: var(--color-error);

@@ -206,7 +206,7 @@
   color: var(--color-warning);
 }
 
-.status-delisted {
+.status-inactive {
   color: var(--color-text-muted);
 }
 

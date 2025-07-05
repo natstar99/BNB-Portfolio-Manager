@@ -439,23 +439,34 @@ class MarketDataService:
             logger.error(f"Error in ETL process for stock {stock_id}: {str(e)}")
             return False
 
-    def verify_and_create_stock(self, yahoo_symbol: str, instrument_code: str) -> Dict:
+    
+    def verify_stock(self, yahoo_symbol: str) -> Dict:
         """
-        Verify a stock exists on Yahoo Finance and return stock information.
+        Enhanced verification for stock assignment - gets comprehensive stock data.
+        Used during market assignment to provide rich stock information.
         
         Args:
             yahoo_symbol: Yahoo Finance stock symbol
-            instrument_code: Internal instrument code
             
         Returns:
-            Dict: Stock verification result and information
+            Dict: Enhanced verification result with comprehensive stock data
         """
         try:
             ticker = yf.Ticker(yahoo_symbol)
             info = ticker.info
             
-            # Get current price
-            price = (
+            # Get basic stock information
+            name = info.get('longName') or info.get('shortName')
+            
+            # Basic existence check
+            if not info or not name:
+                return {
+                    'success': False,
+                    'error': f'Stock {yahoo_symbol} not found on Yahoo Finance'
+                }
+            
+            # Get current price information
+            current_price = (
                 info.get('currentPrice', 0.0) or
                 info.get('regularMarketPrice', 0.0) or
                 info.get('previousClose', 0.0) or
@@ -463,87 +474,54 @@ class MarketDataService:
             )
             
             # If still no price, try from history
-            if price == 0:
-                hist = ticker.history(period="1d", auto_adjust=False)
-                if not hist.empty:
-                    price = hist['Close'].iloc[-1]
+            if not current_price:
+                try:
+                    hist = ticker.history(period="1d", auto_adjust=False)
+                    if not hist.empty:
+                        current_price = float(hist['Close'].iloc[-1])
+                except:
+                    current_price = 0.0
             
             # Get currency information
             currency = info.get('currency', 'USD')
             
-            # Get splits data
-            splits = ticker.splits
-            splits_data = []
-            if not splits.empty:
-                for date, ratio in splits.items():
-                    splits_data.append({
-                        'date': date.date(),
-                        'ratio': float(ratio)
-                    })
+            # Get market information
+            market_cap = info.get('marketCap')
+            sector = info.get('sector')
+            industry = info.get('industry')
+            exchange = info.get('exchange')
+            country = info.get('country')
             
-            return {
-                'success': True,
-                'data': {
-                    'name': info.get('longName', 'N/A'),
-                    'current_price': float(price) if price else 0.0,
-                    'currency': currency,
-                    'exists': bool(info.get('longName')),
-                    'splits': splits_data,
-                    'market_cap': info.get('marketCap'),
-                    'sector': info.get('sector'),
-                    'industry': info.get('industry')
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error verifying stock {yahoo_symbol}: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'data': {
-                    'name': 'N/A',
-                    'current_price': 0.0,
-                    'currency': 'N/A',
-                    'exists': False,
-                    'splits': []
-                }
-            }
-    
-    def verify_stock_lightweight(self, yahoo_symbol: str) -> Dict:
-        """
-        Lightweight verification for stock assignment - only gets name and currency.
-        Used during market assignment to avoid heavy API calls.
-        
-        Args:
-            yahoo_symbol: Yahoo Finance stock symbol
-            
-        Returns:
-            Dict: Lightweight verification result
-        """
-        try:
-            ticker = yf.Ticker(yahoo_symbol)
-            info = ticker.info
-            
-            # Check if stock exists by looking for basic info
-            name = info.get('longName') or info.get('shortName') or yahoo_symbol
-            currency = info.get('currency', 'USD')
-            
-            # Basic existence check
-            if not info or not name or name == yahoo_symbol:
-                return {
-                    'success': False,
-                    'error': f'Stock {yahoo_symbol} not found on Yahoo Finance'
-                }
+            # Format market cap for display
+            market_cap_formatted = None
+            if market_cap:
+                if market_cap >= 1e12:
+                    market_cap_formatted = f"${market_cap/1e12:.2f}T"
+                elif market_cap >= 1e9:
+                    market_cap_formatted = f"${market_cap/1e9:.2f}B"
+                elif market_cap >= 1e6:
+                    market_cap_formatted = f"${market_cap/1e6:.2f}M"
+                else:
+                    market_cap_formatted = f"${market_cap:,.0f}"
             
             return {
                 'success': True,
                 'name': name,
-                'currency': currency
+                'currency': currency,
+                'current_price': float(current_price) if current_price else 0.0,
+                'market_cap': market_cap,
+                'market_cap_formatted': market_cap_formatted,
+                'sector': sector,
+                'industry': industry,
+                'exchange': exchange,
+                'country': country,
+                'exists': True
             }
             
         except Exception as e:
-            logger.error(f"Error in lightweight verification for {yahoo_symbol}: {str(e)}")
+            logger.error(f"Error in enhanced verification for {yahoo_symbol}: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
             }
+    

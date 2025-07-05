@@ -39,10 +39,10 @@
             }
         },
         {
-            "name": "Python: Build Exe",
+            "name": "Python: Run with coverage",
             "type": "debugpy",
             "request": "launch",
-            "program": "build_exe.py",
+            "program": "backend/run_with_coverage.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {

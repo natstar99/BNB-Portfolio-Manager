@@ -96,42 +96,25 @@ def assign_markets_to_stocks():
                 market_suffix = market.market_suffix or ''
                 yahoo_symbol = f"{instrument_code}{market_suffix}"
                 
-                # Perform lightweight verification (just check if symbol exists and get name/currency)
-                verification_result = market_data_service.verify_stock_lightweight(yahoo_symbol)
+                # Perform verification to get comprehensive stock data
+                verification_result = market_data_service.verify_stock(yahoo_symbol)
                 
                 if verification_result['success']:
-                    # Create or update stock with market assignment
-                    existing_stock = Stock.get_by_instrument_code(instrument_code)
-                    
-                    if existing_stock:
-                        # Update existing stock
-                        existing_stock.update(
-                            market_key=market_key,
-                            yahoo_symbol=yahoo_symbol,
-                            name=verification_result.get('name', existing_stock.name),
-                            currency=verification_result.get('currency', existing_stock.currency),
-                            verification_status='verified'
-                        )
-                        stock_key = existing_stock.stock_key
-                    else:
-                        # Create new stock
-                        new_stock = Stock.create(
-                            instrument_code=instrument_code,
-                            yahoo_symbol=yahoo_symbol,
-                            name=verification_result.get('name', instrument_code),
-                            market_key=market_key,
-                            currency=verification_result.get('currency', 'USD'),
-                            verification_status='verified'
-                        )
-                        stock_key = new_stock.stock_key
+                    # Note: We don't save to DIM_STOCK yet in verification step
+                    # This is just returning the verification data for the frontend
+                    # The actual saving happens in the final save step
                     
                     results.append({
                         'instrument_code': instrument_code,
                         'success': True,
-                        'stock_key': stock_key,
                         'yahoo_symbol': yahoo_symbol,
                         'name': verification_result.get('name'),
                         'currency': verification_result.get('currency'),
+                        'current_price': verification_result.get('current_price', 0.0),
+                        'market_cap_formatted': verification_result.get('market_cap_formatted'),
+                        'sector': verification_result.get('sector'),
+                        'industry': verification_result.get('industry'),
+                        'exchange': verification_result.get('exchange'),
                         'market': market.market_or_index
                     })
                     
@@ -326,12 +309,21 @@ def validate_import():
                 transaction_breakdown[instrument_code]['total'] += 1
             
             # Determine which stocks are new vs existing in portfolio
+            # Note: We need portfolio_id for this check now
+            portfolio_id = request.form.get('portfolio_id')
+            if not portfolio_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'Portfolio ID is required for validation'
+                }), 400
+            
+            portfolio_id = int(portfolio_id)
             from app.models.stock import Stock
             new_stock_symbols = []
             existing_stock_symbols = []
             
             for instrument_code in unique_stocks:
-                existing_stock = Stock.get_by_instrument_code(instrument_code)
+                existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_id, instrument_code)
                 if existing_stock:
                     existing_stock_symbols.append(instrument_code)
                 else:
@@ -484,6 +476,120 @@ def import_transactions():
                 'error': result.get('error', 'Import failed'),
                 'details': result.get('details', {})
             }), 400
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@bp.route('/import/save-verification', methods=['POST'])
+def save_verification_results():
+    """Save verification results and import verified stocks"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'portfolioId' not in data or 'stockAssignments' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Portfolio ID and stock assignments are required'
+            }), 400
+        
+        portfolio_id = data['portfolioId']
+        stock_assignments = data['stockAssignments']
+        
+        verified_stocks = []
+        unverified_stocks = []
+        errors = []
+        
+        from app.models.stock import Stock
+        
+        for stock_assignment in stock_assignments:
+            try:
+                instrument_code = stock_assignment['instrument_code']
+                verification_status = stock_assignment['verification_status']
+                
+                # Check if stock already exists for this portfolio
+                existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_id, instrument_code)
+                
+                if verification_status == 'verified':
+                    # Save verified stock to DIM_STOCK
+                    stock_data = {
+                        'market_key': stock_assignment.get('market_key'),
+                        'yahoo_symbol': stock_assignment['yahoo_symbol'],
+                        'name': stock_assignment.get('name', instrument_code),
+                        'verification_status': 'verified',
+                        'drp_enabled': stock_assignment.get('drp_enabled', False),
+                        'currency': stock_assignment.get('currency'),
+                        'current_price': stock_assignment.get('current_price', 0.0),
+                        'sector': stock_assignment.get('sector'),
+                        'industry': stock_assignment.get('industry'),
+                        'exchange': stock_assignment.get('exchange'),
+                        'country': stock_assignment.get('country'),
+                        'market_cap': stock_assignment.get('market_cap')
+                    }
+                    
+                    if existing_stock:
+                        # Update existing stock
+                        existing_stock.update(**stock_data)
+                        stock_key = existing_stock.stock_key
+                    else:
+                        # Create new stock
+                        new_stock = Stock.create(
+                            portfolio_key=portfolio_id,
+                            instrument_code=instrument_code,
+                            **stock_data
+                        )
+                        stock_key = new_stock.stock_key
+                    
+                    verified_stocks.append({
+                        'instrument_code': instrument_code,
+                        'stock_key': stock_key
+                    })
+                    
+                else:
+                    # Track unverified stocks for later processing
+                    unverified_stocks.append({
+                        'instrument_code': instrument_code,
+                        'verification_status': verification_status,
+                        'market_key': stock_assignment.get('market_key'),
+                        'yahoo_symbol': stock_assignment.get('yahoo_symbol'),
+                        'drp_enabled': stock_assignment.get('drp_enabled', False)
+                    })
+                    
+                    # If stock exists but is now unverified, update its status
+                    if existing_stock:
+                        existing_stock.update(
+                            verification_status=verification_status,
+                            drp_enabled=stock_assignment.get('drp_enabled', False)
+                        )
+                        
+            except Exception as e:
+                errors.append({
+                    'instrument_code': stock_assignment.get('instrument_code', 'unknown'),
+                    'error': str(e)
+                })
+        
+        # TODO: For verified stocks, initiate historical data collection
+        # TODO: Import transactions for verified stocks to FACT_TRANSACTIONS
+        # TODO: Handle unverified stocks in staging area
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'verified_stocks': verified_stocks,
+                'unverified_stocks': unverified_stocks,
+                'errors': errors
+            },
+            'summary': {
+                'verified_count': len(verified_stocks),
+                'unverified_count': len(unverified_stocks),
+                'error_count': len(errors)
+            },
+            'message': f'Saved {len(verified_stocks)} verified stocks. {len(unverified_stocks)} stocks remain unverified.'
+        })
         
     except Exception as e:
         db.session.rollback()

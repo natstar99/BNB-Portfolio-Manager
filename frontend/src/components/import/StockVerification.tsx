@@ -10,8 +10,6 @@ interface MarketCode {
   market_key: string;
   market_or_index: string;
   market_suffix: string;
-  country: string;
-  description: string;
 }
 
 interface StockAssignment {
@@ -20,9 +18,14 @@ interface StockAssignment {
   yahoo_symbol: string;
   name?: string;
   currency?: string;
-  verification_status: 'pending' | 'verified' | 'failed' | 'delisted';
+  verification_status: 'pending' | 'verified' | 'failed' | 'inactive';
   drp_enabled: boolean;
   notes?: string;
+  current_price?: number;
+  market_cap_formatted?: string;
+  sector?: string;
+  industry?: string;
+  exchange?: string;
 }
 
 export const StockVerification: React.FC<StockVerificationProps> = ({
@@ -35,6 +38,11 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
   const [markets, setMarkets] = useState<MarketCode[]>([]);
   const [stockAssignments, setStockAssignments] = useState<StockAssignment[]>([]);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [selectedStocks, setSelectedStocks] = useState<Set<string>>(new Set());
+  const [showMarketModal, setShowMarketModal] = useState(false);
+  const [marketSearchQuery, setMarketSearchQuery] = useState('');
+  const [showStockModal, setShowStockModal] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<StockAssignment | null>(null);
 
   // Get unique stocks that need market assignment
   const newStocks = validationResults?.new_stock_symbols || [];
@@ -43,6 +51,16 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
     fetchMarkets();
     initializeStockAssignments();
   }, []);
+
+  // Update selectedStock when stockAssignments changes
+  useEffect(() => {
+    if (selectedStock && stockAssignments.length > 0) {
+      const updatedStock = stockAssignments.find(s => s.instrument_code === selectedStock.instrument_code);
+      if (updatedStock) {
+        setSelectedStock(updatedStock);
+      }
+    }
+  }, [stockAssignments, selectedStock?.instrument_code]);
 
   const fetchMarkets = async () => {
     try {
@@ -90,6 +108,54 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
     }));
   };
 
+  const toggleStockSelection = (instrumentCode: string) => {
+    setSelectedStocks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(instrumentCode)) {
+        newSet.delete(instrumentCode);
+      } else {
+        newSet.add(instrumentCode);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedStocks.size === stockAssignments.length) {
+      setSelectedStocks(new Set());
+    } else {
+      setSelectedStocks(new Set(stockAssignments.map(s => s.instrument_code)));
+    }
+  };
+
+  const assignMarketToSelected = (marketKey: string) => {
+    const market = markets.find(m => m.market_key.toString() === marketKey);
+    if (!market) return;
+
+    setStockAssignments(prev => prev.map(stock => {
+      if (selectedStocks.has(stock.instrument_code)) {
+        return {
+          ...stock,
+          market_key: marketKey,
+          yahoo_symbol: `${stock.instrument_code}${market.market_suffix || ''}`,
+          verification_status: 'pending' as const,
+          name: undefined,
+          currency: undefined
+        };
+      }
+      return stock;
+    }));
+    
+    setSelectedStocks(new Set());
+    setShowMarketModal(false);
+    setMarketSearchQuery('');
+  };
+
+  const filteredMarkets = markets.filter(market => 
+    market.market_or_index.toLowerCase().includes(marketSearchQuery.toLowerCase()) ||
+    market.market_suffix?.toLowerCase().includes(marketSearchQuery.toLowerCase())
+  );
+
   const verifyStock = async (instrumentCode: string) => {
     const stock = stockAssignments.find(s => s.instrument_code === instrumentCode);
     if (!stock || !stock.market_key) {
@@ -125,6 +191,11 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
         updateStockAssignment(instrumentCode, 'verification_status', 'verified');
         updateStockAssignment(instrumentCode, 'name', result.name);
         updateStockAssignment(instrumentCode, 'currency', result.currency);
+        updateStockAssignment(instrumentCode, 'current_price', result.current_price);
+        updateStockAssignment(instrumentCode, 'market_cap_formatted', result.market_cap_formatted);
+        updateStockAssignment(instrumentCode, 'sector', result.sector);
+        updateStockAssignment(instrumentCode, 'industry', result.industry);
+        updateStockAssignment(instrumentCode, 'exchange', result.exchange);
       } else {
         updateStockAssignment(instrumentCode, 'verification_status', 'failed');
         setError(`Verification failed for ${instrumentCode}: ${result.error}`);
@@ -174,6 +245,11 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
           updateStockAssignment(result.instrument_code, 'verification_status', 'verified');
           updateStockAssignment(result.instrument_code, 'name', result.name);
           updateStockAssignment(result.instrument_code, 'currency', result.currency);
+          updateStockAssignment(result.instrument_code, 'current_price', result.current_price);
+          updateStockAssignment(result.instrument_code, 'market_cap_formatted', result.market_cap_formatted);
+          updateStockAssignment(result.instrument_code, 'sector', result.sector);
+          updateStockAssignment(result.instrument_code, 'industry', result.industry);
+          updateStockAssignment(result.instrument_code, 'exchange', result.exchange);
         } else {
           updateStockAssignment(result.instrument_code, 'verification_status', 'failed');
         }
@@ -186,27 +262,54 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
     }
   };
 
-  const markAsDelisted = (instrumentCode: string) => {
-    updateStockAssignment(instrumentCode, 'verification_status', 'delisted');
+  const markAsInactive = (instrumentCode: string) => {
+    updateStockAssignment(instrumentCode, 'verification_status', 'inactive');
   };
 
-  const canProceed = () => {
-    return stockAssignments.every(stock => 
-      stock.verification_status === 'verified' || stock.verification_status === 'delisted'
-    );
-  };
 
-  const handleProceed = () => {
-    const verificationResults = {
-      stockAssignments,
-      summary: {
-        total: stockAssignments.length,
-        verified: stockAssignments.filter(s => s.verification_status === 'verified').length,
-        delisted: stockAssignments.filter(s => s.verification_status === 'delisted').length,
-        failed: stockAssignments.filter(s => s.verification_status === 'failed').length,
-      },
-    };
-    onStockVerification(verificationResults);
+  const handleProceed = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/import/save-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portfolioId: portfolioId,
+          stockAssignments: stockAssignments,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save verification results');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Call the original callback with results
+        const verificationResults = {
+          stockAssignments,
+          summary: {
+            total: stockAssignments.length,
+            verified: stockAssignments.filter(s => s.verification_status === 'verified').length,
+            inactive: stockAssignments.filter(s => s.verification_status === 'inactive').length,
+            failed: stockAssignments.filter(s => s.verification_status === 'failed').length,
+          },
+          saveResults: data,
+        };
+        onStockVerification(verificationResults);
+      } else {
+        setError(data.error || 'Failed to save verification results');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save verification results');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -226,7 +329,7 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
             <line x1="9" y1="9" x2="15" y2="15"/>
           </svg>
         );
-      case 'delisted':
+      case 'inactive':
         return (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-warning">
             <circle cx="12" cy="12" r="10"/>
@@ -296,11 +399,42 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
         </div>
       )}
 
+      {/* Bulk Market Assignment */}
+      <div className="bulk-assignment-section glass">
+        <div className="bulk-header">
+          <div className="selection-controls">
+            <label className="select-all-control">
+              <input
+                type="checkbox"
+                checked={selectedStocks.size === stockAssignments.length && stockAssignments.length > 0}
+                onChange={toggleSelectAll}
+                className="select-all-checkbox"
+              />
+              <span>Select All ({selectedStocks.size} of {stockAssignments.length})</span>
+            </label>
+          </div>
+          <div className="bulk-actions">
+            <button
+              onClick={() => setShowMarketModal(true)}
+              disabled={selectedStocks.size === 0}
+              className="btn btn-primary"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
+              </svg>
+              Assign Market to Selected ({selectedStocks.size})
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Stock Assignment Table */}
       <div className="stock-assignment-table glass">
         <table>
           <thead>
             <tr>
+              <th className="select-column">Select</th>
               <th>Ticker</th>
               <th>Market</th>
               <th>Yahoo Symbol</th>
@@ -308,28 +442,40 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
               <th>Currency</th>
               <th>DRP</th>
               <th>Status</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {stockAssignments.map(stock => (
-              <tr key={stock.instrument_code}>
+              <tr 
+                key={stock.instrument_code} 
+                className={selectedStocks.has(stock.instrument_code) ? 'selected' : ''}
+                onClick={() => toggleStockSelection(stock.instrument_code)}
+                onDoubleClick={() => {
+                  setSelectedStock(stock);
+                  setShowStockModal(true);
+                }}
+                style={{ cursor: 'pointer' }}
+                title="Click to select, double-click to edit stock details"
+              >
+                <td className="select-cell">
+                  <input
+                    type="checkbox"
+                    checked={selectedStocks.has(stock.instrument_code)}
+                    onChange={() => toggleStockSelection(stock.instrument_code)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="stock-select-checkbox"
+                  />
+                </td>
                 <td className="ticker-cell">
                   <span className="ticker-code">{stock.instrument_code}</span>
                 </td>
                 <td className="market-cell">
-                  <select
-                    value={stock.market_key}
-                    onChange={(e) => updateStockAssignment(stock.instrument_code, 'market_key', e.target.value)}
-                    className="market-select"
-                  >
-                    <option value="">Select Market</option>
-                    {markets.map(market => (
-                      <option key={market.market_key} value={market.market_key}>
-                        {market.market_or_index} ({market.country})
-                      </option>
-                    ))}
-                  </select>
+                  <span className="market-name">
+                    {stock.market_key ? 
+                      markets.find(m => m.market_key.toString() === stock.market_key)?.market_or_index || 'Unknown Market'
+                      : 'Not Assigned'
+                    }
+                  </span>
                 </td>
                 <td className="yahoo-symbol-cell">
                   <span className="yahoo-symbol">{stock.yahoo_symbol}</span>
@@ -345,6 +491,7 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
                     type="checkbox"
                     checked={stock.drp_enabled}
                     onChange={(e) => updateStockAssignment(stock.instrument_code, 'drp_enabled', e.target.checked)}
+                    onClick={(e) => e.stopPropagation()}
                     className="drp-checkbox"
                   />
                 </td>
@@ -356,29 +503,197 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
                     </span>
                   </div>
                 </td>
-                <td className="actions-cell">
-                  <div className="action-menu">
-                    <button
-                      onClick={() => verifyStock(stock.instrument_code)}
-                      disabled={!stock.market_key || verifying === stock.instrument_code || stock.verification_status === 'verified'}
-                      className="btn btn-sm btn-outline"
-                    >
-                      {verifying === stock.instrument_code ? 'Verifying...' : 'Verify'}
-                    </button>
-                    <button
-                      onClick={() => markAsDelisted(stock.instrument_code)}
-                      disabled={stock.verification_status === 'delisted'}
-                      className="btn btn-sm btn-secondary"
-                    >
-                      Mark Delisted
-                    </button>
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Market Assignment Modal */}
+      {showMarketModal && (
+        <div className="modal-overlay" onClick={() => setShowMarketModal(false)}>
+          <div className="market-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Assign Market to Selected Stocks ({selectedStocks.size})</h3>
+              <button
+                onClick={() => setShowMarketModal(false)}
+                className="modal-close"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="search-section">
+                <label className="search-label">Search Markets</label>
+                <input
+                  type="text"
+                  value={marketSearchQuery}
+                  onChange={(e) => setMarketSearchQuery(e.target.value)}
+                  placeholder="Search by market name or suffix..."
+                  className="search-input"
+                  autoFocus
+                />
+              </div>
+              
+              <div className="markets-list">
+                {filteredMarkets.map(market => (
+                  <div
+                    key={market.market_key}
+                    onClick={() => assignMarketToSelected(market.market_key.toString())}
+                    className="market-option"
+                  >
+                    <div className="market-info">
+                      <div className="market-name">{market.market_or_index}</div>
+                      <div className="market-details">
+                        {market.market_suffix && (
+                          <span className="market-suffix">Suffix: {market.market_suffix}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="select-arrow">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="9,18 15,12 9,6"/>
+                      </svg>
+                    </div>
+                  </div>
+                ))}
+                {filteredMarkets.length === 0 && (
+                  <div className="no-markets">
+                    <p>No markets found matching your search</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Detail Modal */}
+      {showStockModal && selectedStock && (
+        <div className="modal-overlay" onClick={() => setShowStockModal(false)}>
+          <div className="stock-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Stock Details - {selectedStock.instrument_code}</h3>
+              <button
+                onClick={() => setShowStockModal(false)}
+                className="modal-close"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="stock-detail-grid">
+                <div className="detail-row">
+                  <label>Ticker:</label>
+                  <span>{selectedStock.instrument_code}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Yahoo Symbol:</label>
+                  <span>{selectedStock.yahoo_symbol}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Market:</label>
+                  <span>
+                    {selectedStock.market_key ? 
+                      markets.find(m => m.market_key.toString() === selectedStock.market_key)?.market_or_index || 'Unknown Market'
+                      : 'Not Assigned'
+                    }
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <label>Stock Name:</label>
+                  <span>{selectedStock.name || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Currency:</label>
+                  <span>{selectedStock.currency || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Current Price:</label>
+                  <span>{selectedStock.current_price ? `${selectedStock.currency || 'USD'} ${selectedStock.current_price.toFixed(2)}` : 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Market Cap:</label>
+                  <span>{selectedStock.market_cap_formatted || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Sector:</label>
+                  <span>{selectedStock.sector || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Industry:</label>
+                  <span>{selectedStock.industry || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Exchange:</label>
+                  <span>{selectedStock.exchange || 'Not verified'}</span>
+                </div>
+                <div className="detail-row">
+                  <label>Status:</label>
+                  <div className="status-indicator">
+                    {getStatusIcon(selectedStock.verification_status)}
+                    <span className={`status-text ${selectedStock.verification_status}`}>
+                      {selectedStock.verification_status.charAt(0).toUpperCase() + selectedStock.verification_status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+                <div className="detail-row">
+                  <label>DRP Enabled:</label>
+                  <input
+                    type="checkbox"
+                    checked={selectedStock.drp_enabled}
+                    onChange={(e) => {
+                      const updatedStock = { ...selectedStock, drp_enabled: e.target.checked };
+                      setSelectedStock(updatedStock);
+                      updateStockAssignment(selectedStock.instrument_code, 'drp_enabled', e.target.checked);
+                    }}
+                    className="drp-checkbox"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <div className="modal-actions">
+                <button
+                  onClick={() => {
+                    verifyStock(selectedStock.instrument_code);
+                  }}
+                  disabled={!selectedStock.market_key || verifying === selectedStock.instrument_code || selectedStock.verification_status === 'verified'}
+                  className="btn btn-primary"
+                >
+                  {verifying === selectedStock.instrument_code ? 'Verifying...' : 'Verify Stock'}
+                </button>
+                <button
+                  onClick={() => {
+                    const newStatus: 'pending' | 'inactive' = selectedStock.verification_status === 'inactive' ? 'pending' : 'inactive';
+                    updateStockAssignment(selectedStock.instrument_code, 'verification_status', newStatus);
+                    const updatedStock = { ...selectedStock, verification_status: newStatus };
+                    setSelectedStock(updatedStock);
+                  }}
+                  className="btn btn-secondary"
+                >
+                  {selectedStock.verification_status === 'inactive' ? 'Mark as Pending' : 'Mark as Inactive'}
+                </button>
+                <button
+                  onClick={() => setShowStockModal(false)}
+                  className="btn btn-outline"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary and Actions */}
       <div className="verification-summary">
@@ -396,35 +711,25 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
             <span className="stat-value text-warning">{stockAssignments.filter(s => s.verification_status === 'pending').length}</span>
           </div>
           <div className="stat-item">
-            <span className="stat-label">Delisted:</span>
-            <span className="stat-value text-secondary">{stockAssignments.filter(s => s.verification_status === 'delisted').length}</span>
+            <span className="stat-label">Inactive:</span>
+            <span className="stat-value text-secondary">{stockAssignments.filter(s => s.verification_status === 'inactive').length}</span>
           </div>
         </div>
 
         <div className="proceed-actions">
-          {canProceed() ? (
-            <div className="success-state">
-              <p className="action-message">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                  <polyline points="22,4 12,14.01 9,11.01"/>
-                </svg>
-                All stocks are ready for import. Proceed to final import step.
-              </p>
-              <button className="btn btn-primary btn-large" onClick={handleProceed}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="9,18 15,12 9,6"/>
-                </svg>
-                Proceed to Import Transactions
-              </button>
-            </div>
-          ) : (
-            <div className="pending-state">
-              <p className="action-message">
-                Please verify all stocks or mark them as delisted before proceeding.
-              </p>
-            </div>
-          )}
+          <div className="save-state">
+            <p className="action-message">
+              Click to persist changes. Historical data will be collected for all verified stocks. Stocks with Pending, Inactive and Failed status will remain in the staging area for this portfolio.
+            </p>
+            <button className="btn btn-primary btn-large" onClick={handleProceed} disabled={loading}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17,21 17,13 7,13 7,21"/>
+                <polyline points="7,3 7,8 15,8"/>
+              </svg>
+              {loading ? 'Saving...' : 'Save and Import into Portfolio'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -12,5 +12,6 @@
         "**/.venv": true,
         "**/venv": true,
         "**/__pycache__": true,
+        "**/coverage_html": true,
     },
 }

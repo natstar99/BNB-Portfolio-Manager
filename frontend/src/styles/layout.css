@@ -249,12 +249,14 @@
   margin: 0 auto;
   padding: var(--spacing-xl) var(--spacing-lg);
   width: 100%;
+  background: transparent; /* Inherit from body */
 }
 
 /* Page Layouts */
 .page {
   width: 100%;
   min-height: calc(100vh - 70px - 4rem); /* Subtract nav height + padding */
+  background: transparent; /* Inherit from body */
 }
 
 .page-header {
@@ -264,6 +266,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--spacing-lg);
+  background: transparent; /* Inherit from parent */
 }
 
 .header-content {
@@ -442,7 +445,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 2rem;
-  background: var(--color-surface);
+  background: var(--color-background);
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
 }
