@@ -257,10 +257,21 @@ def verify_stock(stock_id):
         }), 500
 
 
-@bp.route('/stocks/<int:stock_id>/historical-prices', methods=['GET'])
-def get_stock_historical_prices(stock_id):
-    """Get historical prices for a stock"""
+@bp.route('/stocks/<int:stock_id>/market-prices', methods=['GET'])
+def get_stock_market_prices(stock_id):
+    """
+    Get market prices for a stock from FACT_MARKET_PRICES.
+    
+    This endpoint replaces the deprecated historical-prices endpoint and uses
+    the proper Kimball star schema with stock_key and date_key relationships.
+    
+    DESIGN DECISION: Uses MarketPrice model instead of deprecated HistoricalPrice
+    to ensure consistency with the star schema and daily metrics calculations.
+    """
     try:
+        from app.models.market_prices import MarketPrice
+        from app.models.date_dimension import DateDimension
+        
         stock = Stock.get_by_id(stock_id)
         
         if not stock:
@@ -269,18 +280,31 @@ def get_stock_historical_prices(stock_id):
                 'error': 'Stock not found'
             }), 404
         
+        # Convert stock.id to stock_key for star schema compatibility
+        stock_key = stock.stock_key
+        
+        # Parse date parameters
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        historical_prices = HistoricalPrice.get_by_stock(
-            stock_id=stock_id,
-            start_date=start_date,
-            end_date=end_date
-        )
+        start_date_key = None
+        end_date_key = None
+        
+        if start_date:
+            start_date_key = DateDimension.get_date_key(start_date)
+        if end_date:
+            end_date_key = DateDimension.get_date_key(end_date)
+        
+        # Get market prices using star schema
+        if start_date_key and end_date_key:
+            market_prices = MarketPrice.get_price_range(stock_key, start_date_key, end_date_key)
+        else:
+            # Get recent prices if no date range specified
+            market_prices = MarketPrice.query.filter_by(stock_key=stock_key).order_by(MarketPrice.date_key.desc()).limit(100).all()
         
         return jsonify({
             'success': True,
-            'data': [price.to_dict() for price in historical_prices]
+            'data': [price.to_dict() for price in market_prices]
         })
         
     except Exception as e:

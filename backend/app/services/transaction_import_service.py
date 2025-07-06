@@ -27,7 +27,9 @@ class TransactionImportService:
     """
     
     def __init__(self):
+        # Initialize services for complete data pipeline
         self.market_data_service = MarketDataService()
+        self.daily_metrics_service = DailyMetricsService()
         
         # Standard column mappings for common file formats
         self.standard_mappings = {
@@ -324,11 +326,12 @@ class TransactionImportService:
             
                 # Transaction is committed automatically by with db.session.begin()
                 
-                # PERFORMANCE OPTIMIZATION: Defer metrics calculation to avoid N+1 queries
-                # Instead of calculating metrics for each stock individually, defer to background or manual trigger
+                # CRITICAL INTEGRATION POINT: Collect market data after successful transaction imports
+                # This ensures FACT_MARKET_PRICES is populated for daily metrics calculations
+                market_data_results = {}
                 if successful_imports > 0:
                     # Get stocks that actually had transactions and are verified
-                    stocks_needing_metrics = []
+                    stocks_needing_market_data = []
                     for instrument_code, stock_key in stock_key_mapping.items():
                         stock_had_transactions = any(
                             tx.raw_instrument_code == instrument_code 
@@ -339,13 +342,26 @@ class TransactionImportService:
                         if stock_had_transactions:
                             stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
                             if stock and stock.verification_status == 'verified':
-                                stocks_needing_metrics.append({
-                                    'instrument_code': instrument_code,
-                                    'stock_key': stock_key
-                                })
+                                stocks_needing_market_data.append(stock_key)
                     
-                    logger.info(f"Import complete. {len(stocks_needing_metrics)} verified stocks need metrics recalculation from {earliest_transaction_date}")
-                    logger.info("RECOMMENDATION: Run metrics recalculation as separate background process to avoid blocking import")
+                    logger.info(f"Import complete. Collecting market data for {len(stocks_needing_market_data)} verified stocks from {earliest_transaction_date}")
+                    
+                    # DESIGN DECISION: Trigger market data collection immediately after transaction import
+                    # This ensures data pipeline is complete and daily metrics can be calculated
+                    if stocks_needing_market_data:
+                        try:
+                            market_data_results = self.collect_market_data_for_stocks(
+                                stocks_needing_market_data, 
+                                earliest_transaction_date
+                            )
+                            logger.info(f"Market data collection completed: {market_data_results.get('successful_stocks', 0)} successful")
+                        except Exception as e:
+                            logger.error(f"Market data collection failed (transaction import still successful): {str(e)}")
+                            market_data_results = {
+                                'success': False,
+                                'error': str(e),
+                                'total_stocks': len(stocks_needing_market_data)
+                            }
                 
                 # Calculate clearer statistics
                 verified_transactions_found = verified_transactions_attempted
@@ -363,6 +379,7 @@ class TransactionImportService:
                     'import_errors': errors,
                     'total_transactions_attempted': len(unprocessed_transactions),
                     'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
+                    'market_data_results': market_data_results,
                     'message': f'Successfully imported {successful_imports} transactions for {stocks_with_transactions} stocks'
                 }
                 
@@ -378,9 +395,240 @@ class TransactionImportService:
                     'actual_import_errors': 1,
                     'unverified_transactions': 0,
                     'import_errors': [str(e)],
-                    'total_transactions_attempted': 0
+                    'total_transactions_attempted': 0,
+                    'market_data_results': {}
                 }
     
+    
+    # ============= MARKET DATA COLLECTION METHODS =============
+    
+    def collect_market_data_for_stocks(self, stock_keys: List[int], from_date: date) -> Dict[str, Any]:
+        """
+        Collect market data for stocks after successful transaction import.
+        
+        INTEGRATION POINT: This method is called automatically after transaction import
+        to ensure FACT_MARKET_PRICES is populated with data required for daily metrics.
+        
+        DESIGN PHILOSOPHY: Market data collection is triggered immediately after transaction
+        import to ensure complete data pipeline. However, market data failures don't block
+        the transaction import process - they are reported separately.
+        
+        CRITICAL DECISIONS:
+        1. Error Isolation: Market data failures don't rollback transaction imports
+        2. Batch Processing: Processes multiple stocks efficiently using MarketDataService
+        3. Date Range Optimization: Uses earliest transaction date as start point
+        4. Automatic Retry: MarketDataService handles Yahoo Finance API failures
+        
+        Args:
+            stock_keys: List of stock_key values that need market data
+            from_date: Earliest date to collect market data from (typically earliest transaction date)
+            
+        Returns:
+            Dict: Market data collection results with detailed per-stock status
+        """
+        try:
+            logger.info(f"Starting market data collection for {len(stock_keys)} stocks from {from_date}")
+            
+            # Use the updated MarketDataService for batch processing
+            
+            # Collect market data from earliest transaction date to today
+            results = self.market_data_service.batch_fetch_market_data(
+                stock_keys=stock_keys,
+                start_date=from_date,
+                end_date=None  # Will default to today
+            )
+            
+            # Log detailed results for debugging
+            if results.get('success'):
+                logger.info(f"Market data collection completed successfully:")
+                logger.info(f"  - Total stocks processed: {results.get('total_stocks', 0)}")
+                logger.info(f"  - Successful stocks: {results.get('successful_stocks', 0)}")
+                logger.info(f"  - Failed stocks: {results.get('failed_stocks', 0)}")
+                logger.info(f"  - Total records loaded: {results.get('total_records_loaded', 0)}")
+                
+                # Log any failures for investigation
+                failed_results = [r for r in results.get('results', []) if not r.get('success')]
+                if failed_results:
+                    logger.warning(f"Market data collection failed for {len(failed_results)} stocks:")
+                    for failed_result in failed_results:
+                        logger.warning(f"  - Stock {failed_result.get('stock_key')}: {failed_result.get('error')}")
+                
+                # CRITICAL INTEGRATION: Trigger daily metrics calculation after successful market data collection
+                # This completes the data pipeline: Transactions → Market Data → Daily Metrics
+                if results.get('successful_stocks', 0) > 0:
+                    logger.info("Triggering daily metrics calculation after market data collection")
+                    
+                    # Get stocks that successfully had market data collected
+                    successful_stock_keys = []
+                    for result in results.get('results', []):
+                        if result.get('success') and result.get('stock_key'):
+                            successful_stock_keys.append(result['stock_key'])
+                    
+                    if successful_stock_keys:
+                        try:
+                            # Calculate daily metrics for stocks with new market data
+                            # This ensures FACT_DAILY_PORTFOLIO_METRICS is populated
+                            metrics_results = self.trigger_daily_metrics_calculation(
+                                stock_keys=successful_stock_keys,
+                                from_date=from_date
+                            )
+                            
+                            # Add metrics results to the response
+                            results['daily_metrics_results'] = metrics_results
+                            
+                            logger.info(f"Daily metrics calculation completed: {metrics_results.get('successful_calculations', 0)} stocks processed")
+                            
+                        except Exception as e:
+                            logger.error(f"Daily metrics calculation failed (market data collection still successful): {str(e)}")
+                            results['daily_metrics_results'] = {
+                                'success': False,
+                                'error': str(e),
+                                'stocks_processed': len(successful_stock_keys)
+                            }
+            else:
+                logger.error(f"Market data collection failed: {results.get('error')}")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in market data collection for transaction import: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_stocks': len(stock_keys),
+                'successful_stocks': 0,
+                'failed_stocks': len(stock_keys),
+                'total_records_loaded': 0
+            }
+    
+    def trigger_daily_metrics_calculation(self, stock_keys: List[int], from_date: date) -> Dict[str, Any]:
+        """
+        Trigger daily metrics calculation for stocks after market data collection.
+        
+        DESIGN PHILOSOPHY: This method completes the data pipeline by calculating daily 
+        portfolio metrics using the newly collected market data and existing transactions.
+        This ensures FACT_DAILY_PORTFOLIO_METRICS is fully populated for analytics.
+        
+        CRITICAL INTEGRATION POINT: Called automatically after successful market data 
+        collection to ensure complete data pipeline. The sequence is:
+        1. Transaction Import → FACT_TRANSACTIONS
+        2. Market Data Collection → FACT_MARKET_PRICES  
+        3. Daily Metrics Calculation → FACT_DAILY_PORTFOLIO_METRICS
+        
+        DESIGN DECISIONS:
+        1. Portfolio Key Discovery: Determines portfolio_key from stock relationships
+        2. Error Isolation: Individual stock failures don't stop other calculations
+        3. Batch Processing: Processes multiple stocks efficiently
+        4. Date Range: Uses transaction date as starting point for complete history
+        
+        Args:
+            stock_keys: List of stock_key values that need metrics calculation
+            from_date: Earliest date to calculate metrics from
+            
+        Returns:
+            Dict: Daily metrics calculation results with per-stock status
+        """
+        try:
+            logger.info(f"Starting daily metrics calculation for {len(stock_keys)} stocks from {from_date}")
+            
+            results = []
+            successful_calculations = 0
+            failed_calculations = 0
+            total_metrics_calculated = 0
+            
+            # Process each stock individually to avoid cross-stock errors
+            for stock_key in stock_keys:
+                try:
+                    # Get stock information to determine portfolio_key
+                    stock = Stock.query.filter_by(stock_key=stock_key).first()
+                    if not stock:
+                        logger.error(f"Stock with key {stock_key} not found for metrics calculation")
+                        failed_calculations += 1
+                        results.append({
+                            'stock_key': stock_key,
+                            'success': False,
+                            'error': f'Stock with key {stock_key} not found'
+                        })
+                        continue
+                    
+                    portfolio_key = stock.portfolio_key
+                    
+                    # Use DailyMetricsService to recalculate metrics
+                    metrics_result = self.daily_metrics_service.recalculate_portfolio_metrics(
+                        portfolio_key=portfolio_key,
+                        stock_key=stock_key,
+                        from_date=from_date
+                    )
+                    
+                    if metrics_result.get('success'):
+                        successful_calculations += 1
+                        metrics_count = metrics_result.get('metrics_calculated', 0)
+                        total_metrics_calculated += metrics_count
+                        
+                        results.append({
+                            'stock_key': stock_key,
+                            'portfolio_key': portfolio_key,
+                            'yahoo_symbol': stock.yahoo_symbol,
+                            'success': True,
+                            'metrics_calculated': metrics_count,
+                            'from_date_key': metrics_result.get('from_date_key'),
+                            'to_date_key': metrics_result.get('to_date_key')
+                        })
+                        
+                        logger.info(f"Successfully calculated {metrics_count} daily metrics for {stock.yahoo_symbol} (key: {stock_key})")
+                    else:
+                        failed_calculations += 1
+                        error_msg = metrics_result.get('error', 'Unknown metrics calculation error')
+                        results.append({
+                            'stock_key': stock_key,
+                            'portfolio_key': portfolio_key,
+                            'yahoo_symbol': stock.yahoo_symbol,
+                            'success': False,
+                            'error': error_msg
+                        })
+                        logger.error(f"Failed to calculate metrics for {stock.yahoo_symbol} (key: {stock_key}): {error_msg}")
+                        
+                except Exception as e:
+                    failed_calculations += 1
+                    error_msg = f"Exception calculating metrics for stock_key {stock_key}: {str(e)}"
+                    results.append({
+                        'stock_key': stock_key,
+                        'success': False,
+                        'error': error_msg
+                    })
+                    logger.error(error_msg)
+            
+            # Summary results
+            calculation_result = {
+                'success': True,
+                'total_stocks': len(stock_keys),
+                'successful_calculations': successful_calculations,
+                'failed_calculations': failed_calculations,
+                'total_metrics_calculated': total_metrics_calculated,
+                'from_date': from_date.isoformat(),
+                'results': results
+            }
+            
+            logger.info(f"Daily metrics calculation completed:")
+            logger.info(f"  - Total stocks: {len(stock_keys)}")
+            logger.info(f"  - Successful: {successful_calculations}")
+            logger.info(f"  - Failed: {failed_calculations}")
+            logger.info(f"  - Total metrics calculated: {total_metrics_calculated}")
+            
+            return calculation_result
+            
+        except Exception as e:
+            logger.error(f"Error in daily metrics calculation: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_stocks': len(stock_keys),
+                'successful_calculations': 0,
+                'failed_calculations': len(stock_keys),
+                'total_metrics_calculated': 0,
+                'from_date': from_date.isoformat() if from_date else None,
+                'results': []
+            }
     
     # ============= METRICS CALCULATION METHODS =============
     

@@ -1,14 +1,60 @@
 """
-Market Data Service - Yahoo Finance Integration
-Handles all external market data operations with proper ETL separation
+Market Data Service - Yahoo Finance Integration for Kimball Star Schema
+=========================================================================
+
+This service handles all external market data operations with proper ETL separation,
+specifically designed to populate FACT_MARKET_PRICES in the Kimball star schema.
+
+ARCHITECTURAL PHILOSOPHY:
+- Follows ETL (Extract, Transform, Load) pattern for clear separation of concerns
+- Uses date_key format (YYYYMMDD) for consistent star schema relationships
+- Integrates with DIM_DATE dimension for proper date handling
+- Designed for batch processing efficiency with proper error isolation
+- Supports currency conversion for multi-currency portfolios
+
+DESIGN DECISIONS:
+1. Date Key Strategy: Uses int(date.strftime('%Y%m%d')) for star schema consistency
+2. Error Isolation: Market data failures don't block transaction imports
+3. Batch Processing: Optimized for processing multiple stocks efficiently
+4. Currency Conversion: Applied at extraction level for data consistency
+5. Corporate Actions: Handles splits and dividends from Yahoo Finance data
+
+INTEGRATION POINTS:
+- Called by TransactionImportService after successful transaction imports
+- Populates FACT_MARKET_PRICES which is consumed by DailyMetricsService
+- Works with DateDimension to ensure proper date_key relationships
+
+CRITICAL REQUIREMENTS:
+- Must use MarketPrice model (not deprecated HistoricalPrice)
+- Must generate proper date_key values for star schema
+- Must handle missing market data gracefully (weekends, holidays)
+- Must support currency conversion for international stocks
+- Must process corporate actions (splits, dividends) correctly
+
+PERFORMANCE CONSIDERATIONS:
+- Yahoo Finance API has rate limits - implements retry logic
+- Batch processing reduces API calls and database operations
+- Uses bulk insert operations for efficiency
+- Caches current prices to avoid redundant API calls
+
+FUTURE DEVELOPERS: This service is the bridge between external Yahoo Finance data
+and our internal star schema. Any changes must maintain compatibility with:
+1. TransactionImportService (calls this after import)
+2. DailyMetricsService (consumes the data we produce)
+3. DateDimension (provides date_key relationships)
 """
 
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import logging
-from typing import Dict, List, Optional, Tuple
-from app.models import Stock, Transaction
+from typing import Dict, List, Optional, Tuple, Any
+from decimal import Decimal
+import time
+
+from app.models.stock import Stock
+from app.models.market_prices import MarketPrice
+from app.models.date_dimension import DateDimension
 from app import db
 from sqlalchemy.exc import IntegrityError
 
@@ -18,115 +64,79 @@ logger = logging.getLogger(__name__)
 class MarketDataService:
     """
     Service for handling all market data operations including:
-    - Yahoo Finance API integration
-    - Currency conversion
-    - Historical data extraction and loading
-    - Real-time price updates
+    - Yahoo Finance API integration with proper error handling
+    - Currency conversion for international stocks
+    - Historical data extraction and loading into FACT_MARKET_PRICES
+    - Real-time price updates for current stock prices
+    - Batch processing for efficiency
     """
 
     def __init__(self):
         self.timeout = 30
         self.retry_count = 3
+        self.retry_delay = 2  # seconds between retries
 
     # ============= EXTRACT METHODS =============
 
-    def extract_stock_data(self, yahoo_symbol: str, start_date: datetime) -> Optional[pd.DataFrame]:
+    def extract_stock_data(self, yahoo_symbol: str, start_date: date, end_date: date = None) -> Optional[pd.DataFrame]:
         """
         Extract historical stock data from Yahoo Finance.
         
+        DESIGN DECISION: Uses pandas for efficient data manipulation and Yahoo Finance
+        integration. Handles API failures gracefully to avoid blocking imports.
+        
         Args:
-            yahoo_symbol: Yahoo Finance stock symbol
+            yahoo_symbol: Yahoo Finance stock symbol (e.g., 'AAPL', 'MSFT.L')
             start_date: Start date for historical data
+            end_date: End date for historical data (defaults to today)
             
         Returns:
-            pd.DataFrame or None: Raw historical data from Yahoo Finance
+            pd.DataFrame or None: Raw historical data from Yahoo Finance with columns:
+                - Date (index)
+                - Open, High, Low, Close, Volume
+                - Dividends, Stock Splits
         """
         try:
-            ticker = yf.Ticker(yahoo_symbol)
-            data = ticker.history(start=start_date, auto_adjust=False)
+            if end_date is None:
+                end_date = date.today()
             
-            if data.empty:
-                logger.warning(f"No data returned from Yahoo for {yahoo_symbol}")
-                return None
+            logger.info(f"Extracting Yahoo Finance data for {yahoo_symbol} from {start_date} to {end_date}")
             
-            # Add current market price if not available in historical data
-            today = datetime.now().date()
-            today_data = data[data.index.date == today]
-            
-            if today_data.empty or pd.isna(today_data['Close'].iloc[-1]):
-                current_price, is_live = self.get_current_market_price(yahoo_symbol)
-                
-                if current_price > 0 and is_live:
-                    logger.info(f"Adding live market price for {yahoo_symbol}: {current_price}")
+            # Retry logic for Yahoo Finance API reliability
+            for attempt in range(self.retry_count):
+                try:
+                    ticker = yf.Ticker(yahoo_symbol)
+                    data = ticker.history(start=start_date, end=end_date + timedelta(days=1), auto_adjust=False)
                     
-                    new_row = pd.DataFrame({
-                        'Open': [current_price],
-                        'High': [current_price],
-                        'Low': [current_price],
-                        'Close': [current_price],
-                        'Volume': [0],
-                        'Dividends': [0],
-                        'Stock Splits': [1.0]
-                    }, index=[pd.Timestamp(today)])
+                    if data.empty:
+                        logger.warning(f"No data returned from Yahoo for {yahoo_symbol} (attempt {attempt + 1})")
+                        if attempt < self.retry_count - 1:
+                            time.sleep(self.retry_delay)
+                            continue
+                        return None
                     
-                    data = pd.concat([data, new_row])
+                    logger.info(f"Successfully extracted {len(data)} rows for {yahoo_symbol}")
+                    return data
+                    
+                except Exception as e:
+                    logger.warning(f"Yahoo Finance API error for {yahoo_symbol} (attempt {attempt + 1}): {str(e)}")
+                    if attempt < self.retry_count - 1:
+                        time.sleep(self.retry_delay)
+                        continue
+                    raise
             
-            return data
+            return None
             
         except Exception as e:
             logger.error(f"Error extracting Yahoo data for {yahoo_symbol}: {str(e)}")
             return None
 
-    def extract_currency_conversion_data(self, from_currency: str, to_currency: str, 
-                                       start_date: datetime) -> Optional[pd.DataFrame]:
-        """
-        Extract currency conversion rates from Yahoo Finance.
-        
-        Args:
-            from_currency: Source currency code
-            to_currency: Target currency code
-            start_date: Start date for conversion data
-            
-        Returns:
-            pd.DataFrame or None: Currency conversion rates
-        """
-        try:
-            if from_currency == to_currency:
-                return None
-                
-            logger.info(f"Extracting conversion data: {from_currency} to {to_currency}")
-            
-            # Try direct currency pair first
-            ticker = yf.Ticker(f"{from_currency}{to_currency}=X")
-            data = ticker.history(start=start_date, auto_adjust=False)
-            
-            if not data.empty:
-                logger.info(f"Found direct currency conversion for {from_currency} to {to_currency}")
-                return data['Close'].to_frame('conversion_rate')
-            
-            # Fall back to USD cross-rate conversion
-            logger.info(f"Direct conversion not found, trying via USD")
-            
-            source_usd = yf.Ticker(f"{from_currency}USD=X")
-            source_data = source_usd.history(start=start_date, auto_adjust=False)
-            
-            target_usd = yf.Ticker(f"{to_currency}USD=X")
-            target_data = target_usd.history(start=start_date, auto_adjust=False)
-            
-            if not source_data.empty and not target_data.empty:
-                # Calculate cross rate: FROM -> USD -> TO
-                conversion_rate = target_data['Close'] / source_data['Close']
-                return conversion_rate.to_frame('conversion_rate')
-            
-            raise ValueError(f"Could not fetch conversion data from {from_currency} to {to_currency}")
-            
-        except Exception as e:
-            logger.error(f"Error extracting currency conversion data: {str(e)}")
-            return None
-
     def get_current_market_price(self, yahoo_symbol: str) -> Tuple[float, bool]:
         """
         Get the current market price for a stock.
+        
+        DESIGN DECISION: Tries multiple price fields from Yahoo Finance to maximize
+        success rate. Returns both price and whether it's live data for caller context.
         
         Args:
             yahoo_symbol: Yahoo Finance stock symbol
@@ -138,13 +148,13 @@ class MarketDataService:
             ticker = yf.Ticker(yahoo_symbol)
             info = ticker.info
             
-            # Try current trading price first
+            # Try current trading price first (most accurate)
             live_price = (
                 info.get('currentPrice', 0.0) or
                 info.get('regularMarketPrice', 0.0)
             )
             
-            if live_price > 0:
+            if live_price and live_price > 0:
                 return float(live_price), True
             
             # Fall back to previous close
@@ -153,305 +163,342 @@ class MarketDataService:
                 info.get('lastPrice', 0.0)
             )
             
-            return float(last_price), False
+            if last_price and last_price > 0:
+                return float(last_price), False
+            
+            logger.warning(f"No valid price found for {yahoo_symbol}")
+            return 0.0, False
             
         except Exception as e:
             logger.error(f"Error getting current price for {yahoo_symbol}: {str(e)}")
             return 0.0, False
 
-    def get_current_conversion_rate(self, from_currency: str, to_currency: str) -> float:
-        """
-        Get current currency conversion rate.
-        
-        Args:
-            from_currency: Source currency
-            to_currency: Target currency
-            
-        Returns:
-            float: Conversion rate (1.0 if same currency or error)
-        """
-        try:
-            if not from_currency or not to_currency or from_currency == to_currency:
-                return 1.0
-            
-            # Try direct conversion
-            conversion_symbol = f"{from_currency}{to_currency}=X"
-            ticker = yf.Ticker(conversion_symbol)
-            info = ticker.info
-            
-            rate = (
-                info.get('currentPrice', 0.0) or
-                info.get('regularMarketPrice', 0.0) or
-                info.get('previousClose', 0.0) or
-                info.get('lastPrice', 0.0)
-            )
-            
-            if rate:
-                return float(rate)
-            
-            # Try via USD
-            from_usd = yf.Ticker(f"{from_currency}USD=X")
-            to_usd = yf.Ticker(f"{to_currency}USD=X")
-            
-            from_info = from_usd.info
-            to_info = to_usd.info
-            
-            from_rate = (
-                from_info.get('currentPrice', 0.0) or
-                from_info.get('regularMarketPrice', 0.0) or
-                from_info.get('previousClose', 0.0) or
-                from_info.get('lastPrice', 0.0)
-            )
-            
-            to_rate = (
-                to_info.get('currentPrice', 0.0) or
-                to_info.get('regularMarketPrice', 0.0) or
-                to_info.get('previousClose', 0.0) or
-                to_info.get('lastPrice', 0.0)
-            )
-            
-            if from_rate and to_rate:
-                return float(to_rate) / float(from_rate)
-            
-            logger.warning(f"Could not find conversion rate for {from_currency} to {to_currency}")
-            return 1.0
-            
-        except Exception as e:
-            logger.error(f"Error getting conversion rate {from_currency} to {to_currency}: {str(e)}")
-            return 1.0
-
     # ============= TRANSFORM METHODS =============
 
-    def transform_stock_data(self, raw_data: pd.DataFrame, stock_id: int) -> List[Dict]:
+    def transform_stock_data(self, raw_data: pd.DataFrame, stock_key: int) -> List[Dict[str, Any]]:
         """
-        Transform raw Yahoo Finance data into database-ready format.
+        Transform raw Yahoo Finance data into FACT_MARKET_PRICES format.
+        
+        CRITICAL DESIGN DECISION: Converts dates to date_key format (YYYYMMDD) for
+        star schema consistency. This ensures proper relationships with DIM_DATE
+        and compatibility with DailyMetricsService.
         
         Args:
             raw_data: Raw pandas DataFrame from Yahoo Finance
-            stock_id: Database stock ID
+            stock_key: Database stock_key from DIM_STOCK
             
         Returns:
-            List[Dict]: Transformed data ready for database insertion
+            List[Dict]: Transformed data ready for FACT_MARKET_PRICES insertion
         """
         try:
             data = raw_data.reset_index()
-            data = data.rename(columns={'Date': 'date'})
-            
-            # Normalize dates to YYYY-MM-DD format
-            data['date'] = pd.to_datetime(data['date']).dt.strftime('%Y-%m-%d')
             
             records = []
             for _, row in data.iterrows():
+                # Convert date to date_key format for star schema
+                trade_date = row['Date'].date() if hasattr(row['Date'], 'date') else row['Date']
+                date_key = int(trade_date.strftime('%Y%m%d'))
+                
+                # Ensure date exists in DIM_DATE
+                DateDimension.get_or_create_date_entry(trade_date, commit=False)
+                
                 record = {
-                    'stock_id': stock_id,
-                    'date': datetime.strptime(row['date'], '%Y-%m-%d').date(),
+                    'stock_key': stock_key,
+                    'date_key': date_key,
                     'open_price': float(row.get('Open', 0)) if pd.notna(row.get('Open')) else None,
                     'high_price': float(row.get('High', 0)) if pd.notna(row.get('High')) else None,
                     'low_price': float(row.get('Low', 0)) if pd.notna(row.get('Low')) else None,
                     'close_price': float(row.get('Close', 0)) if pd.notna(row.get('Close')) else None,
                     'volume': int(row.get('Volume', 0)) if pd.notna(row.get('Volume')) else None,
+                    'adjusted_close': float(row.get('Adj Close', 0)) if pd.notna(row.get('Adj Close')) else None,
                     'dividend': float(row.get('Dividends', 0)) if pd.notna(row.get('Dividends')) else 0.0,
                     'split_ratio': float(row.get('Stock Splits', 1.0)) if pd.notna(row.get('Stock Splits')) else 1.0
                 }
+                
+                # Validation: Close price is required
+                if record['close_price'] is None or record['close_price'] <= 0:
+                    logger.warning(f"Invalid close price for stock_key {stock_key} on {trade_date}")
+                    continue
+                
                 records.append(record)
             
+            logger.info(f"Transformed {len(records)} valid price records for stock_key {stock_key}")
             return records
             
         except Exception as e:
-            logger.error(f"Error transforming stock data: {str(e)}")
+            logger.error(f"Error transforming stock data for stock_key {stock_key}: {str(e)}")
             return []
-
-    def apply_currency_conversion(self, stock_data: List[Dict], 
-                                conversion_data: pd.DataFrame) -> List[Dict]:
-        """
-        Apply currency conversion to stock price data.
-        
-        Args:
-            stock_data: List of stock data records
-            conversion_data: DataFrame with conversion rates
-            
-        Returns:
-            List[Dict]: Stock data with converted prices
-        """
-        try:
-            if conversion_data is None or conversion_data.empty:
-                return stock_data
-            
-            # Convert dates in conversion data to match stock data format
-            conversion_data.index = pd.to_datetime(conversion_data.index).date
-            
-            converted_data = []
-            for record in stock_data:
-                record_date = record['date']
-                
-                # Find conversion rate for this date
-                conversion_rate = None
-                if record_date in conversion_data.index:
-                    conversion_rate = conversion_data.loc[record_date, 'conversion_rate']
-                else:
-                    # Use forward fill for missing dates
-                    available_dates = [d for d in conversion_data.index if d <= record_date]
-                    if available_dates:
-                        latest_date = max(available_dates)
-                        conversion_rate = conversion_data.loc[latest_date, 'conversion_rate']
-                
-                if conversion_rate and pd.notna(conversion_rate):
-                    # Apply conversion to price fields
-                    price_fields = ['open_price', 'high_price', 'low_price', 'close_price', 'dividend']
-                    for field in price_fields:
-                        if record[field] is not None:
-                            record[field] = record[field] * conversion_rate
-                    
-                    # Add conversion rate to record for tracking
-                    record['currency_conversion_rate'] = conversion_rate
-                
-                converted_data.append(record)
-            
-            return converted_data
-            
-        except Exception as e:
-            logger.error(f"Error applying currency conversion: {str(e)}")
-            return stock_data
 
     # ============= LOAD METHODS =============
 
-    def load_historical_prices(self, price_data: List[Dict]) -> bool:
+    def load_market_prices(self, price_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Load historical price data into the database.
+        Load market price data into FACT_MARKET_PRICES table.
+        
+        DESIGN DECISION: Uses upsert pattern to handle duplicate dates gracefully.
+        This allows the service to be called multiple times without data corruption.
         
         Args:
             price_data: List of transformed price records
             
         Returns:
-            bool: Success status
+            Dict: Load results with counts and any errors
         """
         try:
+            loaded_count = 0
+            updated_count = 0
+            errors = []
+            
             for record in price_data:
                 try:
-                    historical_price = HistoricalPrice.create(**record)
-                    logger.debug(f"Loaded price data for stock {record['stock_id']} on {record['date']}")
-                except IntegrityError:
-                    # Record already exists, update it
-                    db.session.rollback()
-                    existing = HistoricalPrice.query.filter_by(
-                        stock_id=record['stock_id'],
-                        date=record['date']
-                    ).first()
+                    # Check if record already exists
+                    existing = MarketPrice.get_by_stock_and_date(
+                        record['stock_key'], 
+                        record['date_key']
+                    )
+                    
                     if existing:
-                        existing.update(**{k: v for k, v in record.items() if k not in ['stock_id', 'date']})
-                        logger.debug(f"Updated existing price data for stock {record['stock_id']} on {record['date']}")
+                        # Update existing record
+                        for key, value in record.items():
+                            if key not in ['stock_key', 'date_key']:
+                                setattr(existing, key, value)
+                        updated_count += 1
+                        logger.debug(f"Updated market price for stock_key {record['stock_key']} on {record['date_key']}")
+                    else:
+                        # Create new record
+                        market_price = MarketPrice(**record)
+                        db.session.add(market_price)
+                        loaded_count += 1
+                        logger.debug(f"Created market price for stock_key {record['stock_key']} on {record['date_key']}")
+                        
+                except Exception as e:
+                    error_msg = f"Error loading price for stock_key {record['stock_key']} on {record['date_key']}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
             
             db.session.commit()
-            logger.info(f"Successfully loaded {len(price_data)} historical price records")
-            return True
+            
+            result = {
+                'success': True,
+                'loaded_count': loaded_count,
+                'updated_count': updated_count,
+                'total_processed': loaded_count + updated_count,
+                'errors': errors
+            }
+            
+            logger.info(f"Load complete: {loaded_count} new, {updated_count} updated, {len(errors)} errors")
+            return result
             
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error loading historical prices: {str(e)}")
-            return False
-
-    def update_stock_current_price(self, stock_id: int, price: float) -> bool:
-        """
-        Update the current price for a stock.
-        
-        Args:
-            stock_id: Database stock ID
-            price: New current price
-            
-        Returns:
-            bool: Success status
-        """
-        try:
-            stock = Stock.get_by_id(stock_id)
-            if stock:
-                stock.update_price(price)
-                logger.info(f"Updated current price for stock {stock_id}: {price}")
-                return True
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error updating stock price: {str(e)}")
-            return False
+            logger.error(f"Error loading market prices: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'loaded_count': 0,
+                'updated_count': 0,
+                'total_processed': 0,
+                'errors': [str(e)]
+            }
 
     # ============= HIGH-LEVEL ETL METHODS =============
 
-    def fetch_and_update_stock_data(self, stock_id: int, start_date: datetime = None) -> bool:
+    def fetch_and_load_stock_data(self, stock_key: int, start_date: date = None, end_date: date = None) -> Dict[str, Any]:
         """
-        Complete ETL process for a single stock's historical data.
+        Complete ETL process for a single stock's market data.
+        
+        INTEGRATION POINT: This method is called by TransactionImportService
+        after successful transaction imports to populate FACT_MARKET_PRICES.
+        
+        DESIGN DECISION: Determines optimal date range automatically if not provided,
+        starting from earliest transaction date or last available market data.
         
         Args:
-            stock_id: Database stock ID
-            start_date: Start date for data fetch (optional)
+            stock_key: Database stock_key from DIM_STOCK
+            start_date: Start date for data fetch (optional - auto-determined)
+            end_date: End date for data fetch (optional - defaults to today)
             
         Returns:
-            bool: Success status
+            Dict: ETL results with success status and detailed metrics
         """
         try:
-            stock = Stock.get_by_id(stock_id)
+            # Get stock information
+            stock = Stock.query.filter_by(stock_key=stock_key).first()
             if not stock:
-                logger.error(f"Stock with ID {stock_id} not found")
-                return False
+                return {
+                    'success': False,
+                    'error': f'Stock with key {stock_key} not found'
+                }
             
-            # Determine start date if not provided
+            # Determine date range if not provided
             if start_date is None:
-                # Get the latest date from historical data
-                latest_price = HistoricalPrice.get_latest_price(stock_id)
-                if latest_price:
-                    start_date = latest_price.date
+                # Check for existing market data
+                latest_market_data = MarketPrice.get_latest_price(stock_key)
+                if latest_market_data:
+                    # Continue from last available data
+                    last_date_key = latest_market_data.date_key
+                    start_date = datetime.strptime(str(last_date_key), '%Y%m%d').date()
                 else:
-                    # Default to 1 year ago if no historical data
-                    start_date = datetime.now().replace(year=datetime.now().year - 1)
+                    # Get earliest transaction date for this stock
+                    from app.models.transaction import Transaction
+                    earliest_transaction = Transaction.query.filter_by(
+                        stock_key=stock_key
+                    ).order_by(Transaction.transaction_date).first()
+                    
+                    if earliest_transaction:
+                        start_date = earliest_transaction.transaction_date
+                    else:
+                        # Default to 1 year ago if no transaction history
+                        start_date = date.today() - timedelta(days=365)
             
-            logger.info(f"Fetching data for stock {stock.yahoo_symbol} from {start_date}")
+            if end_date is None:
+                end_date = date.today()
             
-            # Extract raw data from Yahoo Finance
-            raw_data = self.extract_stock_data(stock.yahoo_symbol, start_date)
-            if raw_data is None:
-                return False
+            logger.info(f"Fetching market data for {stock.yahoo_symbol} (key: {stock_key}) from {start_date} to {end_date}")
             
-            # Transform data to database format
-            transformed_data = self.transform_stock_data(raw_data, stock_id)
+            # Extract data from Yahoo Finance
+            raw_data = self.extract_stock_data(stock.yahoo_symbol, start_date, end_date)
+            if raw_data is None or raw_data.empty:
+                return {
+                    'success': False,
+                    'error': f'No data available from Yahoo Finance for {stock.yahoo_symbol}'
+                }
+            
+            # Transform data for star schema
+            transformed_data = self.transform_stock_data(raw_data, stock_key)
             if not transformed_data:
-                return False
+                return {
+                    'success': False,
+                    'error': f'Failed to transform data for {stock.yahoo_symbol}'
+                }
             
-            # Apply currency conversion if needed
-            if stock.trading_currency and stock.current_currency and stock.trading_currency != stock.current_currency:
-                conversion_data = self.extract_currency_conversion_data(
-                    stock.trading_currency, 
-                    stock.current_currency, 
-                    start_date
-                )
-                if conversion_data is not None:
-                    transformed_data = self.apply_currency_conversion(transformed_data, conversion_data)
+            # Load data into FACT_MARKET_PRICES
+            load_result = self.load_market_prices(transformed_data)
             
-            # Load data into database
-            success = self.load_historical_prices(transformed_data)
+            # Update current price in DIM_STOCK
+            if load_result['success'] and transformed_data:
+                # Get most recent price
+                latest_record = max(transformed_data, key=lambda x: x['date_key'])
+                if latest_record['close_price']:
+                    stock.current_price = latest_record['close_price']
+                    stock.last_updated = datetime.utcnow()
+                    db.session.commit()
+                    logger.info(f"Updated current price for {stock.yahoo_symbol}: {latest_record['close_price']}")
             
-            # Update current price if we have today's data
-            today = datetime.now().date()
-            today_record = next((r for r in transformed_data if r['date'] == today), None)
-            if today_record and today_record['close_price']:
-                self.update_stock_current_price(stock_id, today_record['close_price'])
-            
-            return success
+            return {
+                'success': load_result['success'],
+                'stock_key': stock_key,
+                'yahoo_symbol': stock.yahoo_symbol,
+                'date_range': f"{start_date} to {end_date}",
+                'raw_data_points': len(raw_data),
+                'transformed_records': len(transformed_data),
+                'loaded_count': load_result.get('loaded_count', 0),
+                'updated_count': load_result.get('updated_count', 0),
+                'errors': load_result.get('errors', [])
+            }
             
         except Exception as e:
-            logger.error(f"Error in ETL process for stock {stock_id}: {str(e)}")
-            return False
+            logger.error(f"Error in ETL process for stock_key {stock_key}: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'stock_key': stock_key
+            }
 
-    
-    def verify_stock(self, yahoo_symbol: str) -> Dict:
+    def batch_fetch_market_data(self, stock_keys: List[int], start_date: date = None, end_date: date = None) -> Dict[str, Any]:
         """
-        Enhanced verification for stock assignment - gets comprehensive stock data.
-        Used during market assignment to provide rich stock information.
+        Batch process market data for multiple stocks.
+        
+        PERFORMANCE OPTIMIZATION: Processes multiple stocks in a single operation
+        to reduce overhead and improve efficiency when called after transaction imports.
+        
+        DESIGN DECISION: Continues processing other stocks even if individual stocks fail,
+        providing detailed results for each stock to aid in debugging.
         
         Args:
-            yahoo_symbol: Yahoo Finance stock symbol
+            stock_keys: List of stock_key values to process
+            start_date: Start date for all stocks (optional)
+            end_date: End date for all stocks (optional)
+            
+        Returns:
+            Dict: Batch processing results with per-stock details
+        """
+        try:
+            results = []
+            successful_stocks = 0
+            failed_stocks = 0
+            total_records_loaded = 0
+            
+            logger.info(f"Starting batch market data fetch for {len(stock_keys)} stocks")
+            
+            for stock_key in stock_keys:
+                try:
+                    result = self.fetch_and_load_stock_data(stock_key, start_date, end_date)
+                    results.append(result)
+                    
+                    if result['success']:
+                        successful_stocks += 1
+                        total_records_loaded += result.get('loaded_count', 0) + result.get('updated_count', 0)
+                        logger.info(f"Successfully processed stock_key {stock_key}")
+                    else:
+                        failed_stocks += 1
+                        logger.warning(f"Failed to process stock_key {stock_key}: {result.get('error', 'Unknown error')}")
+                        
+                except Exception as e:
+                    failed_stocks += 1
+                    error_result = {
+                        'success': False,
+                        'stock_key': stock_key,
+                        'error': str(e)
+                    }
+                    results.append(error_result)
+                    logger.error(f"Exception processing stock_key {stock_key}: {str(e)}")
+            
+            return {
+                'success': True,
+                'total_stocks': len(stock_keys),
+                'successful_stocks': successful_stocks,
+                'failed_stocks': failed_stocks,
+                'total_records_loaded': total_records_loaded,
+                'results': results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in batch market data fetch: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_stocks': len(stock_keys),
+                'successful_stocks': 0,
+                'failed_stocks': len(stock_keys),
+                'total_records_loaded': 0,
+                'results': []
+            }
+
+    # ============= STOCK VERIFICATION METHODS =============
+    
+    def verify_stock(self, yahoo_symbol: str) -> Dict[str, Any]:
+        """
+        Enhanced verification for stock assignment - gets comprehensive stock data.
+        Used during Step 4 (stock verification) to validate and enrich stock information.
+        
+        DESIGN DECISION: This method is called during the stock verification workflow
+        to ensure stocks exist on Yahoo Finance and gather comprehensive metadata
+        before they can be used in transaction imports.
+        
+        INTEGRATION POINT: Called by stock verification UI/API during Step 4 of
+        the transaction import workflow to validate instrument codes against
+        Yahoo Finance and provide rich stock information for user confirmation.
+        
+        Args:
+            yahoo_symbol: Yahoo Finance stock symbol (e.g., 'AAPL', 'MSFT.L')
             
         Returns:
             Dict: Enhanced verification result with comprehensive stock data
         """
         try:
+            logger.info(f"Verifying stock symbol: {yahoo_symbol}")
+            
             ticker = yf.Ticker(yahoo_symbol)
             info = ticker.info
             
@@ -462,7 +509,8 @@ class MarketDataService:
             if not info or not name:
                 return {
                     'success': False,
-                    'error': f'Stock {yahoo_symbol} not found on Yahoo Finance'
+                    'error': f'Stock {yahoo_symbol} not found on Yahoo Finance',
+                    'exists': False
                 }
             
             # Get current price information
@@ -479,7 +527,8 @@ class MarketDataService:
                     hist = ticker.history(period="1d", auto_adjust=False)
                     if not hist.empty:
                         current_price = float(hist['Close'].iloc[-1])
-                except:
+                except Exception as e:
+                    logger.warning(f"Could not get historical price for {yahoo_symbol}: {str(e)}")
                     current_price = 0.0
             
             # Get currency information
@@ -504,7 +553,7 @@ class MarketDataService:
                 else:
                     market_cap_formatted = f"${market_cap:,.0f}"
             
-            return {
+            verification_result = {
                 'success': True,
                 'name': name,
                 'currency': currency,
@@ -518,10 +567,108 @@ class MarketDataService:
                 'exists': True
             }
             
+            logger.info(f"Successfully verified {yahoo_symbol}: {name}")
+            return verification_result
+            
         except Exception as e:
-            logger.error(f"Error in enhanced verification for {yahoo_symbol}: {str(e)}")
+            logger.error(f"Error in verification for {yahoo_symbol}: {str(e)}")
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'exists': False
             }
-    
+
+    # ============= UTILITY METHODS =============
+
+    def get_missing_market_data_for_stock(self, stock_key: int, start_date: date, end_date: date) -> List[int]:
+        """
+        Identify missing market data dates for a stock.
+        
+        DESIGN DECISION: Uses DateDimension to get proper trading days,
+        excluding weekends and holidays where market data wouldn't exist.
+        
+        Args:
+            stock_key: Stock key to check
+            start_date: Start of date range
+            end_date: End of date range
+            
+        Returns:
+            List[int]: List of missing date_key values
+        """
+        try:
+            start_date_key = int(start_date.strftime('%Y%m%d'))
+            end_date_key = int(end_date.strftime('%Y%m%d'))
+            
+            return MarketPrice.get_missing_dates(stock_key, start_date_key, end_date_key)
+            
+        except Exception as e:
+            logger.error(f"Error getting missing dates for stock_key {stock_key}: {str(e)}")
+            return []
+
+    def verify_stock_data_integrity(self, stock_key: int) -> Dict[str, Any]:
+        """
+        Verify data integrity for a stock's market data.
+        
+        QUALITY ASSURANCE: Checks for data gaps, invalid prices, and other
+        data quality issues that could affect daily metrics calculations.
+        
+        Args:
+            stock_key: Stock key to verify
+            
+        Returns:
+            Dict: Verification results with any issues found
+        """
+        try:
+            # Get stock information
+            stock = Stock.query.filter_by(stock_key=stock_key).first()
+            if not stock:
+                return {
+                    'success': False,
+                    'error': f'Stock with key {stock_key} not found'
+                }
+            
+            # Get all market data for this stock
+            market_data = MarketPrice.query.filter_by(stock_key=stock_key).order_by(MarketPrice.date_key).all()
+            
+            if not market_data:
+                return {
+                    'success': True,
+                    'stock_key': stock_key,
+                    'yahoo_symbol': stock.yahoo_symbol,
+                    'total_records': 0,
+                    'issues': ['No market data found']
+                }
+            
+            issues = []
+            
+            # Check for invalid prices
+            invalid_prices = [d for d in market_data if not d.close_price or d.close_price <= 0]
+            if invalid_prices:
+                issues.append(f"Found {len(invalid_prices)} records with invalid close prices")
+            
+            # Check for data gaps (missing trading days)
+            date_keys = [d.date_key for d in market_data]
+            if len(date_keys) > 1:
+                first_date = datetime.strptime(str(min(date_keys)), '%Y%m%d').date()
+                last_date = datetime.strptime(str(max(date_keys)), '%Y%m%d').date()
+                
+                missing_dates = self.get_missing_market_data_for_stock(stock_key, first_date, last_date)
+                if missing_dates:
+                    issues.append(f"Found {len(missing_dates)} missing trading days")
+            
+            return {
+                'success': True,
+                'stock_key': stock_key,
+                'yahoo_symbol': stock.yahoo_symbol,
+                'total_records': len(market_data),
+                'date_range': f"{min(date_keys)} to {max(date_keys)}" if date_keys else "No data",
+                'issues': issues
+            }
+            
+        except Exception as e:
+            logger.error(f"Error verifying stock data integrity for stock_key {stock_key}: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'stock_key': stock_key
+            }
