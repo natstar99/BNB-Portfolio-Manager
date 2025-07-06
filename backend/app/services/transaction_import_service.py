@@ -432,10 +432,12 @@ class TransactionImportService:
             # Use the updated MarketDataService for batch processing
             
             # Collect market data from earliest transaction date to today
+            # CRITICAL: Use commit=False since we're inside a transaction context manager
             results = self.market_data_service.batch_fetch_market_data(
                 stock_keys=stock_keys,
                 start_date=from_date,
-                end_date=None  # Will default to today
+                end_date=None,  # Will default to today
+                commit=False  # Don't commit - we're inside transaction context
             )
             
             # Log detailed results for debugging
@@ -554,10 +556,12 @@ class TransactionImportService:
                     portfolio_key = stock.portfolio_key
                     
                     # Use DailyMetricsService to recalculate metrics
+                    # CRITICAL: Use commit=False since we're inside a transaction context manager
                     metrics_result = self.daily_metrics_service.recalculate_portfolio_metrics(
                         portfolio_key=portfolio_key,
                         stock_key=stock_key,
-                        from_date=from_date
+                        from_date=from_date,
+                        commit=False  # Don't commit - we're inside transaction context
                     )
                     
                     if metrics_result.get('success'):

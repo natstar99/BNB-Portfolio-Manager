@@ -82,8 +82,20 @@ class DailyPortfolioMetric(db.Model):
         }
     
     @staticmethod
-    def create(portfolio_key: int, stock_key: int, date_key: int, **kwargs):
-        """Create a new daily metric record"""
+    def create(portfolio_key: int, stock_key: int, date_key: int, commit: bool = True, **kwargs):
+        """
+        Create a new daily metric record.
+        
+        Args:
+            portfolio_key: Portfolio identifier
+            stock_key: Stock identifier
+            date_key: Date key in YYYYMMDD format
+            commit: Whether to commit the creation (default True for standalone use)
+            **kwargs: Additional metric fields
+            
+        Returns:
+            DailyPortfolioMetric: Created metric record
+        """
         metric = DailyPortfolioMetric(
             portfolio_key=portfolio_key,
             stock_key=stock_key,
@@ -92,7 +104,8 @@ class DailyPortfolioMetric(db.Model):
         )
         
         db.session.add(metric)
-        db.session.commit()
+        if commit:
+            db.session.commit()
         return metric
     
     @staticmethod
@@ -132,14 +145,28 @@ class DailyPortfolioMetric(db.Model):
         ).order_by(DailyPortfolioMetric.date_key).all()
     
     @staticmethod
-    def delete_metrics_from_date(portfolio_key: int, stock_key: int, from_date_key: int):
-        """Delete metrics from specified date forward (for recalculation)"""
+    def delete_metrics_from_date(portfolio_key: int, stock_key: int, from_date_key: int, commit: bool = True):
+        """
+        Delete metrics from specified date forward (for recalculation).
+        
+        TRANSACTION CONTEXT MANAGEMENT: This method can be called within a transaction
+        context manager. The commit parameter controls whether database operations
+        are committed immediately or deferred to the calling context.
+        
+        Args:
+            portfolio_key: Portfolio identifier
+            stock_key: Stock identifier
+            from_date_key: Date key in YYYYMMDD format to start deletion from
+            commit: Whether to commit the deletion (default True for standalone use)
+        """
         DailyPortfolioMetric.query.filter(
             DailyPortfolioMetric.portfolio_key == portfolio_key,
             DailyPortfolioMetric.stock_key == stock_key,
             DailyPortfolioMetric.date_key >= from_date_key
         ).delete()
-        db.session.commit()
+        
+        if commit:
+            db.session.commit()
     
     @staticmethod
     def get_portfolio_summary(portfolio_key: int, date_key: int) -> Dict[str, Any]:

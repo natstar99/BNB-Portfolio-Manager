@@ -1,5 +1,45 @@
 """
 Daily Metrics Service - Handles calculation and management of daily portfolio metrics
+====================================================================================
+
+This service handles the complex calculation of daily portfolio metrics that populate
+FACT_DAILY_PORTFOLIO_METRICS in the Kimball star schema. It integrates transaction
+data from FACT_TRANSACTIONS with market prices from FACT_MARKET_PRICES to calculate
+comprehensive portfolio performance metrics.
+
+ARCHITECTURAL PHILOSOPHY:
+- Calculates cumulative metrics (shares, cost basis, P&L) for each trading day
+- Handles complex scenarios: stock splits, dividends, DRP, partial sales
+- Ensures data consistency through proper transaction context management
+- Optimized for batch recalculation when historical data changes
+
+DESIGN DECISIONS:
+1. Transaction Context Management: All methods support commit=False for integration
+   with TransactionImportService's atomic transaction context
+2. Date Key Strategy: Uses YYYYMMDD date_key format for star schema consistency
+3. Error Isolation: Individual metric calculation failures don't stop batch processing
+4. Cumulative Calculations: Each day builds on previous day's metrics for efficiency
+5. Corporate Actions: Handles splits and dividends from market data automatically
+
+INTEGRATION POINTS:
+- Called by TransactionImportService after market data collection
+- Consumes data from FACT_TRANSACTIONS and FACT_MARKET_PRICES
+- Populates FACT_DAILY_PORTFOLIO_METRICS for analytics and reporting
+- Works with DateDimension for proper trading day calculations
+
+CRITICAL REQUIREMENTS:
+- Must handle transaction context properly (commit parameter)
+- Must calculate cumulative metrics correctly across date ranges
+- Must handle corporate actions (splits, dividends) properly
+- Must support recalculation from any starting date
+- Must maintain data integrity during batch operations
+
+FUTURE DEVELOPERS: This service implements complex financial calculations.
+Any changes must maintain mathematical accuracy and handle edge cases like:
+- Stock splits (adjusting share counts and cost basis)
+- Dividend payments (cash vs DRP)
+- Partial sales (calculating realized P&L correctly)
+- Position reversals (going from long to short)
 """
 
 import logging
@@ -26,10 +66,23 @@ class DailyMetricsService:
     def __init__(self):
         pass
     
-    def recalculate_portfolio_metrics(self, portfolio_key: int, stock_key: int, from_date: date = None) -> Dict[str, Any]:
+    def recalculate_portfolio_metrics(self, portfolio_key: int, stock_key: int, from_date: date = None, commit: bool = True) -> Dict[str, Any]:
         """
         Recalculate daily metrics for a specific portfolio/stock combination from specified date forward.
         Used when transactions are added or corrected.
+        
+        TRANSACTION CONTEXT MANAGEMENT: This method can be called within a transaction
+        context manager from TransactionImportService. The commit parameter controls
+        whether database operations are committed immediately or deferred.
+        
+        Args:
+            portfolio_key: Portfolio identifier
+            stock_key: Stock identifier
+            from_date: Start date for recalculation (optional - auto-determined)
+            commit: Whether to commit database changes (default True for standalone use)
+            
+        Returns:
+            Dict: Results with success status and metrics count
         """
         try:
             # Convert date to date_key format
@@ -49,7 +102,7 @@ class DailyMetricsService:
                 from_date_key = int(earliest_transaction.transaction_date.strftime('%Y%m%d'))
             
             # Delete existing metrics from this date forward to recalculate
-            DailyPortfolioMetric.delete_metrics_from_date(portfolio_key, stock_key, from_date_key)
+            DailyPortfolioMetric.delete_metrics_from_date(portfolio_key, stock_key, from_date_key, commit=commit)
             
             # Get all transactions for this portfolio/stock from the start date
             transactions = Transaction.query.join(TransactionType).filter(
@@ -72,7 +125,7 @@ class DailyMetricsService:
             
             # Process each trading day
             for date_key in trading_days:
-                metric = self._calculate_daily_metric(portfolio_key, stock_key, date_key, transactions)
+                metric = self._calculate_daily_metric(portfolio_key, stock_key, date_key, transactions, commit=commit)
                 if metric:
                     metrics_calculated += 1
             
@@ -87,16 +140,33 @@ class DailyMetricsService:
             
         except Exception as e:
             logger.error(f"Error recalculating metrics for portfolio {portfolio_key}, stock {stock_key}: {str(e)}")
-            db.session.rollback()
+            # Don't rollback here - let calling method handle transaction rollback
+            # if commit:
+            #     db.session.rollback()
             return {
                 'success': False,
                 'error': str(e)
             }
     
-    def _calculate_daily_metric(self, portfolio_key: int, stock_key: int, date_key: int, all_transactions: List[Transaction]) -> Optional[DailyPortfolioMetric]:
+    def _calculate_daily_metric(self, portfolio_key: int, stock_key: int, date_key: int, all_transactions: List[Transaction], commit: bool = True) -> Optional[DailyPortfolioMetric]:
         """
         Calculate daily metric for specific date.
         This is the core calculation logic that handles all the complex metrics.
+        
+        TRANSACTION CONTEXT MANAGEMENT: This method can be called within a transaction
+        context manager from TransactionImportService. The commit parameter controls
+        whether database operations are committed immediately or deferred to the
+        calling context manager.
+        
+        Args:
+            portfolio_key: Portfolio identifier
+            stock_key: Stock identifier  
+            date_key: Date in YYYYMMDD format
+            all_transactions: List of transactions for this stock
+            commit: Whether to commit database changes (default True for standalone use)
+            
+        Returns:
+            DailyPortfolioMetric or None: Created metric record or None if no market data
         """
         try:
             # Convert date_key to date object for comparison
@@ -243,13 +313,16 @@ class DailyMetricsService:
             )
             
             db.session.add(metric)
-            db.session.commit()
+            if commit:
+                db.session.commit()
             
             return metric
             
         except Exception as e:
             logger.error(f"Error calculating daily metric for {portfolio_key}/{stock_key}/{date_key}: {str(e)}")
-            db.session.rollback()
+            # Don't rollback here - let calling method handle transaction rollback
+            # if commit:
+            #     db.session.rollback()
             raise
     
     def _get_previous_metric(self, portfolio_key: int, stock_key: int, date_key: int) -> Optional[DailyPortfolioMetric]:

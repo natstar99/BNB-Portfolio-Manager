@@ -231,7 +231,7 @@ class MarketDataService:
 
     # ============= LOAD METHODS =============
 
-    def load_market_prices(self, price_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def load_market_prices(self, price_data: List[Dict[str, Any]], commit: bool = True) -> Dict[str, Any]:
         """
         Load market price data into FACT_MARKET_PRICES table.
         
@@ -240,6 +240,7 @@ class MarketDataService:
         
         Args:
             price_data: List of transformed price records
+            commit: Whether to commit the transaction (default True for standalone use)
             
         Returns:
             Dict: Load results with counts and any errors
@@ -276,7 +277,8 @@ class MarketDataService:
                     errors.append(error_msg)
                     logger.error(error_msg)
             
-            db.session.commit()
+            if commit:
+                db.session.commit()
             
             result = {
                 'success': True,
@@ -303,7 +305,7 @@ class MarketDataService:
 
     # ============= HIGH-LEVEL ETL METHODS =============
 
-    def fetch_and_load_stock_data(self, stock_key: int, start_date: date = None, end_date: date = None) -> Dict[str, Any]:
+    def fetch_and_load_stock_data(self, stock_key: int, start_date: date = None, end_date: date = None, commit: bool = True) -> Dict[str, Any]:
         """
         Complete ETL process for a single stock's market data.
         
@@ -317,6 +319,7 @@ class MarketDataService:
             stock_key: Database stock_key from DIM_STOCK
             start_date: Start date for data fetch (optional - auto-determined)
             end_date: End date for data fetch (optional - defaults to today)
+            commit: Whether to commit the transaction (default True for standalone use)
             
         Returns:
             Dict: ETL results with success status and detailed metrics
@@ -373,7 +376,7 @@ class MarketDataService:
                 }
             
             # Load data into FACT_MARKET_PRICES
-            load_result = self.load_market_prices(transformed_data)
+            load_result = self.load_market_prices(transformed_data, commit=commit)
             
             # Update current price in DIM_STOCK
             if load_result['success'] and transformed_data:
@@ -382,7 +385,8 @@ class MarketDataService:
                 if latest_record['close_price']:
                     stock.current_price = latest_record['close_price']
                     stock.last_updated = datetime.utcnow()
-                    db.session.commit()
+                    if commit:
+                        db.session.commit()
                     logger.info(f"Updated current price for {stock.yahoo_symbol}: {latest_record['close_price']}")
             
             return {
@@ -405,7 +409,7 @@ class MarketDataService:
                 'stock_key': stock_key
             }
 
-    def batch_fetch_market_data(self, stock_keys: List[int], start_date: date = None, end_date: date = None) -> Dict[str, Any]:
+    def batch_fetch_market_data(self, stock_keys: List[int], start_date: date = None, end_date: date = None, commit: bool = True) -> Dict[str, Any]:
         """
         Batch process market data for multiple stocks.
         
@@ -419,6 +423,7 @@ class MarketDataService:
             stock_keys: List of stock_key values to process
             start_date: Start date for all stocks (optional)
             end_date: End date for all stocks (optional)
+            commit: Whether to commit transactions (default True for standalone use)
             
         Returns:
             Dict: Batch processing results with per-stock details
@@ -433,7 +438,7 @@ class MarketDataService:
             
             for stock_key in stock_keys:
                 try:
-                    result = self.fetch_and_load_stock_data(stock_key, start_date, end_date)
+                    result = self.fetch_and_load_stock_data(stock_key, start_date, end_date, commit=commit)
                     results.append(result)
                     
                     if result['success']:
