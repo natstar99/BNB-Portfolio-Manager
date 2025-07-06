@@ -62,39 +62,36 @@ export const PortfolioDashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch portfolio details
-      const portfolioResponse = await fetch(`/api/portfolios/${portfolioId}`);
-      if (!portfolioResponse.ok) {
-        if (portfolioResponse.status === 404) {
+      // Fetch comprehensive portfolio analytics data in one call
+      const analyticsResponse = await fetch(`/api/portfolios/${portfolioId}/analytics`);
+      if (!analyticsResponse.ok) {
+        if (analyticsResponse.status === 404) {
           navigate('/');
           return;
         }
-        throw new Error('Failed to fetch portfolio');
+        throw new Error('Failed to fetch portfolio analytics');
       }
       
-      const portfolioData = await portfolioResponse.json();
-      setPortfolio(portfolioData.data);
-
-      // Fetch portfolio positions
-      try {
-        const positionsResponse = await fetch(`/api/portfolios/${portfolioId}/positions`);
-        if (positionsResponse.ok) {
-          const positionsData = await positionsResponse.json();
-          setPositions(positionsData.data?.positions || []);
-        }
-      } catch (positionsErr) {
-        console.log('Positions endpoint not available yet');
-      }
-
-      // Fetch recent transactions for this portfolio
-      try {
-        const transactionsResponse = await fetch(`/api/transactions?portfolio_id=${portfolioId}&limit=5`);
-        if (transactionsResponse.ok) {
-          const transactionsData = await transactionsResponse.json();
-          setRecentTransactions(transactionsData.transactions || []);
-        }
-      } catch (transactionsErr) {
-        console.log('Transactions endpoint returned error');
+      const analyticsData = await analyticsResponse.json();
+      console.log('Analytics data received:', analyticsData); // Debug logging
+      
+      if (analyticsData.success && analyticsData.data) {
+        // Set portfolio data with metrics
+        setPortfolio(analyticsData.data.portfolio);
+        
+        // Set positions data
+        setPositions(analyticsData.data.positions || []);
+        
+        // Set recent transactions data
+        setRecentTransactions(analyticsData.data.recent_transactions || []);
+        
+        console.log('Dashboard data set:', {
+          portfolio: analyticsData.data.portfolio,
+          positions: analyticsData.data.positions?.length || 0,
+          transactions: analyticsData.data.recent_transactions?.length || 0
+        });
+      } else {
+        throw new Error(analyticsData.error || 'Invalid response format');
       }
 
     } catch (err) {
@@ -108,7 +105,7 @@ export const PortfolioDashboard: React.FC = () => {
   const formatCurrency = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency: portfolio?.currency || 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
@@ -165,15 +162,13 @@ export const PortfolioDashboard: React.FC = () => {
         <div className="breadcrumb">
           <Link to="/" className="breadcrumb-link">Main Menu</Link>
           <span className="breadcrumb-separator">›</span>
+          <Link to={`/portfolio/${portfolioId}/dashboard`} className="breadcrumb-link">Portfolio</Link>
+          <span className="breadcrumb-separator">›</span>
           <span className="breadcrumb-current">{portfolio.name}</span>
         </div>
-        <div className="portfolio-selector-inline">
-          <Link to="/" className="btn btn-outline btn-sm">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M19 12H5m7-7l-7 7 7 7"/>
-            </svg>
-            Switch Portfolio
-          </Link>
+        <div className="portfolio-meta">
+          <span className="portfolio-currency">{portfolio.currency}</span>
+          <span className="portfolio-created">Since {formatDate(portfolio.created_at)}</span>
         </div>
       </div>
 
@@ -188,244 +183,374 @@ export const PortfolioDashboard: React.FC = () => {
             </div>
             <div>
               <h1>{portfolio.name}</h1>
-              <p className="page-subtitle">Portfolio Dashboard • {portfolio.currency}</p>
+              <p className="page-subtitle">Portfolio Dashboard</p>
             </div>
           </div>
         </div>
         <div className="header-actions">
-          <Link to={`/portfolio/${portfolioId}/transactions`} className="btn btn-outline">
+          <Link to={`/portfolio/${portfolioId}/stocks`} className="btn btn-outline">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14,2 14,8 20,8"/>
+              <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
             </svg>
-            View Transactions
+            Manage Stocks
           </Link>
-          <Link to={`/portfolio/${portfolioId}/transactions/new`} className="btn btn-primary">
+          <Link to={`/portfolio/${portfolioId}/import`} className="btn btn-outline">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="16"/>
-              <line x1="8" y1="12" x2="16" y2="12"/>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17,8 12,3 7,8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            Add Transaction
+            Import Data
+          </Link>
+          <Link to={`/portfolio/${portfolioId}/analytics`} className="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 3v18h18"/>
+              <path d="M7 16l4-4 4 4 6-6"/>
+            </svg>
+            Analytics
           </Link>
         </div>
       </div>
 
-      {/* Portfolio Metrics */}
-      <div className="metrics-section">
-        <div className="metrics-grid">
-          <MetricCard
-            title="Portfolio Value"
-            value={formatCurrency(portfolio.total_value || 0)}
-            change={portfolio.day_change ? {
-              value: portfolio.day_change,
-              percentage: portfolio.day_change_percent || 0,
-              isPositive: portfolio.day_change >= 0
-            } : undefined}
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      {/* Portfolio Overview */}
+      <div className="dashboard-section">
+        <div className="section-header">
+          <h2>Portfolio Overview</h2>
+          <div className="portfolio-actions">
+            <Link to="/" className="btn btn-outline btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5m7-7l-7 7 7 7"/>
               </svg>
-            }
-          />
+              Switch Portfolio
+            </Link>
+          </div>
+        </div>
+        
+        <div className="portfolio-summary-card glass">
+          <div className="summary-content">
+            <div className="summary-item">
+              <div className="summary-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                </svg>
+              </div>
+              <div className="summary-details">
+                <span className="summary-label">Portfolio Value</span>
+                <span className="summary-value">{formatCurrency(portfolio.total_value || 0)}</span>
+                {portfolio.day_change !== undefined && (
+                  <span className={`summary-change ${portfolio.day_change >= 0 ? 'positive' : 'negative'}`}>
+                    {portfolio.day_change >= 0 ? '+' : ''}{formatCurrency(portfolio.day_change)} ({formatPercent(portfolio.day_change_percent || 0)})
+                  </span>
+                )}
+              </div>
+            </div>
 
-          <MetricCard
-            title="Total Gain/Loss"
-            value={formatCurrency(portfolio.gain_loss || 0)}
-            change={portfolio.gain_loss ? {
-              value: portfolio.gain_loss,
-              percentage: portfolio.gain_loss_percent || 0,
-              isPositive: portfolio.gain_loss >= 0
-            } : undefined}
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+            <div className="summary-item">
+              <div className="summary-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="1" y="3" width="15" height="13"/>
+                  <path d="m16 8 2-2 2 2"/>
+                  <path d="M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/>
+                </svg>
+              </div>
+              <div className="summary-details">
+                <span className="summary-label">Total Cost</span>
+                <span className="summary-value">{formatCurrency(portfolio.total_cost || 0)}</span>
+              </div>
+            </div>
+
+            <div className="summary-item">
+              <div className="summary-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+                </svg>
+              </div>
+              <div className="summary-details">
+                <span className="summary-label">Total Return</span>
+                <span className={`summary-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(portfolio.gain_loss || 0)}
+                </span>
+                {portfolio.gain_loss_percent !== undefined && (
+                  <span className={`summary-change ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
+                    {formatPercent(portfolio.gain_loss_percent)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="summary-item">
+              <div className="summary-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                  <line x1="8" y1="21" x2="16" y2="21"/>
+                  <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+              </div>
+              <div className="summary-details">
+                <span className="summary-label">Active Positions</span>
+                <span className="summary-value">{portfolio.stock_count || 0}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Portfolio Positions Table */}
+      <div className="dashboard-section">
+        <div className="section-header">
+          <h2>Portfolio Positions</h2>
+          <div className="header-actions-secondary">
+            <Link to={`/portfolio/${portfolioId}/transactions/new`} className="btn btn-outline btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14"/>
               </svg>
-            }
-          />
-
-          <MetricCard
-            title="Total Cost"
-            value={formatCurrency(portfolio.total_cost || 0)}
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="1" y="3" width="15" height="13"/>
-                <path d="m16 8 2-2 2 2"/>
-                <path d="M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/>
-              </svg>
-            }
-          />
-
-          <MetricCard
-            title="Positions"
-            value={portfolio.stock_count?.toString() || '0'}
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              Add New
+            </Link>
+            <Link to={`/portfolio/${portfolioId}/positions`} className="btn btn-outline btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
                 <line x1="8" y1="21" x2="16" y2="21"/>
                 <line x1="12" y1="17" x2="12" y2="21"/>
               </svg>
-            }
-          />
-        </div>
-      </div>
-
-      {/* Top Holdings */}
-      <div className="dashboard-section">
-        <div className="section-header">
-          <h2>Top Holdings</h2>
-          <Link to={`/portfolio/${portfolioId}/positions`} className="btn btn-outline btn-sm">
-            View All Positions
-          </Link>
+              Detailed View
+            </Link>
+          </div>
         </div>
         
-        <div className="holdings-preview glass">
+        <div className="positions-table-container">
           {positions.length === 0 ? (
-            <div className="empty-state">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
-              <h3>No positions yet</h3>
-              <p>Start building your portfolio by adding stocks</p>
-              <Link to={`/portfolio/${portfolioId}/transactions/new`} className="btn btn-primary">
-                Add First Position
-              </Link>
+            <div className="empty-state-table">
+              <div className="empty-content">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                  <line x1="8" y1="21" x2="16" y2="21"/>
+                  <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+                <h3>No positions yet</h3>
+                <p>Start building your portfolio by importing transactions or adding stocks manually</p>
+                <div className="empty-actions">
+                  <Link to={`/portfolio/${portfolioId}/import`} className="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17,8 12,3 7,8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Import Transactions
+                  </Link>
+                  <Link to={`/portfolio/${portfolioId}/stocks`} className="btn btn-outline">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+                    </svg>
+                    Manage Stocks
+                  </Link>
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="holdings-list">
-              {positions.slice(0, 5).map((position) => (
-                <div key={position.id} className="holding-item">
-                  <div className="holding-symbol">
-                    <div className="symbol-icon">
-                      {position.symbol.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div className="holding-details">
-                      <span className="symbol-text">{position.symbol}</span>
-                      <span className="company-name">
-                        {position.company_name || 'Unknown Company'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="holding-metrics">
-                    <div className="metric-item">
-                      <span className="metric-label">Value</span>
-                      <span className="metric-value">{formatCurrency(position.market_value)}</span>
-                    </div>
-                    <div className="metric-item">
-                      <span className="metric-label">Gain/Loss</span>
-                      <span className={`metric-value ${position.gain_loss >= 0 ? 'positive' : 'negative'}`}>
-                        {formatCurrency(position.gain_loss)}
-                      </span>
-                    </div>
-                    <div className="metric-item">
-                      <span className="metric-label">%</span>
-                      <span className={`metric-value ${position.gain_loss_percent >= 0 ? 'positive' : 'negative'}`}>
-                        {formatPercent(position.gain_loss_percent)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="positions-table glass">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Stock</th>
+                    <th>Units Owned</th>
+                    <th>Avg. Cost</th>
+                    <th>Current Price</th>
+                    <th>Market Value</th>
+                    <th>Total Cost</th>
+                    <th>Gain/Loss</th>
+                    <th>%</th>
+                    <th>Day Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((position) => (
+                    <tr key={position.id} className="position-row" onClick={() => navigate(`/portfolio/${portfolioId}/transactions?symbol=${position.symbol}`)}>
+                      <td className="stock-cell">
+                        <div className="stock-info">
+                          <div className="symbol-icon">
+                            {position.symbol.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="stock-details">
+                            <span className="symbol">{position.symbol}</span>
+                            <span className="company-name">{position.company_name || 'Unknown Company'}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="units-cell">
+                        <span className="units">{position.quantity.toLocaleString()}</span>
+                      </td>
+                      <td className="avg-cost-cell">
+                        <span className="price">{formatCurrency(position.avg_cost)}</span>
+                      </td>
+                      <td className="current-price-cell">
+                        <span className="price">{formatCurrency(position.current_price)}</span>
+                      </td>
+                      <td className="market-value-cell">
+                        <span className="value">{formatCurrency(position.market_value)}</span>
+                      </td>
+                      <td className="total-cost-cell">
+                        <span className="value">{formatCurrency(position.avg_cost * position.quantity)}</span>
+                      </td>
+                      <td className="gain-loss-cell">
+                        <span className={`gain-loss ${position.gain_loss >= 0 ? 'positive' : 'negative'}`}>
+                          {formatCurrency(position.gain_loss)}
+                        </span>
+                      </td>
+                      <td className="percentage-cell">
+                        <span className={`percentage ${position.gain_loss_percent >= 0 ? 'positive' : 'negative'}`}>
+                          {formatPercent(position.gain_loss_percent)}
+                        </span>
+                      </td>
+                      <td className="day-change-cell">
+                        <div className="day-change">
+                          <span className={`change-value ${position.day_change >= 0 ? 'positive' : 'negative'}`}>
+                            {formatCurrency(position.day_change)}
+                          </span>
+                          <span className={`change-percent ${position.day_change_percent >= 0 ? 'positive' : 'negative'}`}>
+                            {formatPercent(position.day_change_percent)}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="dashboard-section">
-        <div className="section-header">
-          <h2>Recent Transactions</h2>
-          <Link to={`/portfolio/${portfolioId}/transactions`} className="btn btn-outline btn-sm">
-            View All
-          </Link>
-        </div>
-        
-        <div className="transactions-card glass">
-          {recentTransactions.length === 0 ? (
-            <div className="empty-state">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M8 12h8"/>
-              </svg>
-              <h3>No transactions yet</h3>
-              <p>Your transaction history will appear here</p>
-              <Link to={`/portfolio/${portfolioId}/transactions/new`} className="btn btn-primary">
-                Add First Transaction
-              </Link>
-            </div>
-          ) : (
-            <div className="transactions-list">
-              {recentTransactions.map((transaction, index) => (
-                <div key={transaction.id || index} className="transaction-item">
-                  <div className="transaction-symbol">
-                    <div className="symbol-icon">
-                      {transaction.symbol?.substring(0, 2).toUpperCase() || 'N/A'}
-                    </div>
-                    <div className="transaction-details">
-                      <span className="symbol-text">{transaction.symbol || 'Unknown'}</span>
-                      <span className="transaction-type">
-                        {transaction.action || 'Unknown'} • {transaction.quantity || 0} shares
-                      </span>
-                    </div>
-                  </div>
-                  <div className="transaction-value">
-                    <span className="price">{formatCurrency(transaction.price || 0)}</span>
-                    <span className="date">{formatDate(transaction.date || new Date().toISOString())}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="dashboard-section">
-        <div className="section-header">
-          <h2>Quick Actions</h2>
-        </div>
-        
-        <div className="quick-actions">
-          <Link to={`/portfolio/${portfolioId}/transactions/new`} className="action-card glass">
-            <div className="action-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="16"/>
-                <line x1="8" y1="12" x2="16" y2="12"/>
-              </svg>
-            </div>
-            <h3>Add Transaction</h3>
-            <p>Record a new buy/sell transaction</p>
-          </Link>
-
-          <Link to={`/portfolio/${portfolioId}/import`} className="action-card glass">
-            <div className="action-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      {/* Two-Column Layout */}
+      <div className="dashboard-two-column">
+        {/* Recent Activity */}
+        <div className="dashboard-section">
+          <div className="section-header">
+            <h2>Recent Transactions</h2>
+            <Link to={`/portfolio/${portfolioId}/transactions`} className="btn btn-outline btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14,2 14,8 20,8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-                <polyline points="10,9 9,9 8,9"/>
               </svg>
-            </div>
-            <h3>Import Data</h3>
-            <p>Upload CSV or Excel files</p>
-          </Link>
+              View All
+            </Link>
+          </div>
+          
+          <div className="transactions-card glass">
+            {recentTransactions.length === 0 ? (
+              <div className="empty-state-compact">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M8 12h8"/>
+                </svg>
+                <h4>No transactions yet</h4>
+                <p>Your transaction history will appear here</p>
+              </div>
+            ) : (
+              <div className="transactions-list">
+                {recentTransactions.slice(0, 4).map((transaction, index) => (
+                  <div key={transaction.id || index} className="transaction-item-compact">
+                    <div className="transaction-symbol">
+                      <div className="symbol-icon-small">
+                        {transaction.symbol?.substring(0, 2).toUpperCase() || 'N/A'}
+                      </div>
+                      <div className="transaction-details">
+                        <span className="symbol-text">{transaction.symbol || 'Unknown'}</span>
+                        <span className="transaction-type">
+                          {transaction.action || 'Unknown'} • {transaction.quantity || 0} shares
+                        </span>
+                      </div>
+                    </div>
+                    <div className="transaction-value">
+                      <span className="price">{formatCurrency(transaction.price || 0)}</span>
+                      <span className="date">{formatDate(transaction.date || new Date().toISOString())}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
-          <Link to={`/portfolio/${portfolioId}/analytics`} className="action-card glass">
-            <div className="action-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        {/* Performance Preview */}
+        <div className="dashboard-section">
+          <div className="section-header">
+            <h2>Performance Overview</h2>
+            <Link to={`/portfolio/${portfolioId}/analytics`} className="btn btn-outline btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 3v18h18"/>
                 <path d="M7 16l4-4 4 4 6-6"/>
               </svg>
-            </div>
-            <h3>View Analytics</h3>
-            <p>Analyze portfolio performance</p>
-          </Link>
+              Detailed Analytics
+            </Link>
+          </div>
+          
+          <div className="performance-card glass">
+            {portfolio.total_value && portfolio.total_cost ? (
+              <div className="performance-content">
+                {/* Performance Metrics */}
+                <div className="performance-metrics">
+                  <div className="performance-metric">
+                    <span className="metric-label">Total Return</span>
+                    <span className={`metric-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatCurrency(portfolio.gain_loss || 0)}
+                    </span>
+                    <span className={`metric-percentage ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatPercent(portfolio.gain_loss_percent || 0)}
+                    </span>
+                  </div>
+                  <div className="performance-metric">
+                    <span className="metric-label">Day Change</span>
+                    <span className={`metric-value ${(portfolio.day_change || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatCurrency(portfolio.day_change || 0)}
+                    </span>
+                    <span className={`metric-percentage ${(portfolio.day_change_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatPercent(portfolio.day_change_percent || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Placeholder for Chart */}
+                <div className="chart-placeholder">
+                  <div className="chart-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                      <path d="M3 3v18h18"/>
+                      <path d="M7 16l4-4 4 4 6-6"/>
+                    </svg>
+                  </div>
+                  <p>Performance chart coming soon</p>
+                  <span className="chart-note">Historical data visualization will be available here</span>
+                </div>
+
+                {/* Quick Stats */}
+                <div className="quick-stats">
+                  <div className="stat-item">
+                    <span className="stat-label">Positions</span>
+                    <span className="stat-value">{portfolio.stock_count || 0}</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Invested</span>
+                    <span className="stat-value">{formatCurrency(portfolio.total_cost || 0)}</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Current Value</span>
+                    <span className="stat-value">{formatCurrency(portfolio.total_value || 0)}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state-compact">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                  <path d="M3 3v18h18"/>
+                  <path d="M7 16l4-4 4 4 6-6"/>
+                </svg>
+                <h4>No performance data yet</h4>
+                <p>Performance metrics will appear once you have positions</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
     </div>
   );
 };

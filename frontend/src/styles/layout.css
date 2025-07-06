@@ -246,10 +246,17 @@
 .content-container {
   flex: 1;
   max-width: 1550px;
+  min-width: 320px;
   margin: 0 auto;
   padding: var(--spacing-xl) var(--spacing-lg);
   width: 100%;
   background: transparent; /* Inherit from body */
+}
+
+/* Ensure dashboard uses full available width */
+.dashboard-content {
+  width: 100%;
+  min-height: calc(100vh - 70px - 4rem);
 }
 
 /* Page Layouts */

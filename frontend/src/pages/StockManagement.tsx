@@ -1,12 +1,48 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { StockManagement as StockManagementComponent } from '../components/stocks/StockManagement';
-import '../styles/stock-management.css';
-import '../styles/stock-editor.css';
-import '../styles/bulk-stock-actions.css';
+import { StockVerification } from '../components/import/StockVerification';
+import '../styles/transaction-import.css';
 
 export const StockManagement: React.FC = () => {
   const { portfolioId } = useParams<{ portfolioId: string }>();
+  const [validationResults, setValidationResults] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (portfolioId) {
+      fetchPortfolioStocks();
+    }
+  }, [portfolioId]);
+
+  const fetchPortfolioStocks = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/portfolios/${portfolioId}/stocks/for-verification`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch portfolio stocks');
+      }
+      
+      const data = await response.json();
+      if (data.success) {
+        setValidationResults(data.data.validation_results);
+      } else {
+        throw new Error(data.error || 'Failed to fetch portfolio stocks');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch portfolio stocks');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStockVerification = (verificationResults: any) => {
+    // Handle the verification results - could redirect or show success message
+    console.log('Stock verification completed:', verificationResults);
+    // Optionally refresh the data
+    fetchPortfolioStocks();
+  };
 
   if (!portfolioId) {
     return (
@@ -19,6 +55,35 @@ export const StockManagement: React.FC = () => {
         </div>
         <div className="error-message">
           <p>Please select a portfolio first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="page-content">
+          <div className="loading-container">
+            <div className="loading-spinner"></div>
+            <p>Loading portfolio stocks...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="page">
+        <div className="page-content">
+          <div className="error-container">
+            <h3>Error Loading Stocks</h3>
+            <p>{error}</p>
+            <button onClick={fetchPortfolioStocks} className="btn btn-primary">
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -67,18 +132,17 @@ export const StockManagement: React.FC = () => {
             </svg>
             Import Transactions
           </Link>
-          <button className="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-              <polyline points="22,4 12,14.01 9,11.01"/>
-            </svg>
-            Verify All Pending
-          </button>
         </div>
       </div>
       
       <div className="page-content">
-        <StockManagementComponent />
+        {validationResults && (
+          <StockVerification
+            validationResults={validationResults}
+            portfolioId={parseInt(portfolioId)}
+            onStockVerification={handleStockVerification}
+          />
+        )}
       </div>
     </div>
   );

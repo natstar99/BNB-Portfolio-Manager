@@ -10,6 +10,7 @@ def get_transactions():
     """Get all transactions"""
     try:
         # Parse query parameters
+        portfolio_id = request.args.get('portfolio_id', type=int)
         stock_id = request.args.get('stock_id', type=int)
         transaction_type = request.args.get('type')
         start_date = request.args.get('start_date')
@@ -20,6 +21,9 @@ def get_transactions():
         query = Transaction.query
         
         # Apply filters
+        if portfolio_id:
+            query = query.filter_by(portfolio_id=portfolio_id)
+            
         if stock_id:
             query = query.filter_by(stock_id=stock_id)
         

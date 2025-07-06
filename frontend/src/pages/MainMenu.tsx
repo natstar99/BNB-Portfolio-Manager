@@ -74,7 +74,7 @@ export const MainMenu: React.FC = () => {
           <div className="hero-text">
             <h1>Welcome to BNB Portfolio Manager</h1>
             <p className="hero-subtitle">
-              Your comprehensive investment portfolio management solution
+              Wall Street advises investors to bear no bears! Stocks only go up!
             </p>
           </div>
           <div className="hero-stats">
