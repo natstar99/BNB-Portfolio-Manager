@@ -227,41 +227,58 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
           <div className="import-results">
             <div className="results-grid">
               <div className="result-card">
-                <div className="result-value">{importResults.summary?.successful_imports || 0}</div>
-                <div className="result-label">Transactions Imported</div>
+                <div className="result-value">{importResults.summary?.verified_transactions_found || 0}</div>
+                <div className="result-label">Verified Transactions Found</div>
               </div>
               <div className="result-card">
-                <div className="result-value">{importResults.summary?.processed_transactions || 0}</div>
-                <div className="result-label">Total Processed</div>
+                <div className="result-value">{importResults.summary?.transactions_imported || 0}</div>
+                <div className="result-label">Transactions Imported Successfully</div>
               </div>
               <div className="result-card">
-                <div className="result-value">{importResults.summary?.stocks_processed || 0}</div>
-                <div className="result-label">Stocks Processed</div>
-              </div>
-              <div className="result-card">
-                <div className="result-value">{importResults.summary?.import_errors || 0}</div>
+                <div className="result-value">{importResults.summary?.actual_import_errors || 0}</div>
                 <div className="result-label">Import Errors</div>
+              </div>
+              <div className="result-card success-rate">
+                <div className="result-value">
+                  {importResults.summary?.verified_transactions_found > 0 
+                    ? Math.round((importResults.summary.transactions_imported / importResults.summary.verified_transactions_found) * 100)
+                    : 0}%
+                </div>
+                <div className="result-label">Success Rate</div>
               </div>
             </div>
           </div>
 
-          {importResults.details?.import_errors && importResults.details.import_errors.length > 0 && (
-            <div className="import-errors-detail">
-              <h3>Import Issues:</h3>
-              <div className="errors-list">
-                {importResults.details.import_errors.slice(0, 5).map((error: string, index: number) => (
-                  <div key={index} className="error-item">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <line x1="15" y1="9" x2="9" y2="15"/>
-                      <line x1="9" y1="9" x2="15" y2="15"/>
-                    </svg>
-                    <span>{error}</span>
-                  </div>
-                ))}
+          <div className="import-log-detail">
+            <h3>Import Log:</h3>
+            <div className="log-summary">
+              <div className="log-item success">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20,6 9,17 4,12"/>
+                </svg>
+                <span>{importResults.summary?.transactions_imported || 0} transactions imported for {importResults.summary?.stocks_with_transactions || 0} verified stocks</span>
               </div>
+              {importResults.summary?.unverified_transactions > 0 && (
+                <div className="log-item info">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="m9,12 2,2 4,-4"/>
+                  </svg>
+                  <span>{importResults.summary.unverified_transactions} transactions remain in staging area with unverified stocks</span>
+                </div>
+              )}
+              {importResults.summary?.actual_import_errors > 0 && (
+                <div className="log-item error">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="15" y1="9" x2="9" y2="15"/>
+                    <line x1="9" y1="9" x2="15" y2="15"/>
+                  </svg>
+                  <span>{importResults.summary.actual_import_errors} actual import errors occurred</span>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           <div className="next-steps">
             <h3>What's Next?</h3>

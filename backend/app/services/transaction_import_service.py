@@ -278,6 +278,12 @@ class TransactionImportService:
                 # Get existing verified stocks (created in Step 4)
                 stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
             
+                # Count transactions that belong to verified stocks (before processing)
+                verified_transactions_attempted = len([
+                    tx for tx in unprocessed_transactions 
+                    if tx.raw_instrument_code in stock_key_mapping
+                ])
+            
                 successful_imports = 0
                 errors = []
             
@@ -341,14 +347,23 @@ class TransactionImportService:
                     logger.info(f"Import complete. {len(stocks_needing_metrics)} verified stocks need metrics recalculation from {earliest_transaction_date}")
                     logger.info("RECOMMENDATION: Run metrics recalculation as separate background process to avoid blocking import")
                 
+                # Calculate clearer statistics
+                verified_transactions_found = verified_transactions_attempted
+                actual_import_errors = len([e for e in errors if 'No verified stock found' not in str(e)])
+                unverified_transactions = len([e for e in errors if 'No verified stock found' in str(e)])
+                stocks_with_transactions = len([k for k in stock_key_mapping.keys()])
+                
                 return {
                     'success': True,
-                    'successful_imports': successful_imports,
-                    'stocks_processed': len([k for k in stock_key_mapping.keys()]),  # Changed from stocks_created
+                    'transactions_imported': successful_imports,
+                    'verified_transactions_found': verified_transactions_found,
+                    'stocks_with_transactions': stocks_with_transactions,
+                    'actual_import_errors': actual_import_errors,
+                    'unverified_transactions': unverified_transactions,
                     'import_errors': errors,
-                    'processed_transactions': len(unprocessed_transactions),
+                    'total_transactions_attempted': len(unprocessed_transactions),
                     'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
-                    'message': f'Successfully imported {successful_imports} transactions for {len(stock_key_mapping)} stocks'
+                    'message': f'Successfully imported {successful_imports} transactions for {stocks_with_transactions} stocks'
                 }
                 
             except Exception as e:
@@ -357,9 +372,13 @@ class TransactionImportService:
                 return {
                     'success': False,
                     'error': str(e),
-                    'successful_imports': 0,
-                    'stocks_processed': 0,  # Changed from stocks_created
-                    'import_errors': [str(e)]
+                    'transactions_imported': 0,
+                    'verified_transactions_found': 0,
+                    'stocks_with_transactions': 0,
+                    'actual_import_errors': 1,
+                    'unverified_transactions': 0,
+                    'import_errors': [str(e)],
+                    'total_transactions_attempted': 0
                 }
     
     

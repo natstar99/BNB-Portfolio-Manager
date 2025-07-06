@@ -640,6 +640,61 @@
   padding: 1.5rem;
 }
 
+/* Import Log Styles */
+.import-log-detail {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.import-log-detail h3 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.log-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.log-item.success {
+  background: rgba(var(--color-success-rgb), 0.05);
+  border: 1px solid rgba(var(--color-success-rgb), 0.2);
+  color: var(--color-success);
+}
+
+.log-item.info {
+  background: rgba(var(--color-info-rgb), 0.05);
+  border: 1px solid rgba(var(--color-info-rgb), 0.2);
+  color: var(--color-info);
+}
+
+.log-item.error {
+  background: rgba(var(--color-error-rgb), 0.05);
+  border: 1px solid rgba(var(--color-error-rgb), 0.2);
+  color: var(--color-error);
+}
+
+.log-item svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Legacy error styles for backwards compatibility */
 .errors-list {
   margin-top: 1rem;
 }

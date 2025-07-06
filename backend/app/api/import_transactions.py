@@ -497,10 +497,12 @@ def import_transactions():
             return jsonify({
                 'success': True,
                 'summary': {
-                    'successful_imports': result.get('successful_imports', 0),
-                    'stocks_created': result.get('stocks_created', 0),
-                    'processed_transactions': result.get('processed_transactions', 0),
-                    'import_errors': len(result.get('import_errors', []))
+                    'transactions_imported': result.get('transactions_imported', 0),
+                    'verified_transactions_found': result.get('verified_transactions_found', 0),
+                    'stocks_with_transactions': result.get('stocks_with_transactions', 0),
+                    'actual_import_errors': result.get('actual_import_errors', 0),
+                    'unverified_transactions': result.get('unverified_transactions', 0),
+                    'total_transactions_attempted': result.get('total_transactions_attempted', 0)
                 },
                 'details': {
                     'import_errors': result.get('import_errors', []),
@@ -512,6 +514,14 @@ def import_transactions():
             return jsonify({
                 'success': False,
                 'error': result.get('error', 'Import failed'),
+                'summary': {
+                    'transactions_imported': result.get('transactions_imported', 0),
+                    'verified_transactions_found': result.get('verified_transactions_found', 0),
+                    'stocks_with_transactions': result.get('stocks_with_transactions', 0),
+                    'actual_import_errors': result.get('actual_import_errors', 0),
+                    'unverified_transactions': result.get('unverified_transactions', 0),
+                    'total_transactions_attempted': result.get('total_transactions_attempted', 0)
+                },
                 'details': {
                     'import_errors': result.get('import_errors', [])
                 }
