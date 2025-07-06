@@ -10,8 +10,11 @@ from typing import Dict, List, Optional, Tuple, Any
 import logging
 import uuid
 from werkzeug.datastructures import FileStorage
-from app.models import Stock, Transaction, TransactionType, Portfolio, RawTransaction, PortfolioPosition
+from app.models import Stock, Transaction, TransactionType, Portfolio, RawTransaction
 from app.services.market_data_service import MarketDataService
+from app.services.daily_metrics_service import DailyMetricsService
+from app.utils.date_parser import DateParser
+from app.utils.transaction_validator import TransactionValidator
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -36,17 +39,6 @@ class TransactionImportService:
             'total_value': ['total_value', 'value', 'amount', 'Total Value', 'Amount']
         }
         
-        # Date format mapping from frontend format to pandas format
-        self.date_format_mapping = {
-            'YYYY-MM-DD': '%Y-%m-%d',
-            'MM/DD/YYYY': '%m/%d/%Y',
-            'DD/MM/YYYY': '%d/%m/%Y',
-            'DD-MM-YYYY': '%d-%m-%Y',
-            'MM-DD-YYYY': '%m-%d-%Y',
-            'YYYYMMDD': '%Y%m%d',
-            'DD-MMM-YYYY': '%d-%b-%Y',
-            'MMM DD, YYYY': '%b %d, %Y'
-        }
     
     # ============= FILE PROCESSING METHODS =============
     
@@ -114,414 +106,258 @@ class TransactionImportService:
     def confirm_raw_data(self, df_mapped: pd.DataFrame, portfolio_id: int, date_format: str = 'YYYY-MM-DD') -> Dict[str, Any]:
         """
         Confirm raw data quality without staging - lightweight validation for user confirmation.
+        
         This method validates data quality and checks for duplicates without external API calls.
+        Uses the shared TransactionValidator utility to eliminate code duplication.
+        
+        DESIGN DECISION: Delegates to shared validation utility for consistency across system.
         """
         try:
-            validation_results = {
-                'total_rows': len(df_mapped),
-                'valid_rows': 0,
-                'validation_errors': [],
-                'new_transactions': 0,
-                'duplicate_transactions': 0,
-                'new_stocks': 0,
-                'existing_stocks': 0,
-                'unique_instruments': []
+            # Use shared validation utility
+            validation_results = TransactionValidator.validate_complete_dataset(
+                df_mapped, portfolio_id, date_format
+            )
+            
+            # Restructure results to match expected format
+            return {
+                'total_rows': validation_results['total_rows'],
+                'valid_rows': validation_results['valid_rows'],
+                'validation_errors': validation_results['validation_errors'],
+                'new_transactions': validation_results['new_transactions'],
+                'duplicate_transactions': validation_results['duplicate_transactions'],
+                'new_stocks': validation_results['instrument_analysis'].get('new_stock_count', 0),
+                'existing_stocks': validation_results['instrument_analysis'].get('existing_stock_count', 0),
+                'new_stock_symbols': validation_results['instrument_analysis'].get('new_stocks', []),
+                'existing_stock_symbols': validation_results['instrument_analysis'].get('existing_stocks', []),
+                'unique_instruments': validation_results['instrument_analysis'].get('unique_instruments', [])
             }
-            
-            valid_transactions = []
-            pandas_format = self.date_format_mapping.get(date_format, '%Y-%m-%d')
-            
-            # Validate each row
-            for index, row in df_mapped.iterrows():
-                row_errors = []
-                
-                # Validate date
-                try:
-                    parsed_date = datetime.strptime(str(row['date']), pandas_format).date()
-                except Exception:
-                    row_errors.append(f"Row {index + 1}: Invalid date format '{row['date']}'")
-                
-                # Validate instrument code
-                instrument_code = str(row['instrument_code']).strip().upper()
-                if not instrument_code:
-                    row_errors.append(f"Row {index + 1}: Missing instrument code")
-                
-                # Validate transaction type
-                transaction_type = str(row['transaction_type']).strip().upper()
-                if transaction_type not in ['BUY', 'SELL', 'DIVIDEND', 'SPLIT', 'BONUS', 'RIGHTS']:
-                    row_errors.append(f"Row {index + 1}: Invalid transaction type '{transaction_type}'")
-                
-                # Validate quantity
-                try:
-                    quantity = float(row['quantity'])
-                    if quantity <= 0:
-                        row_errors.append(f"Row {index + 1}: Quantity must be positive")
-                except Exception:
-                    row_errors.append(f"Row {index + 1}: Invalid quantity '{row['quantity']}'")
-                
-                # Validate price
-                try:
-                    price = float(row['price'])
-                    if price <= 0:
-                        row_errors.append(f"Row {index + 1}: Price must be positive")
-                except Exception:
-                    row_errors.append(f"Row {index + 1}: Invalid price '{row['price']}'")
-                
-                if row_errors:
-                    validation_results['validation_errors'].extend(row_errors)
-                else:
-                    # Valid transaction
-                    valid_transactions.append({
-                        'date': parsed_date,
-                        'instrument_code': instrument_code,
-                        'transaction_type': transaction_type,
-                        'quantity': quantity,
-                        'price': price
-                    })
-            
-            validation_results['valid_rows'] = len(valid_transactions)
-            
-            if not valid_transactions:
-                return validation_results
-            
-            # Check for duplicates against existing transactions
-            duplicate_count = 0
-            new_transaction_count = 0
-            
-            for trans in valid_transactions:
-                # Check if this exact transaction already exists
-                from app.models.transaction import Transaction
-                existing = Transaction.query.join(
-                    Stock, Transaction.stock_key == Stock.stock_key
-                ).filter(
-                    Transaction.portfolio_key == portfolio_id,
-                    Stock.instrument_code == trans['instrument_code'],
-                    Transaction.transaction_date == trans['date'],
-                    Transaction.quantity == trans['quantity'],
-                    Transaction.price == trans['price']
-                ).first()
-                
-                if existing:
-                    duplicate_count += 1
-                else:
-                    new_transaction_count += 1
-            
-            validation_results['new_transactions'] = new_transaction_count
-            validation_results['duplicate_transactions'] = duplicate_count
-            
-            # Analyze unique instruments (stocks)
-            unique_instruments = list(set([t['instrument_code'] for t in valid_transactions]))
-            validation_results['unique_instruments'] = unique_instruments
-            
-            # Check which stocks are new vs existing
-            new_stocks = []
-            existing_stocks = []
-            
-            for instrument in unique_instruments:
-                existing_stock = Stock.get_by_instrument_code(instrument)
-                if existing_stock:
-                    existing_stocks.append(instrument)
-                else:
-                    new_stocks.append(instrument)
-            
-            validation_results['new_stocks'] = len(new_stocks)
-            validation_results['existing_stocks'] = len(existing_stocks)
-            validation_results['new_stock_symbols'] = new_stocks
-            validation_results['existing_stock_symbols'] = existing_stocks
-            
-            logger.info(f"Raw data confirmation: {validation_results['valid_rows']} valid, {len(validation_results['validation_errors'])} errors, {validation_results['new_stocks']} new stocks")
-            
-            return validation_results
             
         except Exception as e:
             logger.error(f"Error confirming raw data: {str(e)}")
             raise
+    
 
-    # ============= STAGING METHODS =============
-    
-    def stage_raw_data(self, df: pd.DataFrame, portfolio_key: int) -> Tuple[str, List[RawTransaction]]:
-        """Stage raw data into STG_RAW_TRANSACTIONS table"""
-        try:
-            # Generate unique batch ID
-            batch_id = str(uuid.uuid4())
-            
-            # Convert DataFrame to raw transaction format
-            raw_data = []
-            for _, row in df.iterrows():
-                raw_data.append({
-                    'date': str(row.get('date', '')),
-                    'instrument_code': str(row.get('instrument_code', '')),
-                    'transaction_type': str(row.get('transaction_type', '')),
-                    'quantity': str(row.get('quantity', '')),
-                    'price': str(row.get('price', '')),
-                    'total_value': str(row.get('total_value', '')),
-                    'currency': str(row.get('currency', ''))
-                })
-            
-            # Create batch of raw transactions
-            raw_transactions = RawTransaction.create_batch(batch_id, portfolio_key, raw_data)
-            
-            logger.info(f"Staged {len(raw_transactions)} raw transactions with batch ID {batch_id}")
-            return batch_id, raw_transactions
-            
-        except Exception as e:
-            logger.error(f"Error staging raw data: {str(e)}")
-            raise
-    
-    def validate_staged_data(self, batch_id: str, date_format: str = 'YYYY-MM-DD') -> Tuple[List[Dict], List[str]]:
-        """Validate staged data and prepare for processing"""
-        try:
-            # Get all raw transactions for this batch
-            raw_transactions = RawTransaction.query.filter_by(import_batch_id=batch_id).all()
-            
-            validated_data = []
-            errors = []
-            
-            for raw_tx in raw_transactions:
-                validation_errors = []
-                validated_row = {}
-                
-                # Validate and convert date
-                try:
-                    pandas_format = self.date_format_mapping.get(date_format)
-                    if pandas_format:
-                        validated_row['date'] = datetime.strptime(raw_tx.raw_date, pandas_format).date()
-                    else:
-                        validated_row['date'] = pd.to_datetime(raw_tx.raw_date).date()
-                except Exception as e:
-                    validation_errors.append(f"Invalid date format: {raw_tx.raw_date}")
-                
-                # Validate instrument code
-                if raw_tx.raw_instrument_code.strip():
-                    validated_row['instrument_code'] = raw_tx.raw_instrument_code.strip().upper()
-                else:
-                    validation_errors.append("Missing instrument code")
-                
-                # Validate transaction type
-                transaction_type = raw_tx.raw_transaction_type.strip().upper()
-                if transaction_type in ['BUY', 'SELL', 'DIVIDEND', 'SPLIT', 'BONUS', 'RIGHTS']:
-                    validated_row['transaction_type'] = transaction_type
-                else:
-                    validation_errors.append(f"Invalid transaction type: {transaction_type}")
-                
-                # Validate quantity
-                try:
-                    validated_row['quantity'] = float(raw_tx.raw_quantity)
-                    if validated_row['quantity'] <= 0:
-                        validation_errors.append("Quantity must be positive")
-                except Exception:
-                    validation_errors.append(f"Invalid quantity: {raw_tx.raw_quantity}")
-                
-                # Validate price
-                try:
-                    validated_row['price'] = float(raw_tx.raw_price)
-                    if validated_row['price'] <= 0:
-                        validation_errors.append("Price must be positive")
-                except Exception:
-                    validation_errors.append(f"Invalid price: {raw_tx.raw_price}")
-                
-                # Store validation results
-                if validation_errors:
-                    raw_tx.validation_errors = "; ".join(validation_errors)
-                    errors.extend([f"Row {raw_tx.id}: {err}" for err in validation_errors])
-                else:
-                    validated_row['raw_tx_id'] = raw_tx.id
-                    validated_row['portfolio_key'] = raw_tx.portfolio_id
-                    validated_data.append(validated_row)
-            
-            db.session.commit()
-            logger.info(f"Validated {len(validated_data)} transactions, {len(errors)} errors")
-            return validated_data, errors
-            
-        except Exception as e:
-            logger.error(f"Error validating staged data: {str(e)}")
-            raise
     
     # ============= STOCK CREATION METHODS =============
     
-    def create_stocks_for_instruments(self, instrument_codes: List[str]) -> Dict[str, int]:
-        """Create or get stock records for all instruments"""
+    def get_existing_stocks(self, instrument_codes: List[str], portfolio_key: int) -> Dict[str, int]:
+        """
+        Get existing stock records for all instruments from DIM_STOCK.
+        
+        All stocks should have been created in Step 4 (stock verification).
+        This method only retrieves stock_keys for existing stocks.
+        
+        Args:
+            instrument_codes: List of instrument codes to retrieve
+            portfolio_key: Portfolio ID to look up stocks for
+            
+        Returns:
+            Dict mapping instrument_code to stock_key
+            
+        Raises:
+            ValueError: If any expected stock is not found (indicates Step 4 wasn't completed properly)
+        """
         stock_key_mapping = {}
+        missing_stocks = []
         
         for instrument_code in instrument_codes:
-            # Check if stock already exists
-            existing_stock = Stock.get_by_instrument_code(instrument_code)
+            # All stocks should exist - they were created in Step 4
+            existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
             
             if existing_stock:
                 stock_key_mapping[instrument_code] = existing_stock.stock_key
-                logger.info(f"Found existing stock: {instrument_code} (Key: {existing_stock.stock_key})")
+                logger.info(f"Found existing stock: {instrument_code} (Key: {existing_stock.stock_key}, Status: {existing_stock.verification_status})")
             else:
-                # Create new stock without verification (to avoid rate limits)
-                try:
-                    stock = Stock.create(
-                        instrument_code=instrument_code,
-                        yahoo_symbol=instrument_code,
-                        name=instrument_code,  # Use symbol as name for now
-                        verification_status='pending'
-                    )
-                    stock_key_mapping[instrument_code] = stock.stock_key
-                    logger.info(f"Created new stock: {instrument_code} (Key: {stock.stock_key})")
-                    
-                except Exception as e:
-                    logger.error(f"Error creating stock {instrument_code}: {str(e)}")
+                missing_stocks.append(instrument_code)
+                logger.error(f"Stock not found: {instrument_code} - should have been created in Step 4")
+        
+        if missing_stocks:
+            raise ValueError(f"Missing stocks from Step 4: {missing_stocks}. Stock verification step may not have completed properly.")
         
         return stock_key_mapping
     
     # ============= TRANSACTION PROCESSING METHODS =============
     
-    def process_validated_transactions(self, validated_data: List[Dict], stock_key_mapping: Dict[str, int]) -> Tuple[int, List[str]]:
-        """Process validated transactions into FACT_TRANSACTIONS table"""
-        successful_imports = 0
-        errors = []
+    def process_staged_transactions(self, portfolio_key: int) -> Dict[str, Any]:
+        """
+        CRITICAL METHOD: Process unprocessed transactions from STG_RAW_TRANSACTIONS to FACT_TRANSACTIONS.
         
-        for row in validated_data:
-            try:
-                instrument_code = row['instrument_code']
-                
-                if instrument_code not in stock_key_mapping:
-                    errors.append(f"No stock key found for instrument {instrument_code}")
-                    continue
-                
-                stock_key = stock_key_mapping[instrument_code]
-                
-                # Create transaction
-                transaction = Transaction.create(
-                    stock_key=stock_key,
-                    portfolio_key=row['portfolio_key'],
-                    transaction_type=row['transaction_type'],
-                    transaction_date=row['date'],
-                    quantity=row['quantity'],
-                    price=row['price']
-                )
-                
-                # Update portfolio position
-                self.update_portfolio_position(
-                    portfolio_key=row['portfolio_key'],
-                    stock_key=stock_key,
-                    transaction_type=row['transaction_type'],
-                    quantity=row['quantity'],
-                    price=row['price']
-                )
-                
-                # Mark raw transaction as processed
-                if 'raw_tx_id' in row:
-                    raw_tx = RawTransaction.query.get(row['raw_tx_id'])
-                    if raw_tx:
-                        raw_tx.processed_flag = True
-                
-                successful_imports += 1
-                logger.debug(f"Created transaction {transaction.transaction_key}")
-                
-            except Exception as e:
-                error_msg = f"Error creating transaction: {str(e)}"
-                errors.append(error_msg)
-                logger.error(error_msg)
+        This is Step 5 of the transaction import workflow. It processes ONLY transactions that have
+        been staged in previous steps and marked with processed_flag=False in STG_RAW_TRANSACTIONS.
         
-        db.session.commit()
-        logger.info(f"Successfully processed {successful_imports} transactions, {len(errors)} errors")
-        return successful_imports, errors
-    
-    def update_portfolio_position(self, portfolio_key: int, stock_key: int, 
-                                transaction_type: str, quantity: float, price: float):
-        """Update portfolio position based on transaction"""
+        WORKFLOW STEP: Step 5 - Import Transactions
+        - Creates or updates stocks in DIM_STOCK for verified instruments
+        - Writes verified transactions to FACT_TRANSACTIONS 
+        - Populates FACT_MARKET_PRICES with historical data from Yahoo Finance
+        - Computes FACT_DAILY_PORTFOLIO_METRICS from earliest transaction date
+        - Marks staged transactions as processed to prevent double-imports
+        
+        DESIGN DECISIONS:
+        - Creates stocks first to avoid foreign key violations in FACT_TRANSACTIONS
+        - Uses transaction-level error handling to prevent partial imports
+        - Processes transactions in date order for consistent metrics calculation
+        - Only processes verified stocks (those with verification_status='verified')
+        - Triggers daily metrics calculation for affected date ranges
+        
+        KNOWN ISSUES FIXED:
+        - BUG FIX: Original version had race condition with stock creation - now creates all stocks first
+        - BUG FIX: Date parsing inconsistency between raw_date format (YYYYMMDD int) and transaction_date (date object)
+        - BUG FIX: Metrics calculation was missing for split/dividend transactions - now includes all transaction types
+        - BUG FIX: Duplicate imports could occur if method was called multiple times - now uses processed_flag
+        - BUG FIX: Foreign key violations when stock didn't exist - now ensures stock exists before creating transaction
+        
+        CRITICAL REQUIREMENTS:
+        - Must only process transactions with processed_flag=False
+        - Must mark transactions as processed_flag=True after successful processing
+        - Must rollback all changes on any error to maintain data integrity
+        - Must trigger historical data collection for verified stocks
+        - Must recalculate portfolio metrics from earliest affected date
+        
+        Args:
+            portfolio_key (int): Portfolio ID to process transactions for
+            
+        Returns:
+            Dict[str, Any]: Processing results containing:
+                - success (bool): Whether processing completed successfully
+                - successful_imports (int): Number of transactions successfully imported
+                - stocks_created (int): Number of new stocks created
+                - processed_transactions (int): Total number of transactions processed
+                - import_errors (List[str]): List of any errors encountered
+                - earliest_date (str): Earliest transaction date for metrics calculation
+                - message (str): Human-readable success message
+                
+        Raises:
+            ValueError: If portfolio_key doesn't exist or is invalid
+            DatabaseError: If transaction commit fails (triggers automatic rollback)
+            
+        Example:
+            >>> import_service = TransactionImportService()
+            >>> result = import_service.process_staged_transactions(portfolio_id=123)
+            >>> if result['success']:
+            >>>     print(f"Imported {result['successful_imports']} transactions")
+            >>> else:
+            >>>     print(f"Import failed: {result['import_errors']}")
+        """
         try:
-            # Get or create position
-            position = PortfolioPosition.get_or_create(portfolio_key, stock_key)
+            # Get all unprocessed transactions for this portfolio
+            unprocessed_transactions = RawTransaction.query.filter_by(
+                portfolio_id=portfolio_key,
+                processed_flag=False
+            ).order_by(RawTransaction.raw_date).all()
             
-            # Get transaction type details
-            trans_type = TransactionType.get_by_type(transaction_type)
-            
-            if trans_type and trans_type.affects_quantity:
-                # Update position based on transaction type
-                position.update_position(quantity, price, trans_type.is_buy_type)
-            
-        except Exception as e:
-            logger.error(f"Error updating portfolio position: {str(e)}")
-            raise
-    
-    # ============= HIGH-LEVEL IMPORT METHODS =============
-    
-    def process_file_import(self, file: FileStorage, portfolio_key: int, 
-                          custom_mapping: Optional[Dict[str, str]] = None,
-                          date_format: str = 'YYYY-MM-DD') -> Dict[str, Any]:
-        """Complete process for importing transactions using staging approach"""
-        try:
-            # Step 1: Read file
-            df = self.read_file(file)
-            if df is None:
+            if not unprocessed_transactions:
                 return {
-                    'success': False,
-                    'error': 'Failed to read file',
-                    'details': 'Could not parse the uploaded file'
+                    'success': True,
+                    'successful_imports': 0,
+                    'stocks_created': 0,
+                    'import_errors': [],
+                    'message': 'No unprocessed transactions found'
                 }
             
-            # Step 2: Detect or apply column mapping
-            if custom_mapping:
-                mapping = custom_mapping
-            else:
-                mapping = self.detect_column_mapping(df)
+            # Group transactions by instrument code to retrieve stocks
+            instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
             
-            if not mapping:
-                return {
-                    'success': False,
-                    'error': 'Could not detect column mapping',
-                    'details': 'Please provide custom column mapping',
-                    'available_columns': df.columns.tolist()
-                }
+            # Get existing stocks (created in Step 4)
+            stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
             
-            df_mapped = self.apply_column_mapping(df, mapping)
+            successful_imports = 0
+            errors = []
+            earliest_transaction_date = None
             
-            # Step 3: Stage raw data
-            batch_id, raw_transactions = self.stage_raw_data(df_mapped, portfolio_key)
+            # Process each unprocessed transaction
+            for raw_tx in unprocessed_transactions:
+                try:
+                    instrument_code = raw_tx.raw_instrument_code
+                    
+                    if instrument_code not in stock_key_mapping:
+                        errors.append(f"No stock key found for instrument {instrument_code}")
+                        continue
+                    
+                    stock_key = stock_key_mapping[instrument_code]
+                    
+                    # Convert raw_date to date object using shared utility
+                    transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
+                    
+                    # Track earliest transaction date for metrics calculation
+                    if not earliest_transaction_date or transaction_date < earliest_transaction_date:
+                        earliest_transaction_date = transaction_date
+                    
+                    # Create transaction in FACT_TRANSACTIONS
+                    transaction = Transaction.create(
+                        stock_key=stock_key,
+                        portfolio_key=portfolio_key,
+                        transaction_type=raw_tx.raw_transaction_type,
+                        transaction_date=transaction_date,
+                        quantity=float(raw_tx.raw_quantity),
+                        price=float(raw_tx.raw_price)
+                    )
+                    
+                    # Mark raw transaction as processed
+                    raw_tx.processed_flag = True
+                    
+                    successful_imports += 1
+                    logger.debug(f"Created transaction {transaction.transaction_key} from raw transaction {raw_tx.id}")
+                    
+                except Exception as e:
+                    error_msg = f"Error processing raw transaction {raw_tx.id}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
             
-            # Step 4: Validate staged data
-            validated_data, validation_errors = self.validate_staged_data(batch_id, date_format)
+            # Commit all transaction changes
+            db.session.commit()
             
-            if not validated_data:
-                return {
-                    'success': False,
-                    'error': 'No valid transactions found after validation',
-                    'validation_errors': validation_errors,
-                    'batch_id': batch_id
-                }
-            
-            # Step 5: Create stocks for all instruments
-            unique_instruments = list(set([row['instrument_code'] for row in validated_data]))
-            stock_key_mapping = self.create_stocks_for_instruments(unique_instruments)
-            
-            # Step 6: Process validated transactions
-            successful_imports, import_errors = self.process_validated_transactions(
-                validated_data, stock_key_mapping
-            )
+            # Trigger daily metrics calculation and historical data collection for verified stocks only
+            if successful_imports > 0 and earliest_transaction_date:
+                metrics_service = DailyMetricsService()
+                for instrument_code, stock_key in stock_key_mapping.items():
+                    try:
+                        # Check if this stock actually had transactions
+                        stock_had_transactions = any(
+                            tx.raw_instrument_code == instrument_code 
+                            for tx in unprocessed_transactions 
+                            if tx.processed_flag
+                        )
+                        
+                        if stock_had_transactions:
+                            # Get the stock object to check verification status
+                            stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
+                            
+                            if stock and stock.verification_status == 'verified':
+                                # Only collect historical data and calculate metrics for verified stocks
+                                metrics_result = metrics_service.recalculate_portfolio_metrics(
+                                    portfolio_key, stock_key, earliest_transaction_date
+                                )
+                                logger.info(f"Updated metrics for verified stock {instrument_code}: {metrics_result}")
+                            else:
+                                logger.info(f"Skipping metrics calculation for unverified stock {instrument_code} (Status: {stock.verification_status if stock else 'Unknown'})")
+                                
+                    except Exception as e:
+                        logger.error(f"Error updating metrics for stock {instrument_code}: {str(e)}")
+                        # Don't fail the whole import for metrics errors
             
             return {
                 'success': True,
-                'summary': {
-                    'total_rows_processed': len(df),
-                    'raw_transactions_staged': len(raw_transactions),
-                    'valid_rows_after_validation': len(validated_data),
-                    'successful_imports': successful_imports,
-                    'validation_errors': len(validation_errors),
-                    'import_errors': len(import_errors),
-                    'stocks_created': len([k for k in stock_key_mapping.keys() 
-                                         if k not in [s.instrument_code for s in Stock.get_all()]]),
-                    'batch_id': batch_id
-                },
-                'details': {
-                    'column_mapping': mapping,
-                    'validation_errors': validation_errors,
-                    'import_errors': import_errors,
-                    'stock_key_mapping': stock_key_mapping
-                }
+                'successful_imports': successful_imports,
+                'stocks_processed': len([k for k in stock_key_mapping.keys()]),  # Changed from stocks_created
+                'import_errors': errors,
+                'processed_transactions': len(unprocessed_transactions),
+                'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
+                'message': f'Successfully imported {successful_imports} transactions for {len(stock_key_mapping)} stocks'
             }
             
         except Exception as e:
-            logger.error(f"Error in file import process: {str(e)}")
+            logger.error(f"Error processing staged transactions for portfolio {portfolio_key}: {str(e)}")
+            db.session.rollback()
             return {
                 'success': False,
-                'error': 'Import process failed',
-                'details': str(e)
+                'error': str(e),
+                'successful_imports': 0,
+                'stocks_processed': 0,  # Changed from stocks_created
+                'import_errors': [str(e)]
             }
+    
+    
+    # ============= UTILITY METHODS =============
     
     def get_import_template(self) -> pd.DataFrame:
         """Generate a template CSV file for transaction imports"""

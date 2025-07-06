@@ -23,7 +23,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1400px;
+  max-width: 1550px;
   margin: 0 auto;
   padding: 0 var(--spacing-lg);
   height: 70px;
@@ -245,7 +245,7 @@
 
 .content-container {
   flex: 1;
-  max-width: 1400px;
+  max-width: 1550px;
   margin: 0 auto;
   padding: var(--spacing-xl) var(--spacing-lg);
   width: 100%;
@@ -351,6 +351,17 @@
 
 .btn-error:hover {
   background: var(--color-error-dark);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-warning {
+  background: var(--color-warning);
+  color: var(--color-text-inverse);
+  border: 1px solid var(--color-warning-dark);
+}
+
+.btn-warning:hover {
+  background: var(--color-warning-dark);
   box-shadow: var(--shadow-md);
 }
 

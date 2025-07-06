@@ -18,7 +18,7 @@ class Portfolio(db.Model):
     
     # Relationships
     transactions = db.relationship('Transaction', back_populates='portfolio')
-    positions = db.relationship('PortfolioPosition', back_populates='portfolio')
+    daily_metrics = db.relationship('DailyPortfolioMetric', back_populates='portfolio')
     
     def __repr__(self):
         return f'<Portfolio {self.portfolio_name}>'

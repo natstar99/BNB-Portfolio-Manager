@@ -302,6 +302,12 @@ export const ColumnMapping: React.FC<ColumnMappingProps> = ({
       )}
 
       <div className="mapping-actions">
+        <button className="btn btn-error" onClick={() => window.history.back()}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15,18 9,12 15,6"/>
+          </svg>
+          Return to Previous Step
+        </button>
         <button 
           onClick={handleContinue}
           className="btn btn-primary"

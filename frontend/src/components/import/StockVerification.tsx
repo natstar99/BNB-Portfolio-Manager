@@ -208,6 +208,83 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
     }
   };
 
+  const canVerifySelected = (): boolean => {
+    return Array.from(selectedStocks).every(instrumentCode => {
+      const stock = stockAssignments.find(s => s.instrument_code === instrumentCode);
+      return stock && stock.market_key && stock.verification_status === 'pending';
+    });
+  };
+
+  const bulkVerifySelected = async () => {
+    const stocksToVerify = stockAssignments.filter(s => 
+      selectedStocks.has(s.instrument_code) && 
+      s.market_key && 
+      s.verification_status === 'pending'
+    );
+    
+    if (stocksToVerify.length === 0) {
+      setError('No stocks ready for verification');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/import/assign-markets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          stock_assignments: stocksToVerify.map(stock => ({
+            instrument_code: stock.instrument_code,
+            market_key: stock.market_key,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Bulk verification failed');
+      }
+
+      const data = await response.json();
+      
+      // Update all stocks with verification results
+      data.data.results.forEach((result: any) => {
+        if (result.success) {
+          updateStockAssignment(result.instrument_code, 'verification_status', 'verified');
+          updateStockAssignment(result.instrument_code, 'name', result.name);
+          updateStockAssignment(result.instrument_code, 'currency', result.currency);
+          updateStockAssignment(result.instrument_code, 'current_price', result.current_price);
+          updateStockAssignment(result.instrument_code, 'market_cap_formatted', result.market_cap_formatted);
+          updateStockAssignment(result.instrument_code, 'sector', result.sector);
+          updateStockAssignment(result.instrument_code, 'industry', result.industry);
+          updateStockAssignment(result.instrument_code, 'exchange', result.exchange);
+        } else {
+          updateStockAssignment(result.instrument_code, 'verification_status', 'failed');
+        }
+      });
+
+      // Clear selection after verification
+      setSelectedStocks(new Set());
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bulk verification failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const bulkMarkAsInactive = () => {
+    selectedStocks.forEach(instrumentCode => {
+      updateStockAssignment(instrumentCode, 'verification_status', 'inactive');
+    });
+    
+    // Clear selection after marking as inactive
+    setSelectedStocks(new Set());
+  };
+
   const verifyAllStocks = async () => {
     const stocksToVerify = stockAssignments.filter(s => s.market_key && s.verification_status === 'pending');
     
@@ -424,6 +501,29 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
                 <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
               </svg>
               Assign Market to Selected ({selectedStocks.size})
+            </button>
+            <button
+              onClick={bulkVerifySelected}
+              disabled={selectedStocks.size === 0 || !canVerifySelected()}
+              className="btn btn-secondary"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22,4 12,14.01 9,11.01"/>
+              </svg>
+              Verify Selected ({selectedStocks.size})
+            </button>
+            <button
+              onClick={bulkMarkAsInactive}
+              disabled={selectedStocks.size === 0}
+              className="btn btn-warning"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 8v4"/>
+                <path d="M12 16h.01"/>
+              </svg>
+              Mark as Inactive ({selectedStocks.size})
             </button>
           </div>
         </div>
@@ -721,14 +821,22 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
             <p className="action-message">
               Click to persist changes. Historical data will be collected for all verified stocks. Stocks with Pending, Inactive and Failed status will remain in the staging area for this portfolio.
             </p>
-            <button className="btn btn-primary btn-large" onClick={handleProceed} disabled={loading}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                <polyline points="17,21 17,13 7,13 7,21"/>
-                <polyline points="7,3 7,8 15,8"/>
-              </svg>
-              {loading ? 'Saving...' : 'Save and Import into Portfolio'}
-            </button>
+            <div className="proceed-buttons">
+              <button className="btn btn-error" onClick={() => window.history.back()}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15,18 9,12 15,6"/>
+                </svg>
+                Return to Previous Step
+              </button>
+              <button className="btn btn-primary btn-large" onClick={handleProceed} disabled={loading}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <polyline points="17,21 17,13 7,13 7,21"/>
+                  <polyline points="7,3 7,8 15,8"/>
+                </svg>
+                {loading ? 'Saving...' : 'Save and Import into Portfolio'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

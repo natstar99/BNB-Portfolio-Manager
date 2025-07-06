@@ -8,7 +8,8 @@
       "Bash(sudo apt install:*)",
       "Bash(mkdir:*)",
       "Bash(python:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

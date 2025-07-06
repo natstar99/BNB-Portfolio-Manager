@@ -36,6 +36,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
   const [validationResults, setValidationResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
 
   useEffect(() => {
@@ -53,7 +54,8 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
       formData.append('date_format', dateFormat);
       formData.append('portfolio_id', portfolioId.toString());
 
-      const response = await fetch('/api/import/validate', {
+      // Step 3a: Confirm transactions (validation only, no database changes)
+      const response = await fetch('/api/import/confirm-transactions', {
         method: 'POST',
         body: formData,
       });
@@ -75,6 +77,51 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
       setError(err instanceof Error ? err.message : 'Validation failed');
     } finally {
       setValidating(false);
+    }
+  };
+
+  const confirmTransactions = async () => {
+    setConfirming(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('column_mapping', JSON.stringify(columnMapping));
+      formData.append('date_format', dateFormat);
+      formData.append('portfolio_id', portfolioId.toString());
+
+      // Step 3b: Stage transactions (save to STG_RAW_TRANSACTIONS)
+      const response = await fetch('/api/import/stage-transactions', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to stage transactions');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Update validation results with staging confirmation data
+        setValidationResults((prev: any) => ({
+          ...prev,
+          ...data.data,
+          confirmed: true,
+          staged: true
+        }));
+        
+        // Call the onConfirm callback to proceed to next step
+        onConfirm();
+      } else {
+        throw new Error(data.error || 'Failed to stage transactions');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to stage transactions');
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -124,8 +171,8 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
               <path d="M21 12a9 9 0 11-6.219-8.56"/>
             </svg>
           </div>
-          <h3>Validating Data...</h3>
-          <p>Checking data format and verifying stock symbols</p>
+          <h3>Confirming Data...</h3>
+          <p>Checking data format and detecting duplicates</p>
         </div>
       </div>
     );
@@ -142,7 +189,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
               <line x1="9" y1="9" x2="15" y2="15"/>
             </svg>
             <div className="error-content">
-              <h3>Validation Error</h3>
+              <h3>Confirmation Error</h3>
               <p>{error}</p>
               <button onClick={validateData} className="btn btn-primary">
                 Try Again
@@ -192,7 +239,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
           </div>
           <div className="stat-card">
             <div className="stat-label">New Transactions</div>
-            <div className="stat-value">{validationResults.valid_rows}</div>
+            <div className="stat-value">{validationResults.new_transactions || validationResults.valid_rows}</div>
           </div>
         </div>
 
@@ -202,42 +249,44 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
       {/* Transaction Breakdown - View Details */}
       {validationResults.transaction_breakdown && Object.keys(validationResults.transaction_breakdown).length > 0 && (
         <div className="transaction-breakdown glass">
-          <div className="breakdown-header">
-            <h3>View Details</h3>
-          </div>
-          <div className="breakdown-toggle">
-            <button 
-              onClick={() => setShowBreakdown(!showBreakdown)}
-              className={`btn ${showBreakdown ? 'btn-secondary' : 'btn-primary'}`}
-            >
-              {showBreakdown ? 'Hide' : 'Show'} Transaction Breakdown
-            </button>
-          </div>
-          
-          {showBreakdown && (
-            <div className="breakdown-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Stock</th>
-                    <th>Total Transactions</th>
-                    <th>BUY</th>
-                    <th>SELL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(validationResults.transaction_breakdown).map(([stock, breakdown]: [string, any]) => (
-                    <tr key={stock}>
-                      <td className="stock-code">{stock}</td>
-                      <td className="total-transactions">{breakdown.total}</td>
-                      <td className="buy-count">{breakdown.BUY || 0}</td>
-                      <td className="sell-count">{breakdown.SELL || 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="breakdown-section">
+            <div className="breakdown-header">
+              <h3>View Details</h3>
+              <button 
+                onClick={() => setShowBreakdown(!showBreakdown)}
+                className={`btn ${showBreakdown ? 'btn-secondary' : 'btn-primary'}`}
+              >
+                {showBreakdown ? 'Hide' : 'Show'} Transaction Breakdown
+              </button>
             </div>
-          )}
+            
+            {showBreakdown && (
+              <div className="breakdown-table-container">
+                <div className="breakdown-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Stock</th>
+                        <th>Total Transactions</th>
+                        <th>BUY</th>
+                        <th>SELL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(validationResults.transaction_breakdown).map(([stock, breakdown]: [string, any]) => (
+                        <tr key={stock}>
+                          <td className="stock-code">{stock}</td>
+                          <td className="total-transactions">{breakdown.total}</td>
+                          <td className="buy-count">{breakdown.BUY || 0}</td>
+                          <td className="sell-count">{breakdown.SELL || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -313,7 +362,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
 
 
       {/* Confirmation Actions */}
-      <div className="confirmation-actions-centered">
+      <div className="confirmation-actions">
         {validationResults.validation_errors?.length > 0 ? (
           <div className="error-state">
             <p className="action-message error">
@@ -324,9 +373,14 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
               </svg>
               Please fix the validation errors before proceeding.
             </p>
-            <button className="btn-link" onClick={() => window.history.back()}>
-              ← Go Back to Fix Errors
-            </button>
+            <div className="action-buttons">
+              <button className="btn btn-error" onClick={() => window.history.back()}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15,18 9,12 15,6"/>
+                </svg>
+                Return to Previous Step
+              </button>
+            </div>
           </div>
         ) : (
           <div className="success-state">
@@ -335,17 +389,35 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                 <polyline points="22,4 12,14.01 9,11.01"/>
               </svg>
-              Ready to confirm {validationResults.valid_rows} valid transaction{validationResults.valid_rows !== 1 ? 's' : ''} for stock verification.
+              Ready to stage {validationResults.valid_rows} valid transaction{validationResults.valid_rows !== 1 ? 's' : ''} for stock verification.
             </p>
-            <div className="action-buttons-centered">
-              <button className="btn-link" onClick={() => window.history.back()}>
-                ← Go Back
-              </button>
-              <button className="btn btn-primary btn-large" onClick={onConfirm}>
+            <div className="action-buttons">
+              <button className="btn btn-error" onClick={() => window.history.back()}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="20,6 9,17 4,12"/>
+                  <polyline points="15,18 9,12 15,6"/>
                 </svg>
-                Confirm Transactions
+                Return to Previous Step
+              </button>
+              <button 
+                className="btn btn-primary btn-large" 
+                onClick={confirmTransactions}
+                disabled={confirming}
+              >
+                {confirming ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                      <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                    </svg>
+                    Staging...
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="9,18 15,12 9,6"/>
+                    </svg>
+                    Stage Transactions
+                  </>
+                )}
               </button>
             </div>
           </div>

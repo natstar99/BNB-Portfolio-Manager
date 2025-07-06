@@ -84,6 +84,7 @@ CREATE TABLE DIM_DATE (
     month_name VARCHAR(20) NOT NULL,
     is_weekend BOOLEAN DEFAULT FALSE,
     is_holiday BOOLEAN DEFAULT FALSE,
+    is_leap_year BOOLEAN DEFAULT FALSE,
     fiscal_year INTEGER,
     fiscal_quarter INTEGER
 );
@@ -133,33 +134,73 @@ CREATE TABLE FACT_TRANSACTIONS (
 );
 
 -- =============================================
--- PORTFOLIO POSITIONS (SNAPSHOT TABLE)
+-- MARKET DATA FACT TABLE
 -- =============================================
 
--- Current portfolio positions
-CREATE TABLE PORTFOLIO_POSITIONS (
-    position_key INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_key INTEGER NOT NULL,
+-- Historical market prices from Yahoo Finance
+CREATE TABLE FACT_MARKET_PRICES (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     stock_key INTEGER NOT NULL,
+    date_key INTEGER NOT NULL,
+    open_price DECIMAL(10,4),
+    high_price DECIMAL(10,4),
+    low_price DECIMAL(10,4),
+    close_price DECIMAL(10,4) NOT NULL,
+    volume INTEGER,
+    adjusted_close DECIMAL(10,4),
+    dividend DECIMAL(10,4) DEFAULT 0,
+    split_ratio DECIMAL(10,6) DEFAULT 1.0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
-    -- Position details
-    current_quantity DECIMAL(15, 6) NOT NULL DEFAULT 0,
-    average_cost DECIMAL(10, 4) NOT NULL DEFAULT 0,
-    total_cost DECIMAL(20, 2) NOT NULL DEFAULT 0,
-    current_price DECIMAL(10, 4) NOT NULL DEFAULT 0,
-    current_value DECIMAL(20, 2) NOT NULL DEFAULT 0,
+    UNIQUE(stock_key, date_key),
+    FOREIGN KEY (stock_key) REFERENCES DIM_STOCK(stock_key)
+);
+
+-- =============================================
+-- DAILY PORTFOLIO METRICS FACT TABLE
+-- =============================================
+
+-- Pre-calculated daily portfolio metrics for performance
+CREATE TABLE FACT_DAILY_PORTFOLIO_METRICS (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_key INTEGER NOT NULL,
+    stock_key INTEGER NOT NULL, 
+    date_key INTEGER NOT NULL,
     
-    -- P&L information
-    unrealized_pl DECIMAL(20, 2) NOT NULL DEFAULT 0,
-    unrealized_pl_percent DECIMAL(10, 4) NOT NULL DEFAULT 0,
+    -- Market data (from FACT_MARKET_PRICES)
+    close_price DECIMAL(10,4) NOT NULL,
+    dividend DECIMAL(10,4) DEFAULT 0,
+    split_ratio DECIMAL(10,6) DEFAULT 1.0,
     
-    -- Audit fields
-    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- Transaction data (if any transaction this date)
+    transaction_type VARCHAR(20),
+    transaction_quantity DECIMAL(15,6),
+    transaction_value DECIMAL(20,2),
     
-    -- Constraints
+    -- Cumulative position metrics
+    cumulative_shares DECIMAL(15,6) NOT NULL,
+    cumulative_split_ratio DECIMAL(10,6) NOT NULL,
+    average_cost_basis DECIMAL(10,4) NOT NULL,
+    total_cost_basis DECIMAL(20,2) NOT NULL,
+    
+    -- Performance metrics
+    market_value DECIMAL(20,2) NOT NULL,
+    unrealized_pl DECIMAL(20,2) NOT NULL,
+    realized_pl DECIMAL(20,2) NOT NULL,
+    daily_pl DECIMAL(20,2) NOT NULL,
+    daily_pl_pct DECIMAL(8,4) NOT NULL,
+    total_return_pct DECIMAL(8,4) NOT NULL,
+    
+    -- DRP and dividend tracking
+    cash_dividend DECIMAL(10,4) DEFAULT 0,
+    drp_shares DECIMAL(15,6) DEFAULT 0,
+    cumulative_dividends DECIMAL(20,2) DEFAULT 0,
+    
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(portfolio_key, stock_key, date_key),
     FOREIGN KEY (portfolio_key) REFERENCES DIM_PORTFOLIO(portfolio_key),
-    FOREIGN KEY (stock_key) REFERENCES DIM_STOCK(stock_key),
-    UNIQUE(portfolio_key, stock_key)
+    FOREIGN KEY (stock_key) REFERENCES DIM_STOCK(stock_key)
 );
 
 
@@ -190,9 +231,14 @@ CREATE INDEX idx_fact_trans_date ON FACT_TRANSACTIONS(date_key);
 CREATE INDEX idx_fact_trans_type ON FACT_TRANSACTIONS(transaction_type_key);
 CREATE INDEX idx_fact_trans_date_value ON FACT_TRANSACTIONS(transaction_date);
 
--- Position table indexes
-CREATE INDEX idx_positions_portfolio ON PORTFOLIO_POSITIONS(portfolio_key);
-CREATE INDEX idx_positions_stock ON PORTFOLIO_POSITIONS(stock_key);
+-- Market prices table indexes
+CREATE INDEX idx_market_prices_stock_date ON FACT_MARKET_PRICES(stock_key, date_key);
+CREATE INDEX idx_market_prices_date ON FACT_MARKET_PRICES(date_key);
+
+-- Daily portfolio metrics indexes
+CREATE INDEX idx_daily_metrics_portfolio_date ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, date_key);
+CREATE INDEX idx_daily_metrics_stock_date ON FACT_DAILY_PORTFOLIO_METRICS(stock_key, date_key);
+CREATE INDEX idx_daily_metrics_portfolio_stock ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, stock_key);
 
 -- Market codes table indexes
 CREATE INDEX idx_market_codes_suffix ON DIM_YAHOO_MARKET_CODES(market_suffix);

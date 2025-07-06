@@ -27,7 +27,8 @@ class Stock(db.Model):
     # Relationships
     portfolio = db.relationship('Portfolio', backref='stocks')
     transactions = db.relationship('Transaction', back_populates='stock')
-    positions = db.relationship('PortfolioPosition', back_populates='stock')
+    market_prices = db.relationship('MarketPrice', back_populates='stock')
+    daily_metrics = db.relationship('DailyPortfolioMetric', back_populates='stock')
     
     # Table constraints
     __table_args__ = (

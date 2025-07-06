@@ -2,8 +2,10 @@
 from .portfolio import Portfolio
 from .stock import Stock
 from .transaction import Transaction, TransactionType, RawTransaction
-from .position import PortfolioPosition
 from .yahoo_market_code import YahooMarketCode
+from .date_dimension import DateDimension
+from .market_prices import MarketPrice
+from .daily_metrics import DailyPortfolioMetric
 
 __all__ = [
     'Portfolio',
@@ -11,6 +13,8 @@ __all__ = [
     'Transaction',
     'TransactionType',
     'RawTransaction',
-    'PortfolioPosition',
-    'YahooMarketCode'
+    'YahooMarketCode',
+    'DateDimension',
+    'MarketPrice',
+    'DailyPortfolioMetric'
 ]

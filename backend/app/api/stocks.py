@@ -26,36 +26,40 @@ def create_stock():
     try:
         data = request.get_json()
         
-        if not data or 'yahoo_symbol' not in data or 'instrument_code' not in data:
+        if not data or 'yahoo_symbol' not in data or 'instrument_code' not in data or 'portfolio_key' not in data:
             return jsonify({
                 'success': False,
-                'error': 'Yahoo symbol and instrument code are required'
+                'error': 'Yahoo symbol, instrument code, and portfolio_key are required'
             }), 400
         
         yahoo_symbol = data['yahoo_symbol']
         instrument_code = data['instrument_code']
+        portfolio_key = data['portfolio_key']
         
-        # Check if stock already exists
+        # Check if stock already exists for this portfolio
         existing = Stock.query.filter_by(
-            yahoo_symbol=yahoo_symbol,
+            portfolio_key=portfolio_key,
             instrument_code=instrument_code
         ).first()
         
         if existing:
             return jsonify({
                 'success': False,
-                'error': 'Stock with this symbol and instrument code already exists'
+                'error': 'Stock with this instrument code already exists in this portfolio'
             }), 400
         
         stock = Stock.create(
+            portfolio_key=portfolio_key,
             yahoo_symbol=yahoo_symbol,
             instrument_code=instrument_code,
-            name=data.get('name'),
-            market_or_index=data.get('market_or_index'),
-            market_suffix=data.get('market_suffix'),
-            trading_currency=data.get('trading_currency'),
-            current_currency=data.get('current_currency'),
-            drp=data.get('drp', False)
+            name=data.get('name', instrument_code),
+            sector=data.get('sector'),
+            industry=data.get('industry'),
+            exchange=data.get('exchange'),
+            country=data.get('country'),
+            market_cap=data.get('market_cap'),
+            currency=data.get('currency'),
+            drp_enabled=data.get('drp_enabled', False)
         )
         
         return jsonify({

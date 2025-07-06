@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ImportSummaryProps {
   file: File | null;
@@ -22,23 +22,64 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
   const [importing, setImporting] = useState(false);
   const [importResults, setImportResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [stepProgress, setStepProgress] = useState({
+    processing: false,
+    creating: false,
+    importing: false,
+    updating: false
+  });
+  
+  // Auto-start import when component mounts (Step 5 auto-start)
+  useEffect(() => {
+    if (!importing && !importResults && !error) {
+      handleImport();
+    }
+  }, []);
+
+  const simulateProgressSteps = () => {
+    // Step 1: Processing file
+    setCurrentStep(0);
+    setStepProgress(prev => ({ ...prev, processing: true }));
+    
+    setTimeout(() => {
+      // Step 2: Creating stocks
+      setCurrentStep(1);
+      setStepProgress(prev => ({ ...prev, creating: true }));
+      
+      setTimeout(() => {
+        // Step 3: Importing transactions
+        setCurrentStep(2);
+        setStepProgress(prev => ({ ...prev, importing: true }));
+        
+        setTimeout(() => {
+          // Step 4: Updating positions
+          setCurrentStep(3);
+          setStepProgress(prev => ({ ...prev, updating: true }));
+        }, 1500);
+      }, 1500);
+    }, 1000);
+  };
 
   const handleImport = async () => {
     if (!file) return;
 
     setImporting(true);
     setError(null);
+    
+    // Start progress simulation
+    simulateProgressSteps();
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('portfolio_id', portfolioId.toString());
-      formData.append('column_mapping', JSON.stringify(columnMapping));
-      formData.append('date_format', dateFormat);
-
+      // No file upload needed - process staged transactions
       const response = await fetch('/api/import/transactions', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portfolio_id: portfolioId
+        }),
       });
 
       const data = await response.json();
@@ -67,32 +108,64 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
               </svg>
             </div>
             <div className="loading-steps">
-              <div className="step active">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14,2 14,8 20,8"/>
-                </svg>
+              <div className={`step ${currentStep >= 0 ? 'active' : ''} ${stepProgress.processing ? 'completed' : ''}`}>
+                <div className="step-icon">
+                  {stepProgress.processing ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20,6 9,17 4,12"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14,2 14,8 20,8"/>
+                    </svg>
+                  )}
+                </div>
                 <span>Processing file...</span>
               </div>
-              <div className="step">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
-                </svg>
+              <div className={`step ${currentStep >= 1 ? 'active' : ''} ${stepProgress.creating ? 'completed' : ''}`}>
+                <div className="step-icon">
+                  {stepProgress.creating ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20,6 9,17 4,12"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+                    </svg>
+                  )}
+                </div>
                 <span>Creating stocks...</span>
               </div>
-              <div className="step">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 11H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h4l5 4V7l-5 4z"/>
-                  <path d="M22 9s-1-2-3-2-3 2-3 2"/>
-                </svg>
+              <div className={`step ${currentStep >= 2 ? 'active' : ''} ${stepProgress.importing ? 'completed' : ''}`}>
+                <div className="step-icon">
+                  {stepProgress.importing ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20,6 9,17 4,12"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 11H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h4l5 4V7l-5 4z"/>
+                      <path d="M22 9s-1-2-3-2-3 2-3 2"/>
+                    </svg>
+                  )}
+                </div>
                 <span>Importing transactions...</span>
               </div>
-              <div className="step">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                  <line x1="8" y1="21" x2="16" y2="21"/>
-                  <line x1="12" y1="17" x2="12" y2="21"/>
-                </svg>
+              <div className={`step ${currentStep >= 3 ? 'active' : ''} ${stepProgress.updating ? 'completed' : ''}`}>
+                <div className="step-icon">
+                  {stepProgress.updating ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20,6 9,17 4,12"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                      <line x1="8" y1="21" x2="16" y2="21"/>
+                      <line x1="12" y1="17" x2="12" y2="21"/>
+                    </svg>
+                  )}
+                </div>
                 <span>Updating positions...</span>
               </div>
             </div>
@@ -154,12 +227,12 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
                 <div className="result-label">Transactions Imported</div>
               </div>
               <div className="result-card">
-                <div className="result-value">{importResults.summary?.stocks_created || 0}</div>
-                <div className="result-label">New Stocks Created</div>
+                <div className="result-value">{importResults.summary?.processed_transactions || 0}</div>
+                <div className="result-label">Total Processed</div>
               </div>
               <div className="result-card">
-                <div className="result-value">{importResults.summary?.validation_errors || 0}</div>
-                <div className="result-label">Validation Errors</div>
+                <div className="result-value">{importResults.summary?.stocks_processed || 0}</div>
+                <div className="result-label">Stocks Processed</div>
               </div>
               <div className="result-card">
                 <div className="result-value">{importResults.summary?.import_errors || 0}</div>
@@ -241,7 +314,8 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
     );
   }
 
-  // Pre-import summary
+  // This component now auto-starts the import - no pre-import summary needed
+  // If we get here, something went wrong
   return (
     <div className="import-summary-section">
       <div className="import-ready">
@@ -252,66 +326,8 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
               <path d="M22 9s-1-2-3-2-3 2-3 2"/>
             </svg>
           </div>
-          <h2>Ready to Import</h2>
-          <p>Review the summary below and click "Start Import" to begin the import process.</p>
-        </div>
-
-        <div className="import-summary-card glass">
-          <h3>Import Summary</h3>
-          <div className="summary-details">
-            <div className="detail-row">
-              <span className="detail-label">File:</span>
-              <span className="detail-value">{file?.name}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label">Total Rows:</span>
-              <span className="detail-value">{validationResults.total_rows}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label">Valid Transactions:</span>
-              <span className="detail-value success">{validationResults.valid_rows}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label">Unique Stocks:</span>
-              <span className="detail-value">{validationResults.unique_instruments}</span>
-            </div>
-            {validationResults.validation_errors > 0 && (
-              <div className="detail-row">
-                <span className="detail-label">Validation Errors:</span>
-                <span className="detail-value error">{validationResults.validation_errors}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="import-warning glass">
-          <div className="warning-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          </div>
-          <div className="warning-content">
-            <h4>Before You Import</h4>
-            <ul>
-              <li>Make sure you have reviewed all validation results</li>
-              <li>Unverified stocks will be created with "pending" status</li>
-              <li>You can verify stock information later in Stock Management</li>
-              <li>This import cannot be undone - consider backing up your data</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="import-actions">
-          <button onClick={handleImport} className="btn btn-primary btn-lg">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17,8 12,3 7,8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Start Import ({validationResults.valid_rows} transactions)
-          </button>
+          <h2>Preparing Import...</h2>
+          <p>Setting up your transaction import, please wait.</p>
         </div>
       </div>
     </div>

@@ -459,7 +459,8 @@
 
 .mapping-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   margin-top: 2rem;
 }
@@ -772,8 +773,10 @@
 
 .mapping-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .mapping-item {
@@ -875,15 +878,41 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.5rem;
-  border-radius: 6px;
+  padding: 0.75rem;
+  border-radius: 8px;
   font-size: 0.9rem;
   color: var(--color-text-secondary);
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
 }
 
 .loading-steps .step.active {
   background: rgba(var(--color-primary-rgb), 0.1);
+  color: var(--color-primary);
+  border-color: rgba(var(--color-primary-rgb), 0.2);
+  transform: translateX(4px);
+}
+
+.loading-steps .step.completed {
+  background: rgba(var(--color-success-rgb), 0.1);
+  color: var(--color-success);
+  border-color: rgba(var(--color-success-rgb), 0.2);
+}
+
+.loading-steps .step-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.loading-steps .step.completed .step-icon svg {
+  color: var(--color-success);
+}
+
+.loading-steps .step.active .step-icon svg {
   color: var(--color-primary);
 }
 
@@ -964,7 +993,7 @@
 
 .results-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 1rem;
 }
 
@@ -1263,7 +1292,9 @@
 
 .bulk-actions {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
 }
 
 .stock-assignment-table {
@@ -1796,6 +1827,148 @@
   margin-bottom: 1rem;
 }
 
+.proceed-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* Enhanced Breakdown Section */
+.breakdown-section {
+  width: 100%;
+}
+
+.breakdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.breakdown-header h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 1.1rem;
+}
+
+.breakdown-table-container {
+  margin-top: 1rem;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.breakdown-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+}
+
+.breakdown-table th,
+.breakdown-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.breakdown-table th {
+  background: var(--color-background);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.breakdown-table tbody tr:hover {
+  background: var(--color-background);
+}
+
+.breakdown-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stock-code {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+  background: rgba(var(--color-primary-rgb), 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.total-transactions {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.buy-count {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.sell-count {
+  color: var(--color-error);
+  font-weight: 500;
+}
+
+/* Enhanced Confirmation Actions */
+.confirmation-actions {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.error-state,
+.success-state {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.action-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin: 0;
+  font-size: 1rem;
+}
+
+.action-message.error {
+  color: var(--color-error);
+}
+
+.action-message svg {
+  color: var(--color-success);
+}
+
+.action-message.error svg {
+  color: var(--color-error);
+}
+
+.action-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.btn-large {
+  padding: 1rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .import-steps {
@@ -1846,6 +2019,22 @@
   .action-menu {
     flex-direction: column;
     gap: 0.25rem;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .breakdown-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .proceed-buttons {
+    flex-direction: column;
+    gap: 1rem;
   }
   
   .market-modal {
