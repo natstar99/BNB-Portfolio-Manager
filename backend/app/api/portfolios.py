@@ -282,7 +282,7 @@ def get_portfolio_stocks_for_verification(portfolio_id):
         
         # Get all stocks in the portfolio and return them as "new_stock_symbols"
         # to match the format that StockVerification expects
-        stock_symbols = [stock.symbol for stock in portfolio.stocks]
+        stock_symbols = [stock.instrument_code for stock in portfolio.stocks]
         
         return jsonify({
             'success': True,
