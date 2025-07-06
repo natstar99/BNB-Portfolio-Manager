@@ -254,6 +254,17 @@ class TransactionImportService:
                     'message': 'No unprocessed transactions found'
                 }
             
+            # PERFORMANCE OPTIMIZATION: Pre-populate DIM_DATE for entire range once
+            # Calculate date range from all transactions
+            all_dates = [DateParser.raw_int_to_date(tx.raw_date) for tx in unprocessed_transactions]
+            earliest_transaction_date = min(all_dates)
+            latest_transaction_date = max(all_dates)
+            
+            # Ensure all dates exist in DIM_DATE dimension (batch operation)
+            from app.models.date_dimension import DateDimension
+            DateDimension.ensure_date_range_exists(earliest_transaction_date, latest_transaction_date)
+            logger.info(f"Ensured DIM_DATE populated from {earliest_transaction_date} to {latest_transaction_date}")
+            
             # Group transactions by instrument code to retrieve stocks
             instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
             
@@ -262,7 +273,6 @@ class TransactionImportService:
             
             successful_imports = 0
             errors = []
-            earliest_transaction_date = None
             
             # Process each unprocessed transaction
             for raw_tx in unprocessed_transactions:
@@ -277,10 +287,6 @@ class TransactionImportService:
                     
                     # Convert raw_date to date object using shared utility
                     transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
-                    
-                    # Track earliest transaction date for metrics calculation
-                    if not earliest_transaction_date or transaction_date < earliest_transaction_date:
-                        earliest_transaction_date = transaction_date
                     
                     # Create transaction in FACT_TRANSACTIONS
                     transaction = Transaction.create(
@@ -306,34 +312,28 @@ class TransactionImportService:
             # Commit all transaction changes
             db.session.commit()
             
-            # Trigger daily metrics calculation and historical data collection for verified stocks only
-            if successful_imports > 0 and earliest_transaction_date:
-                metrics_service = DailyMetricsService()
+            # PERFORMANCE OPTIMIZATION: Defer metrics calculation to avoid N+1 queries
+            # Instead of calculating metrics for each stock individually, defer to background or manual trigger
+            if successful_imports > 0:
+                # Get stocks that actually had transactions and are verified
+                stocks_needing_metrics = []
                 for instrument_code, stock_key in stock_key_mapping.items():
-                    try:
-                        # Check if this stock actually had transactions
-                        stock_had_transactions = any(
-                            tx.raw_instrument_code == instrument_code 
-                            for tx in unprocessed_transactions 
-                            if tx.processed_flag
-                        )
-                        
-                        if stock_had_transactions:
-                            # Get the stock object to check verification status
-                            stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
-                            
-                            if stock and stock.verification_status == 'verified':
-                                # Only collect historical data and calculate metrics for verified stocks
-                                metrics_result = metrics_service.recalculate_portfolio_metrics(
-                                    portfolio_key, stock_key, earliest_transaction_date
-                                )
-                                logger.info(f"Updated metrics for verified stock {instrument_code}: {metrics_result}")
-                            else:
-                                logger.info(f"Skipping metrics calculation for unverified stock {instrument_code} (Status: {stock.verification_status if stock else 'Unknown'})")
-                                
-                    except Exception as e:
-                        logger.error(f"Error updating metrics for stock {instrument_code}: {str(e)}")
-                        # Don't fail the whole import for metrics errors
+                    stock_had_transactions = any(
+                        tx.raw_instrument_code == instrument_code 
+                        for tx in unprocessed_transactions 
+                        if tx.processed_flag
+                    )
+                    
+                    if stock_had_transactions:
+                        stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
+                        if stock and stock.verification_status == 'verified':
+                            stocks_needing_metrics.append({
+                                'instrument_code': instrument_code,
+                                'stock_key': stock_key
+                            })
+                
+                logger.info(f"Import complete. {len(stocks_needing_metrics)} verified stocks need metrics recalculation from {earliest_transaction_date}")
+                logger.info("RECOMMENDATION: Run metrics recalculation as separate background process to avoid blocking import")
             
             return {
                 'success': True,
@@ -356,6 +356,67 @@ class TransactionImportService:
                 'import_errors': [str(e)]
             }
     
+    
+    # ============= METRICS CALCULATION METHODS =============
+    
+    def recalculate_metrics_for_imported_stocks(self, portfolio_key: int, stock_keys: List[int], from_date: date) -> Dict[str, Any]:
+        """
+        PERFORMANCE OPTIMIZED: Batch recalculate metrics for multiple stocks after import.
+        
+        This method should be called separately from the main import process to avoid
+        blocking the import with expensive metrics calculations.
+        
+        Args:
+            portfolio_key: Portfolio ID
+            stock_keys: List of stock keys that need metrics recalculation  
+            from_date: Earliest date to recalculate from
+            
+        Returns:
+            Dict with results of metrics calculation
+        """
+        try:
+            metrics_service = DailyMetricsService()
+            results = []
+            
+            logger.info(f"Starting batch metrics recalculation for {len(stock_keys)} stocks from {from_date}")
+            
+            for stock_key in stock_keys:
+                try:
+                    result = metrics_service.recalculate_portfolio_metrics(
+                        portfolio_key, stock_key, from_date
+                    )
+                    results.append({
+                        'stock_key': stock_key,
+                        'success': result.get('success', False),
+                        'metrics_calculated': result.get('metrics_calculated', 0)
+                    })
+                    logger.info(f"Completed metrics for stock_key {stock_key}: {result.get('metrics_calculated', 0)} metrics")
+                    
+                except Exception as e:
+                    logger.error(f"Failed metrics calculation for stock_key {stock_key}: {str(e)}")
+                    results.append({
+                        'stock_key': stock_key,
+                        'success': False,
+                        'error': str(e)
+                    })
+            
+            successful_calculations = len([r for r in results if r.get('success')])
+            total_metrics = sum(r.get('metrics_calculated', 0) for r in results)
+            
+            return {
+                'success': True,
+                'stocks_processed': len(stock_keys),
+                'successful_calculations': successful_calculations,
+                'total_metrics_calculated': total_metrics,
+                'results': results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in batch metrics recalculation: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
     # ============= UTILITY METHODS =============
     

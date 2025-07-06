@@ -2,7 +2,7 @@
 test/
 collect_code.py
 *.ipynb
-
+z_xperts/
 
 # Hide virtual environment
 venv/

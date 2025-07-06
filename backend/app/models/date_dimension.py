@@ -6,6 +6,7 @@ Handles date dimension table operations with automatic population
 from datetime import datetime, date, timedelta
 import calendar
 import logging
+from typing import List
 from app import db
 from sqlalchemy import text
 
@@ -293,3 +294,43 @@ class DateDimension(db.Model):
             return {
                 'error': 'Could not retrieve date range information'
             }
+    
+    @staticmethod
+    def get_trading_days_in_range(start_date_key: int, end_date_key: int) -> List[int]:
+        """
+        Get all trading days (non-weekend days) in the specified date range.
+        
+        This method is critical for metrics calculation performance. It returns only
+        business days (Monday-Friday) to avoid calculating metrics for weekends
+        when markets are closed.
+        
+        Args:
+            start_date_key: Start date in YYYYMMDD format
+            end_date_key: End date in YYYYMMDD format
+            
+        Returns:
+            List[int]: List of date_keys for trading days in the range
+            
+        Performance Note:
+            Uses database query to leverage indexes rather than generating 
+            dates in Python for better performance with large date ranges.
+        """
+        try:
+            # Query database for trading days (weekdays only)
+            result = db.session.execute(
+                text("""
+                SELECT date_key 
+                FROM DIM_DATE 
+                WHERE date_key BETWEEN :start_key AND :end_key 
+                  AND is_weekend = 0
+                  AND is_holiday = 0
+                ORDER BY date_key
+                """),
+                {'start_key': start_date_key, 'end_key': end_date_key}
+            ).fetchall()
+            
+            return [row[0] for row in result]
+            
+        except Exception as e:
+            logger.error(f"Error getting trading days in range {start_date_key} to {end_date_key}: {str(e)}")
+            return []

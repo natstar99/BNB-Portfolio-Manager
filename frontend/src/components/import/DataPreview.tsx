@@ -239,8 +239,14 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
           </div>
           <div className="stat-card">
             <div className="stat-label">New Transactions</div>
-            <div className="stat-value">{validationResults.new_transactions || validationResults.valid_rows}</div>
+            <div className="stat-value">{validationResults.new_transactions ?? validationResults.valid_rows}</div>
           </div>
+          {validationResults.duplicate_transactions > 0 && (
+            <div className="stat-card">
+              <div className="stat-label">Duplicate Transactions</div>
+              <div className="stat-value duplicate">{validationResults.duplicate_transactions}</div>
+            </div>
+          )}
         </div>
 
 
@@ -384,42 +390,67 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
           </div>
         ) : (
           <div className="success-state">
-            <p className="action-message">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                <polyline points="22,4 12,14.01 9,11.01"/>
-              </svg>
-              Ready to stage {validationResults.valid_rows} valid transaction{validationResults.valid_rows !== 1 ? 's' : ''} for stock verification.
-            </p>
-            <div className="action-buttons">
-              <button className="btn btn-error" onClick={() => window.history.back()}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="15,18 9,12 15,6"/>
-                </svg>
-                Return to Previous Step
-              </button>
-              <button 
-                className="btn btn-primary btn-large" 
-                onClick={confirmTransactions}
-                disabled={confirming}
-              >
-                {confirming ? (
-                  <>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
-                      <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                    </svg>
-                    Staging...
-                  </>
-                ) : (
-                  <>
+            {(validationResults.new_transactions ?? validationResults.valid_rows) === 0 ? (
+              // No new transactions - all duplicates
+              <>
+                <p className="action-message">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22,4 12,14.01 9,11.01"/>
+                  </svg>
+                  All transactions already exist in your portfolio. No new data to import.
+                </p>
+                <div className="action-buttons">
+                  <button className="btn btn-primary btn-large" onClick={() => window.location.href = '/dashboard'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="9,18 15,12 9,6"/>
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                      <polyline points="9,22 9,12 15,12 15,22"/>
                     </svg>
-                    Stage Transactions
-                  </>
-                )}
-              </button>
-            </div>
+                    Go to Portfolio
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Has new transactions
+              <>
+                <p className="action-message">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22,4 12,14.01 9,11.01"/>
+                  </svg>
+                  Ready to stage {validationResults.new_transactions ?? validationResults.valid_rows} new transaction{(validationResults.new_transactions ?? validationResults.valid_rows) !== 1 ? 's' : ''} for stock verification.
+                </p>
+                <div className="action-buttons">
+                  <button className="btn btn-error" onClick={() => window.history.back()}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15,18 9,12 15,6"/>
+                    </svg>
+                    Return to Previous Step
+                  </button>
+                  <button 
+                    className="btn btn-primary btn-large" 
+                    onClick={confirmTransactions}
+                    disabled={confirming}
+                  >
+                    {confirming ? (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                          <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                        </svg>
+                        Staging...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="9,18 15,12 9,6"/>
+                        </svg>
+                        Stage Transactions
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

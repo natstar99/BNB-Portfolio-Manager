@@ -13,6 +13,7 @@ import pandas as pd
 from typing import Dict, List, Any, Tuple
 from datetime import date
 import logging
+from decimal import Decimal
 
 from .date_parser import DateParser
 
@@ -166,6 +167,11 @@ class TransactionValidator:
         """
         from app.models.transaction import RawTransaction
         
+        # KISS DEBUG: Check what exists in database first
+        existing_count = RawTransaction.query.filter_by(portfolio_id=portfolio_id).count()
+        logger.warning(f"DUPLICATE CHECK: Portfolio {portfolio_id} has {existing_count} existing transactions in STG_RAW_TRANSACTIONS")
+        logger.warning(f"DUPLICATE CHECK: Checking {len(valid_transactions)} transactions for duplicates")
+        
         new_transactions = []
         duplicate_count = 0
         
@@ -175,18 +181,27 @@ class TransactionValidator:
                 raw_date_int = DateParser.date_to_raw_int(trans['date'])
                 
                 # Check if this exact raw transaction already exists in STG_RAW_TRANSACTIONS
+                # Include transaction_type in duplicate check for better accuracy
+                # 
+                # BUG FIX: Use Decimal comparison instead of float to avoid precision issues
+                quantity_decimal = Decimal(str(trans['quantity']))
+                price_decimal = Decimal(str(trans['price']))
+                
                 existing = RawTransaction.query.filter(
                     RawTransaction.portfolio_id == portfolio_id,
                     RawTransaction.raw_instrument_code == trans['instrument_code'],
                     RawTransaction.raw_date == raw_date_int,
-                    RawTransaction.raw_quantity == trans['quantity'],
-                    RawTransaction.raw_price == trans['price']
+                    RawTransaction.raw_transaction_type == trans['transaction_type'],
+                    RawTransaction.raw_quantity == quantity_decimal,
+                    RawTransaction.raw_price == price_decimal
                 ).first()
                 
                 if existing:
                     duplicate_count += 1
-                    logger.debug(f"Duplicate found: {trans['instrument_code']} on {trans['date']}")
+                    logger.debug(f"Duplicate found: {trans['instrument_code']} on {trans['date']} (ID: {existing.id})")
                 else:
+                    # Debug logging to help identify why no match was found
+                    logger.debug(f"No duplicate for: {trans['instrument_code']} {trans['date']} qty={quantity_decimal} price={price_decimal}")
                     new_transactions.append(trans)
                     
             except Exception as e:
@@ -194,7 +209,16 @@ class TransactionValidator:
                 # Include transaction anyway - better to have false positive than lose data
                 new_transactions.append(trans)
         
-        logger.info(f"Duplicate check complete: {len(new_transactions)} new, {duplicate_count} duplicates")
+        logger.warning(f"DUPLICATE CHECK RESULT: {len(new_transactions)} new, {duplicate_count} duplicates")
+        
+        # KISS DEBUG: If no duplicates found but data exists, show sample data
+        if duplicate_count == 0 and existing_count > 0 and len(valid_transactions) > 0:
+            sample_existing = RawTransaction.query.filter_by(portfolio_id=portfolio_id).first()
+            sample_import = valid_transactions[0]
+            logger.warning(f"NO DUPLICATES FOUND BUT DATA EXISTS!")
+            logger.warning(f"Sample DB: {sample_existing.raw_instrument_code} {sample_existing.raw_date} {sample_existing.raw_quantity} {sample_existing.raw_price}")
+            logger.warning(f"Sample Import: {sample_import['instrument_code']} {DateParser.date_to_raw_int(sample_import['date'])} {sample_import['quantity']} {sample_import['price']}")
+        
         return new_transactions, duplicate_count
     
     @classmethod
