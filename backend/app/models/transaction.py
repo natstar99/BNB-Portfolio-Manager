@@ -110,15 +110,8 @@ class Transaction(db.Model):
         if not trans_type:
             raise ValueError(f"Invalid transaction type: {transaction_type}")
         
-        # Get date key (date should already exist due to batch population in import service)
+        # Get date key (date must exist due to batch population in import service)
         date_key = int(transaction_date.strftime('%Y%m%d'))
-        
-        # Fallback: ensure date exists if called outside of import process
-        from .date_dimension import DateDimension
-        existing_date = DateDimension.query.filter_by(date_key=date_key).first()
-        if not existing_date:
-            date_entry = DateDimension.create_date_entry(transaction_date)
-            date_key = date_entry.date_key
         
         # Calculate total value
         total_value = quantity * price
@@ -142,7 +135,7 @@ class Transaction(db.Model):
         )
         
         db.session.add(transaction)
-        db.session.commit()
+        # Note: Commit is handled by caller for atomic processing
         return transaction
     
     @staticmethod
@@ -174,7 +167,6 @@ class RawTransaction(db.Model):
     __tablename__ = 'STG_RAW_TRANSACTIONS'
     
     id = db.Column(db.Integer, primary_key=True)
-    import_batch_id = db.Column(db.String(50), nullable=False)
     portfolio_id = db.Column(db.Integer, nullable=False)
     raw_date = db.Column(db.Integer, nullable=False)
     raw_instrument_code = db.Column(db.Text, nullable=False)
@@ -190,7 +182,6 @@ class RawTransaction(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'import_batch_id': self.import_batch_id,
             'portfolio_id': self.portfolio_id,
             'raw_date': self.raw_date,
             'raw_instrument_code': self.raw_instrument_code,
@@ -202,33 +193,14 @@ class RawTransaction(db.Model):
         }
     
     @staticmethod
-    def create_batch(batch_id: str, portfolio_id: int, raw_data: list):
+    def create_batch(portfolio_id: int, raw_data: list):
         """
-        CRITICAL METHOD: Create a batch of raw transactions in STG_RAW_TRANSACTIONS.
+        Create a batch of raw transactions in STG_RAW_TRANSACTIONS.
         
         This method is called during Step 3b (Stage Transactions) to save validated transaction
-        data to the staging table. It handles complex date parsing and ensures data consistency.
-        
-        DESIGN DECISIONS:
-        - Uses batch_id to group related transactions for tracking and rollback capabilities
-        - Converts all date formats to standardized YYYYMMDD integer format for raw_date field
-        - Handles multiple date formats including string dates, datetime objects, and integers
-        - Sets processed_flag=False to mark transactions as ready for Step 5 processing
-        
-        KNOWN ISSUES FIXED:
-        - BUG FIX: Date parsing was inconsistent between different input formats - now handles all cases
-        - BUG FIX: Timestamps with dates (e.g., '20170628 00:00:00') caused parsing errors - now strips time
-        - BUG FIX: Non-string date inputs caused crashes - now handles date objects and integers
-        - BUG FIX: Malformed date strings caused silent failures - now provides detailed error messages
-        
-        CRITICAL REQUIREMENTS:
-        - All transactions in batch must be saved atomically (all succeed or all fail)
-        - Date conversion must be consistent with date handling in other parts of system
-        - Must set processed_flag=False for all new records
-        - Must link to correct portfolio_id for proper data isolation
+        data to the staging table. It handles date parsing and ensures data consistency.
         
         Args:
-            batch_id (str): Unique identifier for this batch of transactions (UUID recommended)
             portfolio_id (int): Portfolio ID these transactions belong to
             raw_data (list): List of transaction dictionaries containing:
                 - date: Date in various formats (str, datetime, date, int)
@@ -243,14 +215,6 @@ class RawTransaction(db.Model):
         Raises:
             ValueError: If date cannot be parsed or required fields are missing
             DatabaseError: If database commit fails
-            
-        Example:
-            >>> raw_data = [
-            ...     {'date': '2023-01-15', 'instrument_code': 'AAPL', 'transaction_type': 'BUY', 'quantity': 100, 'price': 150.00},
-            ...     {'date': datetime(2023, 1, 16), 'instrument_code': 'MSFT', 'transaction_type': 'BUY', 'quantity': 50, 'price': 245.50}
-            ... ]
-            >>> transactions = RawTransaction.create_batch('batch-123', 456, raw_data)
-            >>> print(f"Created {len(transactions)} raw transactions")
         """
         transactions = []
         for row in raw_data:
@@ -263,7 +227,6 @@ class RawTransaction(db.Model):
                 raise ValueError(f"Cannot parse date '{date_value}': {str(e)}")
             
             transaction = RawTransaction(
-                import_batch_id=batch_id,
                 portfolio_id=portfolio_id,
                 raw_date=raw_date,
                 raw_instrument_code=str(row.get('instrument_code', '')),

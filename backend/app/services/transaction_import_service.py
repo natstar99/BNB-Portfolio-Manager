@@ -142,37 +142,41 @@ class TransactionImportService:
     
     def get_existing_stocks(self, instrument_codes: List[str], portfolio_key: int) -> Dict[str, int]:
         """
-        Get existing stock records for all instruments from DIM_STOCK.
+        Get existing verified stock records for instruments from DIM_STOCK.
         
-        All stocks should have been created in Step 4 (stock verification).
-        This method only retrieves stock_keys for existing stocks.
+        Only includes stocks with verification_status = 'verified'.
+        Stocks should have been created and verified in Step 4 (stock verification).
         
         Args:
             instrument_codes: List of instrument codes to retrieve
             portfolio_key: Portfolio ID to look up stocks for
             
         Returns:
-            Dict mapping instrument_code to stock_key
-            
-        Raises:
-            ValueError: If any expected stock is not found (indicates Step 4 wasn't completed properly)
+            Dict mapping instrument_code to stock_key (only for verified stocks)
         """
         stock_key_mapping = {}
+        unverified_stocks = []
         missing_stocks = []
         
         for instrument_code in instrument_codes:
-            # All stocks should exist - they were created in Step 4
             existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
             
             if existing_stock:
-                stock_key_mapping[instrument_code] = existing_stock.stock_key
-                logger.info(f"Found existing stock: {instrument_code} (Key: {existing_stock.stock_key}, Status: {existing_stock.verification_status})")
+                if existing_stock.verification_status == 'verified':
+                    stock_key_mapping[instrument_code] = existing_stock.stock_key
+                    logger.info(f"Found verified stock: {instrument_code} (Key: {existing_stock.stock_key})")
+                else:
+                    unverified_stocks.append(f"{instrument_code} (status: {existing_stock.verification_status})")
+                    logger.info(f"Skipping unverified stock: {instrument_code} (Status: {existing_stock.verification_status})")
             else:
                 missing_stocks.append(instrument_code)
-                logger.error(f"Stock not found: {instrument_code} - should have been created in Step 4")
+                logger.info(f"Stock not found: {instrument_code} - may not have been created in Step 4")
+        
+        if unverified_stocks:
+            logger.info(f"Skipped {len(unverified_stocks)} unverified stocks: {unverified_stocks}")
         
         if missing_stocks:
-            raise ValueError(f"Missing stocks from Step 4: {missing_stocks}. Stock verification step may not have completed properly.")
+            logger.info(f"Missing {len(missing_stocks)} stocks from Step 4: {missing_stocks}")
         
         return stock_key_mapping
     
@@ -238,123 +242,125 @@ class TransactionImportService:
             >>> else:
             >>>     print(f"Import failed: {result['import_errors']}")
         """
-        try:
-            # Get all unprocessed transactions for this portfolio
-            unprocessed_transactions = RawTransaction.query.filter_by(
-                portfolio_id=portfolio_key,
-                processed_flag=False
-            ).order_by(RawTransaction.raw_date).all()
+        # ATOMIC PROCESSING: Wrap entire operation in explicit transaction
+        with db.session.begin():
+            try:
+                # Use database-level locking to prevent race conditions
+                # Get all unprocessed transactions for this portfolio with row-level locks
+                unprocessed_transactions = RawTransaction.query.filter_by(
+                    portfolio_id=portfolio_key,
+                    processed_flag=False
+                ).with_for_update().order_by(RawTransaction.raw_date).all()
+                
+                if not unprocessed_transactions:
+                    return {
+                        'success': True,
+                        'successful_imports': 0,
+                        'stocks_created': 0,
+                        'import_errors': [],
+                        'message': 'No unprocessed transactions found'
+                    }
+                
+                # PERFORMANCE OPTIMIZATION: Pre-populate DIM_DATE for entire range once
+                # Calculate date range from all transactions
+                all_dates = [DateParser.raw_int_to_date(tx.raw_date) for tx in unprocessed_transactions]
+                earliest_transaction_date = min(all_dates)
+                latest_transaction_date = max(all_dates)
             
-            if not unprocessed_transactions:
+                # Ensure all dates exist in DIM_DATE dimension (batch operation)
+                from app.models.date_dimension import DateDimension
+                DateDimension.ensure_date_range_exists(earliest_transaction_date, latest_transaction_date, commit=False)
+                logger.info(f"Ensured DIM_DATE populated from {earliest_transaction_date} to {latest_transaction_date}")
+            
+                # Group transactions by instrument code to retrieve stocks
+                instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
+                
+                # Get existing verified stocks (created in Step 4)
+                stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
+            
+                successful_imports = 0
+                errors = []
+            
+                # Process each unprocessed transaction
+                for raw_tx in unprocessed_transactions:
+                    try:
+                        instrument_code = raw_tx.raw_instrument_code
+                        
+                        if instrument_code not in stock_key_mapping:
+                            errors.append(f"No verified stock found for instrument {instrument_code}")
+                            continue
+                    
+                        stock_key = stock_key_mapping[instrument_code]
+                        
+                        # Convert raw_date to date object using shared utility
+                        transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
+                    
+                        # Create transaction in FACT_TRANSACTIONS
+                        transaction = Transaction.create(
+                            stock_key=stock_key,
+                            portfolio_key=portfolio_key,
+                            transaction_type=raw_tx.raw_transaction_type,
+                            transaction_date=transaction_date,
+                            quantity=float(raw_tx.raw_quantity),
+                            price=float(raw_tx.raw_price)
+                        )
+                    
+                        # Mark raw transaction as processed
+                        raw_tx.processed_flag = True
+                        
+                        successful_imports += 1
+                        logger.debug(f"Created transaction {transaction.transaction_key} from raw transaction {raw_tx.id}")
+                    
+                    except Exception as e:
+                        error_msg = f"Error processing raw transaction {raw_tx.id}: {str(e)}"
+                        errors.append(error_msg)
+                        logger.error(error_msg)
+            
+                # Transaction is committed automatically by with db.session.begin()
+                
+                # PERFORMANCE OPTIMIZATION: Defer metrics calculation to avoid N+1 queries
+                # Instead of calculating metrics for each stock individually, defer to background or manual trigger
+                if successful_imports > 0:
+                    # Get stocks that actually had transactions and are verified
+                    stocks_needing_metrics = []
+                    for instrument_code, stock_key in stock_key_mapping.items():
+                        stock_had_transactions = any(
+                            tx.raw_instrument_code == instrument_code 
+                            for tx in unprocessed_transactions 
+                            if tx.processed_flag
+                        )
+                        
+                        if stock_had_transactions:
+                            stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
+                            if stock and stock.verification_status == 'verified':
+                                stocks_needing_metrics.append({
+                                    'instrument_code': instrument_code,
+                                    'stock_key': stock_key
+                                })
+                    
+                    logger.info(f"Import complete. {len(stocks_needing_metrics)} verified stocks need metrics recalculation from {earliest_transaction_date}")
+                    logger.info("RECOMMENDATION: Run metrics recalculation as separate background process to avoid blocking import")
+                
                 return {
                     'success': True,
-                    'successful_imports': 0,
-                    'stocks_created': 0,
-                    'import_errors': [],
-                    'message': 'No unprocessed transactions found'
+                    'successful_imports': successful_imports,
+                    'stocks_processed': len([k for k in stock_key_mapping.keys()]),  # Changed from stocks_created
+                    'import_errors': errors,
+                    'processed_transactions': len(unprocessed_transactions),
+                    'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
+                    'message': f'Successfully imported {successful_imports} transactions for {len(stock_key_mapping)} stocks'
                 }
-            
-            # PERFORMANCE OPTIMIZATION: Pre-populate DIM_DATE for entire range once
-            # Calculate date range from all transactions
-            all_dates = [DateParser.raw_int_to_date(tx.raw_date) for tx in unprocessed_transactions]
-            earliest_transaction_date = min(all_dates)
-            latest_transaction_date = max(all_dates)
-            
-            # Ensure all dates exist in DIM_DATE dimension (batch operation)
-            from app.models.date_dimension import DateDimension
-            DateDimension.ensure_date_range_exists(earliest_transaction_date, latest_transaction_date)
-            logger.info(f"Ensured DIM_DATE populated from {earliest_transaction_date} to {latest_transaction_date}")
-            
-            # Group transactions by instrument code to retrieve stocks
-            instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
-            
-            # Get existing stocks (created in Step 4)
-            stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
-            
-            successful_imports = 0
-            errors = []
-            
-            # Process each unprocessed transaction
-            for raw_tx in unprocessed_transactions:
-                try:
-                    instrument_code = raw_tx.raw_instrument_code
-                    
-                    if instrument_code not in stock_key_mapping:
-                        errors.append(f"No stock key found for instrument {instrument_code}")
-                        continue
-                    
-                    stock_key = stock_key_mapping[instrument_code]
-                    
-                    # Convert raw_date to date object using shared utility
-                    transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
-                    
-                    # Create transaction in FACT_TRANSACTIONS
-                    transaction = Transaction.create(
-                        stock_key=stock_key,
-                        portfolio_key=portfolio_key,
-                        transaction_type=raw_tx.raw_transaction_type,
-                        transaction_date=transaction_date,
-                        quantity=float(raw_tx.raw_quantity),
-                        price=float(raw_tx.raw_price)
-                    )
-                    
-                    # Mark raw transaction as processed
-                    raw_tx.processed_flag = True
-                    
-                    successful_imports += 1
-                    logger.debug(f"Created transaction {transaction.transaction_key} from raw transaction {raw_tx.id}")
-                    
-                except Exception as e:
-                    error_msg = f"Error processing raw transaction {raw_tx.id}: {str(e)}"
-                    errors.append(error_msg)
-                    logger.error(error_msg)
-            
-            # Commit all transaction changes
-            db.session.commit()
-            
-            # PERFORMANCE OPTIMIZATION: Defer metrics calculation to avoid N+1 queries
-            # Instead of calculating metrics for each stock individually, defer to background or manual trigger
-            if successful_imports > 0:
-                # Get stocks that actually had transactions and are verified
-                stocks_needing_metrics = []
-                for instrument_code, stock_key in stock_key_mapping.items():
-                    stock_had_transactions = any(
-                        tx.raw_instrument_code == instrument_code 
-                        for tx in unprocessed_transactions 
-                        if tx.processed_flag
-                    )
-                    
-                    if stock_had_transactions:
-                        stock = Stock.get_by_portfolio_and_instrument(portfolio_key, instrument_code)
-                        if stock and stock.verification_status == 'verified':
-                            stocks_needing_metrics.append({
-                                'instrument_code': instrument_code,
-                                'stock_key': stock_key
-                            })
                 
-                logger.info(f"Import complete. {len(stocks_needing_metrics)} verified stocks need metrics recalculation from {earliest_transaction_date}")
-                logger.info("RECOMMENDATION: Run metrics recalculation as separate background process to avoid blocking import")
-            
-            return {
-                'success': True,
-                'successful_imports': successful_imports,
-                'stocks_processed': len([k for k in stock_key_mapping.keys()]),  # Changed from stocks_created
-                'import_errors': errors,
-                'processed_transactions': len(unprocessed_transactions),
-                'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
-                'message': f'Successfully imported {successful_imports} transactions for {len(stock_key_mapping)} stocks'
-            }
-            
-        except Exception as e:
-            logger.error(f"Error processing staged transactions for portfolio {portfolio_key}: {str(e)}")
-            db.session.rollback()
-            return {
-                'success': False,
-                'error': str(e),
-                'successful_imports': 0,
-                'stocks_processed': 0,  # Changed from stocks_created
-                'import_errors': [str(e)]
-            }
+            except Exception as e:
+                logger.error(f"Error processing staged transactions for portfolio {portfolio_key}: {str(e)}")
+                # Transaction rollback is handled automatically by with db.session.begin()
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'successful_imports': 0,
+                    'stocks_processed': 0,  # Changed from stocks_created
+                    'import_errors': [str(e)]
+                }
     
     
     # ============= METRICS CALCULATION METHODS =============

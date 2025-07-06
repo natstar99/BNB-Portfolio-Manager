@@ -406,23 +406,18 @@ def stage_transactions():
                 'validation_errors': validation_results['validation_errors']
             }), 400
 
-        # Get new transactions for staging
-        valid_transactions = validation_results['valid_transactions']
-        new_transactions, duplicate_count = TransactionValidator.check_for_duplicates(
-            valid_transactions, portfolio_id
-        )
+        # Get new transactions for staging (already duplicate-checked in validate_complete_dataset)
+        new_transactions = validation_results.get('new_transaction_data', [])
+        duplicate_count = validation_results['duplicate_transactions']
 
         # Stage new transactions to STG_RAW_TRANSACTIONS
         saved_transactions = 0
-        batch_id = None
 
         if new_transactions:
             from app.models.transaction import RawTransaction
             
-            batch_id = str(uuid.uuid4())
-            
             try:
-                raw_transactions = RawTransaction.create_batch(batch_id, portfolio_id, new_transactions)
+                raw_transactions = RawTransaction.create_batch(portfolio_id, new_transactions)
                 saved_transactions = len(raw_transactions)
                 db.session.commit()
             except Exception as e:
@@ -440,7 +435,6 @@ def stage_transactions():
             'new_transactions': len(new_transactions),
             'duplicate_transactions': duplicate_count,
             'saved_transactions': saved_transactions,
-            'batch_id': batch_id,
             'confirmed': True,  # Mark as confirmed since we've staged the data
             'column_mapping': column_mapping,
             'date_format': date_format

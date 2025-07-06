@@ -320,6 +320,7 @@ class TransactionValidator:
             new_transactions, duplicate_count = cls.check_for_duplicates(valid_transactions, portfolio_id)
             results['new_transactions'] = len(new_transactions)
             results['duplicate_transactions'] = duplicate_count
+            results['new_transaction_data'] = new_transactions  # Store actual new transactions
             
             # Step 4: Analyze unique instruments
             instrument_analysis = cls.analyze_unique_instruments(valid_transactions)

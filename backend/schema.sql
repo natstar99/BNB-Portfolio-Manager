@@ -9,7 +9,6 @@
 -- Raw transaction staging table for imports
 CREATE TABLE STG_RAW_TRANSACTIONS (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    import_batch_id VARCHAR(50) NOT NULL,
     portfolio_id INTEGER NOT NULL,
     raw_date INT NOT NULL,
     raw_instrument_code TEXT NOT NULL,
@@ -209,7 +208,6 @@ CREATE TABLE FACT_DAILY_PORTFOLIO_METRICS (
 -- =============================================
 
 -- Staging table indexes
-CREATE INDEX idx_stg_raw_batch ON STG_RAW_TRANSACTIONS(import_batch_id);
 CREATE INDEX idx_stg_raw_processed ON STG_RAW_TRANSACTIONS(processed_flag);
 CREATE INDEX idx_stg_raw_portfolio ON STG_RAW_TRANSACTIONS(portfolio_id);
 CREATE INDEX idx_stg_raw_instrument ON STG_RAW_TRANSACTIONS(raw_instrument_code);

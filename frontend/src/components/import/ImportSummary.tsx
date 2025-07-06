@@ -30,9 +30,13 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
     updating: false
   });
   
+  // State to prevent multiple simultaneous imports
+  const [hasStartedImport, setHasStartedImport] = useState(false);
+  
   // Auto-start import when component mounts (Step 5 auto-start)
   useEffect(() => {
-    if (!importing && !importResults && !error) {
+    if (!importing && !importResults && !error && !hasStartedImport) {
+      setHasStartedImport(true);
       handleImport();
     }
   }, []);
@@ -62,7 +66,7 @@ export const ImportSummary: React.FC<ImportSummaryProps> = ({
   };
 
   const handleImport = async () => {
-    if (!file) return;
+    if (!file || importing) return; // Prevent duplicate calls
 
     setImporting(true);
     setError(null);

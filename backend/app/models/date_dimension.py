@@ -54,12 +54,13 @@ class DateDimension(db.Model):
         }
     
     @staticmethod
-    def get_or_create_date_entry(target_date: date):
+    def get_or_create_date_entry(target_date: date, commit: bool = True):
         """
         Get existing date dimension entry or create new one
         
         Args:
             target_date: The date to get/create entry for
+            commit: Whether to commit the transaction (default True for backward compatibility)
             
         Returns:
             DateDimension: The date dimension entry
@@ -72,15 +73,16 @@ class DateDimension(db.Model):
             return existing_entry
         
         # Create new entry
-        return DateDimension.create_date_entry(target_date)
+        return DateDimension.create_date_entry(target_date, commit=commit)
     
     @staticmethod
-    def create_date_entry(target_date: date):
+    def create_date_entry(target_date: date, commit: bool = True):
         """
         Create a single date dimension entry
         
         Args:
             target_date: The date to create entry for
+            commit: Whether to commit the transaction (default True for backward compatibility)
             
         Returns:
             DateDimension: The created date dimension entry
@@ -126,12 +128,13 @@ class DateDimension(db.Model):
         )
         
         db.session.add(date_entry)
-        db.session.commit()
+        if commit:
+            db.session.commit()
         
         return date_entry
     
     @staticmethod
-    def ensure_date_range_exists(start_date: date, end_date: date = None):
+    def ensure_date_range_exists(start_date: date, end_date: date = None, commit: bool = True):
         """
         Efficiently ensure all dates exist in the dimension between start_date and end_date.
         Only creates missing dates to avoid duplicates.
@@ -139,6 +142,7 @@ class DateDimension(db.Model):
         Args:
             start_date: Start date for the range
             end_date: End date for the range (defaults to today)
+            commit: Whether to commit the transaction (default True for backward compatibility)
             
         Returns:
             int: Number of date entries created
@@ -185,7 +189,7 @@ class DateDimension(db.Model):
             if date_entries:
                 db.session.execute(
                     text("""
-                    INSERT INTO DIM_DATE (
+                    INSERT OR IGNORE INTO DIM_DATE (
                         date_key, date_value, year, quarter, month, day, 
                         day_of_week, day_name, month_name, is_weekend, 
                         is_holiday, is_leap_year, fiscal_year, fiscal_quarter
@@ -197,7 +201,8 @@ class DateDimension(db.Model):
                     """),
                     date_entries
                 )
-                db.session.commit()
+                if commit:
+                    db.session.commit()
         
         logger.info(f"Created {created_count} missing date dimension entries from {start_date} to {end_date}")
         return created_count
