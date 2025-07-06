@@ -24,7 +24,7 @@ export const usePortfolios = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedPortfolio]);
+  }, []);
 
   const createPortfolio = useCallback(async (name: string, currency: string = 'USD', description?: string) => {
     try {
