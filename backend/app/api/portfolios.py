@@ -371,3 +371,38 @@ def get_portfolio_analytics(portfolio_id):
             'success': False,
             'error': f'Internal server error: {str(e)}'
         }), 500
+
+
+@bp.route('/portfolios/<int:portfolio_id>/staged-transactions', methods=['GET'])
+def get_portfolio_staged_transactions(portfolio_id):
+    """Get unprocessed transactions from STG_RAW_TRANSACTIONS for a portfolio"""
+    try:
+        from app.models.transaction import RawTransaction
+        
+        portfolio = Portfolio.get_by_id(portfolio_id)
+        
+        if not portfolio:
+            return jsonify({
+                'success': False,
+                'error': 'Portfolio not found'
+            }), 404
+        
+        # Get unprocessed transactions for this portfolio
+        staged_transactions = RawTransaction.query.filter_by(
+            portfolio_id=portfolio_id,
+            processed_flag=False
+        ).order_by(RawTransaction.raw_import_timestamp.desc()).all()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'transactions': [transaction.to_dict() for transaction in staged_transactions],
+                'count': len(staged_transactions)
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

@@ -4,6 +4,7 @@ interface StockVerificationProps {
   validationResults: any;
   portfolioId: number;
   onStockVerification: (verificationResults: any) => void;
+  context?: 'import' | 'management';  // Context for UI customization
 }
 
 interface MarketCode {
@@ -32,6 +33,7 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
   validationResults,
   portfolioId,
   onStockVerification,
+  context = 'import',  // Default to import context for backward compatibility
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -841,7 +843,10 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
         <div className="proceed-actions">
           <div className="save-state">
             <p className="action-message">
-              Click to persist changes. Historical data will be collected for all verified stocks. Stocks with Pending, Inactive and Failed status will remain in the staging area for this portfolio.
+              {context === 'management' 
+                ? 'Click to save stock changes to the portfolio. Stock verification status and details will be updated.'
+                : 'Click to persist changes. Historical data will be collected for all verified stocks. Stocks with Pending, Inactive and Failed status will remain in the staging area for this portfolio.'
+              }
             </p>
             <div className="proceed-buttons">
               <button className="btn btn-error" onClick={() => window.history.back()}>
@@ -856,7 +861,7 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
                   <polyline points="17,21 17,13 7,13 7,21"/>
                   <polyline points="7,3 7,8 15,8"/>
                 </svg>
-                {loading ? 'Saving...' : 'Save and Import into Portfolio'}
+                {loading ? 'Saving...' : (context === 'management' ? 'Save Stocks' : 'Save and Import into Portfolio')}
               </button>
             </div>
           </div>
