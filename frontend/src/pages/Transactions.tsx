@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { usePortfolios } from '../hooks/usePortfolios';
 import '../styles/transactions.css';
 
@@ -60,6 +60,8 @@ const DATE_FORMATS = [
 
 export const Transactions: React.FC = () => {
   const { portfolios, hasPortfolios, isNewUser } = usePortfolios();
+  const location = useLocation();
+  const { portfolioId } = useParams<{ portfolioId: string }>();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,12 +115,39 @@ export const Transactions: React.FC = () => {
     }
   }, [hasPortfolios]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Handle URL parameters for pre-filtering and portfolio context
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const symbolParam = searchParams.get('symbol');
+    
+    if (symbolParam) {
+      setSearchSymbol(symbolParam);
+    }
+    
+    // Set portfolio filter when on portfolio-specific page
+    if (portfolioId) {
+      setSelectedPortfolio(portfolioId);
+    }
+  }, [location.search, portfolioId]);
+
   const fetchTransactions = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/transactions');
+      // Build API URL with portfolio context if available
+      let apiUrl = '/api/transactions';
+      const params = new URLSearchParams();
+      
+      if (portfolioId) {
+        params.append('portfolio_id', portfolioId);
+      }
+      
+      if (params.toString()) {
+        apiUrl += `?${params.toString()}`;
+      }
+      
+      const response = await fetch(apiUrl);
       if (!response.ok) {
         throw new Error('Failed to fetch transactions');
       }
@@ -483,21 +512,6 @@ export const Transactions: React.FC = () => {
       {/* Filters */}
       <div className="filters-section glass">
         <div className="filters-grid">
-          <div className="filter-group">
-            <label className="filter-label">Portfolio</label>
-            <select 
-              value={selectedPortfolio}
-              onChange={(e) => setSelectedPortfolio(e.target.value)}
-              className="filter-select"
-            >
-              <option value="all">All Portfolios</option>
-              {portfolios.map(portfolio => (
-                <option key={portfolio.id} value={portfolio.id.toString()}>
-                  {portfolio.name}
-                </option>
-              ))}
-            </select>
-          </div>
           
           <div className="filter-group">
             <label className="filter-label">Action</label>
@@ -546,7 +560,6 @@ export const Transactions: React.FC = () => {
           <div className="filter-group">
             <button 
               onClick={() => {
-                setSelectedPortfolio('all');
                 setSelectedAction('all');
                 setSearchSymbol('');
                 setDateRange({ start: '', end: '' });
@@ -599,14 +612,12 @@ export const Transactions: React.FC = () => {
             <div className="transactions-table">
               <div className="table-header">
                 <div className="header-cell date">Date</div>
-                <div className="header-cell portfolio">Portfolio</div>
                 <div className="header-cell symbol">Symbol</div>
                 <div className="header-cell action">Action</div>
                 <div className="header-cell quantity">Quantity</div>
                 <div className="header-cell price">Price</div>
                 <div className="header-cell total">Total</div>
-                <div className="header-cell fees">Fees</div>
-                <div className="header-cell status">Status</div>
+                <div className="header-cell currency">Currency</div>
                 <div className="header-cell actions">Actions</div>
               </div>
               
@@ -615,10 +626,6 @@ export const Transactions: React.FC = () => {
                   <div key={transaction.id} className="table-row">
                     <div className="table-cell date" data-label="Date">
                       {formatDate(transaction.date)}
-                    </div>
-                    
-                    <div className="table-cell portfolio" data-label="Portfolio">
-                      {transaction.portfolio_name}
                     </div>
                     
                     <div className="table-cell symbol" data-label="Symbol">
@@ -648,14 +655,8 @@ export const Transactions: React.FC = () => {
                       {formatCurrency(transaction.total_amount)}
                     </div>
                     
-                    <div className="table-cell fees" data-label="Fees">
-                      {formatCurrency(transaction.fees)}
-                    </div>
-                    
-                    <div className="table-cell status" data-label="Status">
-                      <span className={`status-badge ${transaction.verified ? 'verified' : 'pending'}`}>
-                        {transaction.verified ? 'Verified' : 'Pending'}
-                      </span>
+                    <div className="table-cell currency" data-label="Currency">
+                      {transaction.currency}
                     </div>
                     
                     <div className="table-cell actions" data-label="Actions">

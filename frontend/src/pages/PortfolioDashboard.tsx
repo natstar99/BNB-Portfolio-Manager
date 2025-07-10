@@ -48,6 +48,11 @@ export const PortfolioDashboard: React.FC = () => {
   const [recentTransactions, setRecentTransactions] = useState<RecentTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [portfolioSettings, setPortfolioSettings] = useState({
+    accounting_method: 'fifo',
+    base_currency: 'USD'
+  });
 
   useEffect(() => {
     if (!portfolioId) {
@@ -202,13 +207,13 @@ export const PortfolioDashboard: React.FC = () => {
             </svg>
             Import Data
           </Link>
-          <Link to={`/portfolio/${portfolioId}/analytics`} className="btn btn-primary">
+          <button onClick={() => setShowSettingsModal(true)} className="btn btn-primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3v18h18"/>
-              <path d="M7 16l4-4 4 4 6-6"/>
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/>
             </svg>
-            Analytics
-          </Link>
+            Settings
+          </button>
         </div>
       </div>
 
@@ -550,6 +555,114 @@ export const PortfolioDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
+          <div className="modal glass" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Portfolio Settings</h3>
+              <button 
+                onClick={() => setShowSettingsModal(false)}
+                className="btn-icon"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="settings-section">
+                <h4>Accounting Method</h4>
+                <p className="setting-description">
+                  Choose how gains/losses are calculated when you sell positions
+                </p>
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input 
+                      type="radio" 
+                      name="accounting_method" 
+                      value="fifo"
+                      checked={portfolioSettings.accounting_method === 'fifo'}
+                      onChange={(e) => setPortfolioSettings({...portfolioSettings, accounting_method: e.target.value})}
+                    />
+                    <span className="radio-label">
+                      <strong>FIFO</strong> - First In, First Out
+                      <small>Sell oldest shares first</small>
+                    </span>
+                  </label>
+                  <label className="radio-option">
+                    <input 
+                      type="radio" 
+                      name="accounting_method" 
+                      value="lifo"
+                      checked={portfolioSettings.accounting_method === 'lifo'}
+                      onChange={(e) => setPortfolioSettings({...portfolioSettings, accounting_method: e.target.value})}
+                    />
+                    <span className="radio-label">
+                      <strong>LIFO</strong> - Last In, First Out
+                      <small>Sell newest shares first</small>
+                    </span>
+                  </label>
+                  <label className="radio-option">
+                    <input 
+                      type="radio" 
+                      name="accounting_method" 
+                      value="hifo"
+                      checked={portfolioSettings.accounting_method === 'hifo'}
+                      onChange={(e) => setPortfolioSettings({...portfolioSettings, accounting_method: e.target.value})}
+                    />
+                    <span className="radio-label">
+                      <strong>HIFO</strong> - Highest In, First Out
+                      <small>Sell highest cost shares first</small>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h4>Base Currency</h4>
+                <p className="setting-description">
+                  Currency used for portfolio value calculations and display
+                </p>
+                <select 
+                  value={portfolioSettings.base_currency}
+                  onChange={(e) => setPortfolioSettings({...portfolioSettings, base_currency: e.target.value})}
+                  className="form-input"
+                >
+                  <option value="USD">USD - US Dollar</option>
+                  <option value="EUR">EUR - Euro</option>
+                  <option value="GBP">GBP - British Pound</option>
+                  <option value="CAD">CAD - Canadian Dollar</option>
+                  <option value="AUD">AUD - Australian Dollar</option>
+                  <option value="JPY">JPY - Japanese Yen</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button 
+                onClick={() => setShowSettingsModal(false)}
+                className="btn btn-outline"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  // TODO: Save settings to backend
+                  console.log('Saving settings:', portfolioSettings);
+                  setShowSettingsModal(false);
+                }}
+                className="btn btn-primary"
+              >
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
