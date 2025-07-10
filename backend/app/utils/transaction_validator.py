@@ -222,12 +222,13 @@ class TransactionValidator:
         return new_transactions, duplicate_count
     
     @classmethod
-    def analyze_unique_instruments(cls, valid_transactions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def analyze_unique_instruments(cls, valid_transactions: List[Dict[str, Any]], portfolio_id: int) -> Dict[str, Any]:
         """
-        Analyze unique instruments in transaction data and categorize as new/existing.
+        Analyze unique instruments in transaction data and categorize as new/existing FOR THIS PORTFOLIO.
         
         Args:
             valid_transactions: List of validated transaction dictionaries
+            portfolio_id: Portfolio ID to check stocks against (portfolio-specific check)
             
         Returns:
             Dict: Analysis results with unique instruments, new vs existing categorization
@@ -237,13 +238,13 @@ class TransactionValidator:
         # Get unique instruments
         unique_instruments = list(set([t['instrument_code'] for t in valid_transactions]))
         
-        # Check which stocks are new vs existing
+        # Check which stocks are new vs existing FOR THIS PORTFOLIO ONLY
         new_stocks = []
         existing_stocks = []
         
         for instrument in unique_instruments:
-            # Check if any stock with this instrument code exists (across all portfolios)
-            existing_stock = Stock.query.filter_by(instrument_code=instrument).first()
+            # Check if stock with this instrument code exists in THIS portfolio only
+            existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_id, instrument)
             if existing_stock:
                 existing_stocks.append(instrument)
             else:
@@ -322,8 +323,8 @@ class TransactionValidator:
             results['duplicate_transactions'] = duplicate_count
             results['new_transaction_data'] = new_transactions  # Store actual new transactions
             
-            # Step 4: Analyze unique instruments
-            instrument_analysis = cls.analyze_unique_instruments(valid_transactions)
+            # Step 4: Analyze unique instruments (portfolio-specific)
+            instrument_analysis = cls.analyze_unique_instruments(valid_transactions, portfolio_id)
             results['instrument_analysis'] = instrument_analysis
             
             logger.info(f"Complete validation: {results['valid_rows']} valid, {len(validation_errors)} errors, "

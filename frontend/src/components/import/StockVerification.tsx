@@ -76,13 +76,35 @@ export const StockVerification: React.FC<StockVerificationProps> = ({
   };
 
   const initializeStockAssignments = () => {
-    const assignments: StockAssignment[] = newStocks.map((stock: string) => ({
-      instrument_code: stock,
-      market_key: '',
-      yahoo_symbol: stock,
-      verification_status: 'pending' as const,
-      drp_enabled: false,
-    }));
+    const assignments: StockAssignment[] = newStocks.map((stock: string | any) => {
+      // Handle both string (new stocks) and object (existing stocks) formats
+      if (typeof stock === 'string') {
+        // New stock - initialize with defaults
+        return {
+          instrument_code: stock,
+          market_key: '',
+          yahoo_symbol: stock,
+          verification_status: 'pending' as const,
+          drp_enabled: false,
+        };
+      } else {
+        // Existing stock - use actual database values
+        return {
+          instrument_code: stock.instrument_code,
+          market_key: stock.market_key?.toString() || '',
+          yahoo_symbol: stock.yahoo_symbol,
+          name: stock.name,
+          currency: stock.currency,
+          verification_status: stock.verification_status || 'pending',
+          drp_enabled: stock.drp_enabled || false,
+          current_price: stock.current_price,
+          market_cap_formatted: stock.market_cap ? `$${stock.market_cap.toLocaleString()}` : undefined,
+          sector: stock.sector,
+          industry: stock.industry,
+          exchange: stock.exchange,
+        };
+      }
+    });
     setStockAssignments(assignments);
   };
 

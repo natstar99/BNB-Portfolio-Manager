@@ -280,16 +280,16 @@ def get_portfolio_stocks_for_verification(portfolio_id):
                 'error': 'Portfolio not found'
             }), 404
         
-        # Get all stocks in the portfolio and return them as "new_stock_symbols"
-        # to match the format that StockVerification expects
-        stock_symbols = [stock.instrument_code for stock in portfolio.stocks]
+        # Get all stocks in the portfolio and return them as complete stock objects
+        # The StockVerification component will use these to populate the verification table
+        stock_objects = [stock.to_dict() for stock in portfolio.stocks]
         
         return jsonify({
             'success': True,
             'data': {
-                'new_stock_symbols': stock_symbols,
+                'new_stock_symbols': stock_objects,  # Changed from strings to full objects
                 'validation_results': {
-                    'new_stock_symbols': stock_symbols
+                    'new_stock_symbols': stock_objects  # Changed from strings to full objects
                 }
             }
         })
