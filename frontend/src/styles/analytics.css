@@ -1,0 +1,501 @@
+/* Analytics Dashboard Styles */
+
+/* Ensure analytics page takes full available width */
+.analytics-page {
+  width: 100%;
+  max-width: none;
+}
+
+
+/* Time Period Selector */
+.time-period-selector {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs);
+}
+
+.time-period-selector .btn {
+  border: none;
+  background: transparent;
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
+}
+
+.time-period-selector .btn:hover {
+  background: var(--color-surface-secondary);
+  transform: none;
+}
+
+.time-period-selector .btn.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Analytics Dashboard Grid */
+.analytics-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+  width: 100%;
+  max-width: none;
+}
+
+.analytics-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-lg);
+  width: 100%;
+}
+
+/* Analytics Tiles */
+.analytics-tile {
+  background: var(--glass-background);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-backdrop);
+  padding: var(--spacing-lg);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.analytics-tile::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left var(--transition-slow);
+}
+
+.analytics-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-primary-light);
+}
+
+.analytics-tile:hover::before {
+  left: 100%;
+}
+
+/* Tile Header */
+.tile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-md);
+  position: relative;
+  z-index: 1;
+}
+
+.tile-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.tile-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  text-align: right;
+  line-height: 1;
+}
+
+.tile-value.positive {
+  color: var(--color-success);
+}
+
+.tile-value.negative {
+  color: var(--color-error);
+}
+
+.tile-subtitle {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  margin-top: var(--spacing-xs);
+}
+
+/* Chart Container */
+.chart-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.chart-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  height: 100%;
+  width: 100%;
+  min-height: 160px;
+  background: linear-gradient(135deg, 
+    var(--color-surface) 0%, 
+    var(--color-surface-secondary) 100%);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-normal);
+}
+
+.chart-placeholder.large {
+  min-height: 400px;
+  background: var(--color-surface);
+}
+
+.analytics-tile:hover .chart-placeholder {
+  border-color: var(--color-primary-light);
+  background: linear-gradient(135deg, 
+    var(--color-surface-secondary) 0%, 
+    var(--color-surface-tertiary) 100%);
+}
+
+.chart-icon {
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--spacing-md);
+  opacity: 0.6;
+}
+
+.chart-placeholder p {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 0.875rem;
+}
+
+.chart-note {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  margin-top: var(--spacing-sm);
+}
+
+/* Chart Modal */
+.chart-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--spacing-lg);
+}
+
+.chart-modal {
+  background: var(--glass-background);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  backdrop-filter: var(--glass-backdrop);
+  max-width: 90vw;
+  max-height: 90vh;
+  width: 1550px;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  padding: var(--spacing-sm);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-normal);
+}
+
+.modal-close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-secondary);
+}
+
+.modal-content {
+  flex: 1;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header Actions Enhancement */
+.header-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Portfolio Title Enhancement */
+.portfolio-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.portfolio-title .portfolio-icon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: var(--shadow-md);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .analytics-row {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+  
+  .analytics-tile {
+    min-height: 250px;
+    padding: var(--spacing-md);
+  }
+  
+  .tile-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+  
+  .tile-value {
+    text-align: left;
+    font-size: 1.25rem;
+  }
+  
+  .chart-modal {
+    width: 95vw;
+    height: 80vh;
+  }
+  
+  .modal-content {
+    padding: var(--spacing-md);
+  }
+  
+  .time-period-selector {
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-md);
+  }
+  
+  .portfolio-title {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+}
+
+@media (max-width: 480px) {
+  .analytics-dashboard {
+    gap: var(--spacing-md);
+  }
+  
+  .analytics-tile {
+    min-height: 200px;
+    padding: var(--spacing-sm);
+  }
+  
+  .tile-header h3 {
+    font-size: 1rem;
+  }
+  
+  .tile-value {
+    font-size: 1.125rem;
+  }
+  
+  .chart-placeholder {
+    min-height: 120px;
+  }
+  
+  .chart-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+  
+  .modal-header {
+    padding: var(--spacing-md);
+  }
+  
+  .modal-content {
+    padding: var(--spacing-sm);
+  }
+}
+
+/* Enhanced Visual Effects */
+.analytics-tile:hover .chart-icon {
+  transform: scale(1.1);
+  opacity: 0.8;
+}
+
+.analytics-tile:hover .tile-value {
+  transform: scale(1.02);
+}
+
+.analytics-tile:hover .tile-header h3 {
+  color: var(--color-primary);
+}
+
+/* Loading States */
+.analytics-tile.loading {
+  pointer-events: none;
+}
+
+.analytics-tile.loading .chart-placeholder {
+  background: linear-gradient(90deg, 
+    var(--color-surface) 25%, 
+    var(--color-surface-secondary) 50%, 
+    var(--color-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Focus States for Accessibility */
+.analytics-tile:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.time-period-selector .btn:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.modal-close:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Chart Tooltip Styles */
+.chart-tooltip {
+  background: var(--glass-background);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--shadow-lg);
+  max-width: 300px;
+}
+
+.tooltip-label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 0.875rem;
+}
+
+.tooltip-value {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.tooltip-value:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-value.portfolio-value {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.tooltip-value.cost-basis {
+  color: var(--color-text-secondary);
+}
+
+.tooltip-value.total-pl {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.tooltip-value.unrealized-pl {
+  color: var(--color-success);
+}
+
+.tooltip-value.realized-pl {
+  color: var(--color-secondary);
+}
+
+.tooltip-value.market-value {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.tooltip-value.percentage {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.tooltip-value.avg-return {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.tooltip-value.trading-days {
+  color: var(--color-text-secondary);
+}
