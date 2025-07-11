@@ -16,6 +16,7 @@ interface Transaction {
   date: string;
   notes?: string;
   verified: boolean;
+  currency: string;
 }
 
 interface Portfolio {

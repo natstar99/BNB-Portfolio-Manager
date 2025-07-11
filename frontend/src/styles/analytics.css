@@ -6,6 +6,22 @@
   max-width: none;
 }
 
+/* Override the Layout content-container max-width for analytics page */
+.content-container:has(.analytics-page) {
+  max-width: none !important;
+}
+
+/* Fallback for browsers that don't support :has() selector - more conservative approach */
+.analytics-page {
+  /* Just remove the inherited max-width constraint and let it flow naturally */
+  max-width: none !important;
+  
+  /* Ensure it stays within viewport bounds */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+
 
 /* Time Period Selector */
 .time-period-selector {
