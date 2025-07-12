@@ -1,24 +1,21 @@
 /* Analytics Dashboard Styles */
 
-/* Ensure analytics page takes full available width */
+/* Ensure analytics page takes full available width within reasonable bounds */
 .analytics-page {
   width: 100%;
-  max-width: none;
+  max-width: none !important;
 }
 
-/* Override the Layout content-container max-width for analytics page */
+/* Force the parent content container to expand for analytics */
 .content-container:has(.analytics-page) {
   max-width: none !important;
+  width: 100%;
 }
 
-/* Fallback for browsers that don't support :has() selector - more conservative approach */
-.analytics-page {
-  /* Just remove the inherited max-width constraint and let it flow naturally */
+/* Override layout constraints for analytics page specifically */
+.page.analytics-page {
   max-width: none !important;
-  
-  /* Ensure it stays within viewport bounds */
   width: 100%;
-  box-sizing: border-box;
 }
 
 
