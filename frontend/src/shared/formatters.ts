@@ -42,8 +42,19 @@ export const formatCurrencyForChart = (value: number, currency = 'USD'): string 
   }).format(value);
 };
 
-export const formatDateForChart = (dateString: string): string => {
+export const formatDateForChart = (dateString: string, timePeriod?: '30D' | '1Y' | '1W' | '1D' | 'ALL'): string => {
   const date = new Date(dateString);
+  
+  // For longer periods (1Y and ALL), include the year to avoid confusion
+  if (timePeriod === '1Y' || timePeriod === 'ALL') {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+  
+  // For shorter periods, just month and day is fine
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',

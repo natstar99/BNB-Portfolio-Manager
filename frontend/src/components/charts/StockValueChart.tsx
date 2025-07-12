@@ -1,5 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { formatCurrency, formatCurrencyForChart, formatDateForChart } from '../../shared/formatters';
 
 interface StockValueChartProps {
   data: Array<{
@@ -13,39 +14,28 @@ interface StockValueChartProps {
   }>;
   currency: string;
   isLarge?: boolean;
+  timePeriod?: '30D' | '1Y' | '1W' | '1D' | 'ALL';
 }
 
 export const StockValueChart: React.FC<StockValueChartProps> = ({
   data,
   stocks,
   currency,
-  isLarge = false
+  isLarge = false,
+  timePeriod
 }) => {
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
+  const formatCurrencyLocal = (value: number): string => {
+    return formatCurrencyForChart(value, currency);
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="chart-tooltip">
-          <p className="tooltip-label">{formatDate(label)}</p>
+          <p className="tooltip-label">{formatDateForChart(label, timePeriod)}</p>
           {payload.map((entry: any, index: number) => (
             <p key={index} className="tooltip-value" style={{ color: entry.color }}>
-              {entry.dataKey}: {formatCurrency(entry.value)}
+              {entry.dataKey}: {formatCurrency(entry.value, currency)}
             </p>
           ))}
         </div>
@@ -82,12 +72,12 @@ export const StockValueChart: React.FC<StockValueChartProps> = ({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
-          tickFormatter={formatDate}
+          tickFormatter={(value) => formatDateForChart(value, timePeriod)}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
         <YAxis 
-          tickFormatter={formatCurrency}
+          tickFormatter={formatCurrencyLocal}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />

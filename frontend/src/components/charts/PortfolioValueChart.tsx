@@ -10,19 +10,21 @@ interface PortfolioValueChartProps {
   }>;
   currency: string;
   isLarge?: boolean;
+  timePeriod?: '30D' | '1Y' | '1W' | '1D' | 'ALL';
 }
 
 export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
   data,
   currency,
-  isLarge = false
+  isLarge = false,
+  timePeriod
 }) => {
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="chart-tooltip">
-          <p className="tooltip-label">{formatDateForChart(label)}</p>
+          <p className="tooltip-label">{formatDateForChart(label, timePeriod)}</p>
           <p className="tooltip-value portfolio-value">
             Portfolio Value: {formatCurrency(payload[0].value, currency)}
           </p>
@@ -63,7 +65,7 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
-          tickFormatter={formatDateForChart}
+          tickFormatter={(value) => formatDateForChart(value, timePeriod)}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />

@@ -86,41 +86,19 @@ export const Analytics: React.FC = () => {
   const prepareChartData = () => {
     if (!analyticsData) return null;
 
-    // Use mock data if performance data is not available
-    const mockPerformanceData = [];
-    const now = new Date();
-    
-    // Generate enough mock data to support 1Y view (400 days to be safe)
-    const maxDays = 400;
-    for (let i = maxDays; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const baseValue = analyticsData.portfolio.total_value || 10000;
-      const variance = Math.random() * 0.1 - 0.05; // ±5% variance
-      const totalValue = baseValue * (1 + variance);
-      const totalCost = analyticsData.portfolio.total_cost || baseValue * 0.9;
-      
-      mockPerformanceData.push({
-        date: date.toISOString().split('T')[0],
-        total_value: totalValue,
-        total_cost: totalCost,
-        unrealized_pl: totalValue - totalCost,
-        realized_pl: 0,
-        total_pl: totalValue - totalCost
-      });
-    }
+    // Only use real performance data - no mock data
+    const dataToUse = performanceData || [];
 
-    // Use performance data if available, otherwise use mock data
-    const dataToUse = performanceData.length > 0 ? performanceData : mockPerformanceData;
-
-    // Filter data based on time period
-    let filteredData = dataToUse;
+    // Filter data based on time period - ensure filteredData is always an array
+    let filteredData = Array.isArray(dataToUse) ? dataToUse : [];
     
-    if (timePeriod !== 'ALL') {
+    if (timePeriod !== 'ALL' && filteredData.length > 0) {
       const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
       const days = daysMap[timePeriod];
+      const now = new Date();
       const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
       
-      filteredData = dataToUse.filter(item => 
+      filteredData = filteredData.filter(item => 
         new Date(item.date) >= startDate
       );
     }
@@ -137,7 +115,7 @@ export const Analytics: React.FC = () => {
     const rankingData = analyticsData.positions.map(position => ({
       symbol: position.symbol,
       company_name: position.company_name,
-      avg_daily_return: position.day_change_percent || (Math.random() * 4 - 2), // Mock data between -2% and +2%
+      avg_daily_return: position.day_change_percent || 0,
       trading_days: 30
     }));
 
@@ -148,15 +126,13 @@ export const Analytics: React.FC = () => {
       color: STOCK_COLORS[index % STOCK_COLORS.length]
     }));
 
-    // Prepare mock stock value data for individual charts
-    const stockValueData = filteredData.map(item => {
+    // Prepare stock value data for individual charts
+    const stockValueData = (filteredData || []).map(item => {
       const result: any = { date: item.date };
-      analyticsData.positions.forEach((position, index) => {
-        // Mock individual stock values
-        const baseValue = position.market_value / position.quantity;
-        const variance = Math.random() * 0.1 - 0.05;
-        result[position.symbol] = baseValue * (1 + variance) * position.quantity;
-        result[`${position.symbol}_pl`] = position.gain_loss + (Math.random() * 200 - 100);
+      analyticsData.positions.forEach((position) => {
+        // Use actual position data - no mock values
+        result[position.symbol] = position.market_value;
+        result[`${position.symbol}_pl`] = position.gain_loss;
       });
       return result;
     });
@@ -182,6 +158,7 @@ export const Analytics: React.FC = () => {
             data={chartData.portfolioData}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
+            timePeriod={timePeriod}
           />
         );
       case 'portfolio-pl':
@@ -190,6 +167,7 @@ export const Analytics: React.FC = () => {
             data={chartData.portfolioData}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
+            timePeriod={timePeriod}
           />
         );
       case 'stock-values':
@@ -199,6 +177,7 @@ export const Analytics: React.FC = () => {
             stocks={chartData.stocksWithColors}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
+            timePeriod={timePeriod}
           />
         );
       case 'stock-pl':
@@ -208,6 +187,7 @@ export const Analytics: React.FC = () => {
             stocks={chartData.stocksWithColors}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
+            timePeriod={timePeriod}
           />
         );
       case 'allocation':
@@ -386,11 +366,12 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.portfolioData && chartData.portfolioData.length > 0 ? (
                 <PortfolioValueChart
                   data={chartData.portfolioData}
                   currency={analyticsData.portfolio.currency}
                   isLarge={false}
+                  timePeriod={timePeriod}
                 />
               ) : (
                 <div className="chart-placeholder">
@@ -400,7 +381,8 @@ export const Analytics: React.FC = () => {
                       <path d="M7 16l4-4 4 4 6-6"/>
                     </svg>
                   </div>
-                  <p>Portfolio Value Over Time</p>
+                  <p>No data available</p>
+                  <span className="chart-note">Portfolio performance data not found</span>
                 </div>
               )}
             </div>
@@ -414,11 +396,12 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.portfolioData && chartData.portfolioData.length > 0 ? (
                 <PortfolioPLChart
                   data={chartData.portfolioData}
                   currency={analyticsData.portfolio.currency}
                   isLarge={false}
+                  timePeriod={timePeriod}
                 />
               ) : (
                 <div className="chart-placeholder">
@@ -428,7 +411,8 @@ export const Analytics: React.FC = () => {
                       <path d="M7 16l4-4 4 4 6-6"/>
                     </svg>
                   </div>
-                  <p>Profit & Loss Over Time</p>
+                  <p>No data available</p>
+                  <span className="chart-note">Portfolio P&L data not found</span>
                 </div>
               )}
             </div>
@@ -445,12 +429,13 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.filteredData && chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
                 <StockValueChart
                   data={chartData.filteredData}
                   stocks={chartData.stocksWithColors}
                   currency={analyticsData.portfolio.currency}
                   isLarge={false}
+                  timePeriod={timePeriod}
                 />
               ) : (
                 <div className="chart-placeholder">
@@ -460,7 +445,8 @@ export const Analytics: React.FC = () => {
                       <path d="M7 16l4-4 4 4 6-6"/>
                     </svg>
                   </div>
-                  <p>Individual Stock Market Values</p>
+                  <p>No data available</p>
+                  <span className="chart-note">Stock performance data not found</span>
                 </div>
               )}
             </div>
@@ -474,12 +460,13 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.filteredData && chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
                 <StockPLChart
                   data={chartData.filteredData}
                   stocks={chartData.stocksWithColors}
                   currency={analyticsData.portfolio.currency}
                   isLarge={false}
+                  timePeriod={timePeriod}
                 />
               ) : (
                 <div className="chart-placeholder">
@@ -489,7 +476,8 @@ export const Analytics: React.FC = () => {
                       <path d="M7 16l4-4 4 4 6-6"/>
                     </svg>
                   </div>
-                  <p>Individual Stock P&L</p>
+                  <p>No data available</p>
+                  <span className="chart-note">Stock P&L data not found</span>
                 </div>
               )}
             </div>
@@ -506,7 +494,7 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.allocationData && chartData.allocationData.length > 0 ? (
                 <AssetAllocationChart
                   data={chartData.allocationData}
                   currency={analyticsData.portfolio.currency}
@@ -521,7 +509,8 @@ export const Analytics: React.FC = () => {
                       <path d="M12 2a10 10 0 0 0 0 20"/>
                     </svg>
                   </div>
-                  <p>Portfolio Distribution</p>
+                  <p>No data available</p>
+                  <span className="chart-note">No positions to display</span>
                 </div>
               )}
             </div>
@@ -535,7 +524,7 @@ export const Analytics: React.FC = () => {
               </div>
             </div>
             <div className="chart-container">
-              {chartData ? (
+              {chartData && chartData.rankingData && chartData.rankingData.length > 0 ? (
                 <PerformanceRankingChart
                   data={chartData.rankingData}
                   isLarge={false}
@@ -548,7 +537,8 @@ export const Analytics: React.FC = () => {
                       <path d="M8 8l4 4 4-4"/>
                     </svg>
                   </div>
-                  <p>Stock Performance Ranking</p>
+                  <p>No data available</p>
+                  <span className="chart-note">No performance data to rank</span>
                 </div>
               )}
             </div>

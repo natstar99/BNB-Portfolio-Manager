@@ -11,19 +11,21 @@ interface PortfolioPLChartProps {
   }>;
   currency: string;
   isLarge?: boolean;
+  timePeriod?: '30D' | '1Y' | '1W' | '1D' | 'ALL';
 }
 
 export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
   data,
   currency,
-  isLarge = false
+  isLarge = false,
+  timePeriod
 }) => {
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="chart-tooltip">
-          <p className="tooltip-label">{formatDateForChart(label)}</p>
+          <p className="tooltip-label">{formatDateForChart(label, timePeriod)}</p>
           <p className="tooltip-value total-pl">
             Total P&L: {formatCurrency(payload[0].value, currency)}
           </p>
@@ -67,7 +69,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
-          tickFormatter={formatDateForChart}
+          tickFormatter={(value) => formatDateForChart(value, timePeriod)}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
