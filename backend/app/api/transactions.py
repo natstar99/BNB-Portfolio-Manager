@@ -4,10 +4,12 @@ from sqlalchemy.orm import joinedload
 from app.api import bp
 from app.models import Transaction, Stock, Portfolio
 from app.models.transaction import TransactionType
+from app.utils.error_handler import handle_api_errors, success_response, error_response
 from app import db
 
 
 @bp.route('/transactions', methods=['GET'])
+@handle_api_errors
 def get_transactions():
     """Get all transactions"""
     try:
@@ -187,27 +189,15 @@ def create_transaction():
 
 
 @bp.route('/transactions/<int:transaction_id>', methods=['GET'])
+@handle_api_errors
 def get_transaction(transaction_id):
     """Get a specific transaction"""
-    try:
-        transaction = Transaction.get_by_id(transaction_id)
-        
-        if not transaction:
-            return jsonify({
-                'success': False,
-                'error': 'Transaction not found'
-            }), 404
-        
-        return jsonify({
-            'success': True,
-            'data': transaction.to_dict()
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    transaction = Transaction.get_by_id(transaction_id)
+    
+    if not transaction:
+        return error_response('Transaction not found', 404)
+    
+    return success_response(transaction.to_dict())
 
 
 @bp.route('/transactions/<int:transaction_id>', methods=['PUT'])
@@ -390,44 +380,35 @@ def bulk_create_transactions():
 
 
 @bp.route('/transactions/summary', methods=['GET'])
+@handle_api_errors
 def get_transactions_summary():
     """Get transaction summary statistics"""
-    try:
-        stock_id = request.args.get('stock_id', type=int)
+    stock_id = request.args.get('stock_id', type=int)
+    
+    query = Transaction.query
+    if stock_id:
+        query = query.filter_by(stock_id=stock_id)
+    
+    transactions = query.all()
+    
+    summary = {
+        'total_transactions': len(transactions),
+        'by_type': {},
+        'total_value': 0
+    }
+    
+    for transaction in transactions:
+        transaction_type = transaction.transaction_type
+        if transaction_type not in summary['by_type']:
+            summary['by_type'][transaction_type] = {
+                'count': 0,
+                'total_quantity': 0,
+                'total_value': 0
+            }
         
-        query = Transaction.query
-        if stock_id:
-            query = query.filter_by(stock_id=stock_id)
-        
-        transactions = query.all()
-        
-        summary = {
-            'total_transactions': len(transactions),
-            'by_type': {},
-            'total_value': 0
-        }
-        
-        for transaction in transactions:
-            transaction_type = transaction.transaction_type
-            if transaction_type not in summary['by_type']:
-                summary['by_type'][transaction_type] = {
-                    'count': 0,
-                    'total_quantity': 0,
-                    'total_value': 0
-                }
-            
-            summary['by_type'][transaction_type]['count'] += 1
-            summary['by_type'][transaction_type]['total_quantity'] += transaction.quantity
-            summary['by_type'][transaction_type]['total_value'] += transaction.total_value
-            summary['total_value'] += transaction.total_value
-        
-        return jsonify({
-            'success': True,
-            'data': summary
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        summary['by_type'][transaction_type]['count'] += 1
+        summary['by_type'][transaction_type]['total_quantity'] += transaction.quantity
+        summary['by_type'][transaction_type]['total_value'] += transaction.total_value
+        summary['total_value'] += transaction.total_value
+    
+    return success_response(summary)

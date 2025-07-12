@@ -1,5 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
+import { formatCurrency, formatCurrencyForChart, formatDateForChart } from '../../shared/formatters';
 
 interface StockPLChartProps {
   data: Array<{
@@ -21,31 +22,15 @@ export const StockPLChart: React.FC<StockPLChartProps> = ({
   currency,
   isLarge = false
 }) => {
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="chart-tooltip">
-          <p className="tooltip-label">{formatDate(label)}</p>
+          <p className="tooltip-label">{formatDateForChart(label)}</p>
           {payload.map((entry: any, index: number) => (
             <p key={index} className="tooltip-value" style={{ color: entry.color }}>
-              {entry.dataKey} P&L: {formatCurrency(entry.value)}
+              {entry.dataKey} P&L: {formatCurrency(entry.value, currency)}
             </p>
           ))}
         </div>
@@ -82,12 +67,12 @@ export const StockPLChart: React.FC<StockPLChartProps> = ({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
-          tickFormatter={formatDate}
+          tickFormatter={formatDateForChart}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
         <YAxis 
-          tickFormatter={formatCurrency}
+          tickFormatter={(value) => formatCurrencyForChart(value, currency)}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />

@@ -1,5 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { formatCurrency, formatCurrencyForChart, formatDateForChart } from '../../shared/formatters';
 
 interface PortfolioValueChartProps {
   data: Array<{
@@ -16,33 +17,17 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
   currency,
   isLarge = false
 }) => {
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="chart-tooltip">
-          <p className="tooltip-label">{formatDate(label)}</p>
+          <p className="tooltip-label">{formatDateForChart(label)}</p>
           <p className="tooltip-value portfolio-value">
-            Portfolio Value: {formatCurrency(payload[0].value)}
+            Portfolio Value: {formatCurrency(payload[0].value, currency)}
           </p>
           <p className="tooltip-value cost-basis">
-            Cost Basis: {formatCurrency(payload[1].value)}
+            Cost Basis: {formatCurrency(payload[1].value, currency)}
           </p>
         </div>
       );
@@ -78,12 +63,12 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
-          tickFormatter={formatDate}
+          tickFormatter={formatDateForChart}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
         <YAxis 
-          tickFormatter={formatCurrency}
+          tickFormatter={(value) => formatCurrencyForChart(value, currency)}
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />

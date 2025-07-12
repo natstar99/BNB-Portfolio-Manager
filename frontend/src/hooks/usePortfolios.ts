@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Portfolio } from '../types/shared';
+import { Portfolio } from '../shared/types';
 import { portfolioApi } from '../services/api';
 
 export const usePortfolios = () => {

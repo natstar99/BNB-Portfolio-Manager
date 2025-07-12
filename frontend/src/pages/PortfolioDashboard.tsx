@@ -61,53 +61,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MetricCard } from '../components/ui/MetricCard';
 import { PortfolioValueChart } from '../components/charts/PortfolioValueChart';
+import { formatCurrency, formatPercent, formatDateWithYear } from '../shared/formatters';
+import { Portfolio, Position, RecentTransaction, PerformanceData } from '../shared/types';
 import '../styles/dashboard.css';
 
-interface Portfolio {
-  id: number;
-  name: string;
-  currency: string;
-  created_at: string;
-  stock_count: number;
-  total_value?: number;
-  total_cost?: number;
-  gain_loss?: number;
-  gain_loss_percent?: number;
-  day_change?: number;
-  day_change_percent?: number;
-}
-
-interface Position {
-  id: number;
-  symbol: string;
-  company_name?: string;
-  quantity: number;
-  avg_cost: number;
-  current_price: number;
-  market_value: number;
-  gain_loss: number;
-  gain_loss_percent: number;
-  day_change: number;
-  day_change_percent: number;
-}
-
-interface RecentTransaction {
-  id: number;
-  symbol: string;
-  action: string;
-  quantity: number;
-  price: number;
-  date: string;
-}
-
-interface PerformanceData {
-  date: string;
-  total_value: number;
-  total_cost: number;
-  unrealized_pl: number;
-  realized_pl: number;
-  total_pl: number;
-}
 
 export const PortfolioDashboard: React.FC = () => {
   const { portfolioId } = useParams<{ portfolioId: string }>();
@@ -188,29 +145,6 @@ export const PortfolioDashboard: React.FC = () => {
     }
   };
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: portfolio?.currency || 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatPercent = (value: number | null | undefined): string => {
-    if (value === null || value === undefined || isNaN(value)) {
-      return '0.00%';
-    }
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
 
   const updateMarketData = async () => {
     if (!portfolioId) return;
@@ -312,7 +246,7 @@ export const PortfolioDashboard: React.FC = () => {
         </div>
         <div className="portfolio-meta">
           <span className="portfolio-currency">{portfolio.currency}</span>
-          <span className="portfolio-created">Since {formatDate(portfolio.created_at)}</span>
+          <span className="portfolio-created">Since {formatDateWithYear(portfolio.created_at)}</span>
         </div>
       </div>
 
@@ -390,10 +324,10 @@ export const PortfolioDashboard: React.FC = () => {
               </div>
               <div className="summary-details">
                 <span className="summary-label">Portfolio Value</span>
-                <span className="summary-value">{formatCurrency(portfolio.total_value || 0)}</span>
+                <span className="summary-value">{formatCurrency(portfolio.total_value || 0, portfolio?.currency)}</span>
                 {portfolio.day_change !== undefined && (
                   <span className={`summary-change ${portfolio.day_change >= 0 ? 'positive' : 'negative'}`}>
-                    {portfolio.day_change >= 0 ? '+' : ''}{formatCurrency(portfolio.day_change)} ({formatPercent(portfolio.day_change_percent || 0)})
+                    {portfolio.day_change >= 0 ? '+' : ''}{formatCurrency(portfolio.day_change, portfolio?.currency)} ({formatPercent(portfolio.day_change_percent || 0)})
                   </span>
                 )}
               </div>
@@ -409,7 +343,7 @@ export const PortfolioDashboard: React.FC = () => {
               </div>
               <div className="summary-details">
                 <span className="summary-label">Total Cost</span>
-                <span className="summary-value">{formatCurrency(portfolio.total_cost || 0)}</span>
+                <span className="summary-value">{formatCurrency(portfolio.total_cost || 0, portfolio?.currency)}</span>
               </div>
             </div>
 
@@ -422,7 +356,7 @@ export const PortfolioDashboard: React.FC = () => {
               <div className="summary-details">
                 <span className="summary-label">Total Return</span>
                 <span className={`summary-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(portfolio.gain_loss || 0)}
+                  {formatCurrency(portfolio.gain_loss || 0, portfolio?.currency)}
                 </span>
                 {portfolio.gain_loss_percent !== undefined && (
                   <span className={`summary-change ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
@@ -534,20 +468,20 @@ export const PortfolioDashboard: React.FC = () => {
                         <span className="units">{position.quantity.toLocaleString()}</span>
                       </td>
                       <td className="avg-cost-cell">
-                        <span className="price">{formatCurrency(position.avg_cost)}</span>
+                        <span className="price">{formatCurrency(position.avg_cost, portfolio?.currency)}</span>
                       </td>
                       <td className="current-price-cell">
-                        <span className="price">{formatCurrency(position.current_price)}</span>
+                        <span className="price">{formatCurrency(position.current_price, portfolio?.currency)}</span>
                       </td>
                       <td className="market-value-cell">
-                        <span className="value">{formatCurrency(position.market_value)}</span>
+                        <span className="value">{formatCurrency(position.market_value, portfolio?.currency)}</span>
                       </td>
                       <td className="total-cost-cell">
-                        <span className="value">{formatCurrency(position.avg_cost * position.quantity)}</span>
+                        <span className="value">{formatCurrency(position.avg_cost * position.quantity, portfolio?.currency)}</span>
                       </td>
                       <td className="gain-loss-cell">
                         <span className={`gain-loss ${position.gain_loss >= 0 ? 'positive' : 'negative'}`}>
-                          {formatCurrency(position.gain_loss)}
+                          {formatCurrency(position.gain_loss, portfolio?.currency)}
                         </span>
                       </td>
                       <td className="percentage-cell">
@@ -558,7 +492,7 @@ export const PortfolioDashboard: React.FC = () => {
                       <td className="day-change-cell">
                         <div className="day-change">
                           <span className={`change-value ${position.day_change >= 0 ? 'positive' : 'negative'}`}>
-                            {formatCurrency(position.day_change)}
+                            {formatCurrency(position.day_change, portfolio?.currency)}
                           </span>
                           <span className={`change-percent ${position.day_change_percent >= 0 ? 'positive' : 'negative'}`}>
                             {formatPercent(position.day_change_percent)}
@@ -615,8 +549,8 @@ export const PortfolioDashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="transaction-value">
-                      <span className="price">{formatCurrency(transaction.price || 0)}</span>
-                      <span className="date">{formatDate(transaction.date || new Date().toISOString())}</span>
+                      <span className="price">{formatCurrency(transaction.price || 0, portfolio?.currency)}</span>
+                      <span className="date">{formatDateWithYear(transaction.date || new Date().toISOString())}</span>
                     </div>
                   </div>
                 ))}
@@ -646,7 +580,7 @@ export const PortfolioDashboard: React.FC = () => {
                   <div className="performance-metric">
                     <span className="metric-label">Total Return</span>
                     <span className={`metric-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
-                      {formatCurrency(portfolio.gain_loss || 0)}
+                      {formatCurrency(portfolio.gain_loss || 0, portfolio?.currency)}
                     </span>
                     <span className={`metric-percentage ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
                       {formatPercent(portfolio.gain_loss_percent || 0)}

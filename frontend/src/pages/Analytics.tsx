@@ -7,45 +7,10 @@ import { AssetAllocationChart } from '../components/charts/AssetAllocationChart'
 import { PerformanceRankingChart } from '../components/charts/PerformanceRankingChart';
 import { StockValueChart } from '../components/charts/StockValueChart';
 import { StockPLChart } from '../components/charts/StockPLChart';
+import { formatCurrency, formatDateWithYear } from '../shared/formatters';
+import { Portfolio, Position, PerformanceData } from '../shared/types';
 import '../styles/analytics.css';
 
-interface Portfolio {
-  id: number;
-  name: string;
-  currency: string;
-  created_at: string;
-  stock_count: number;
-  total_value?: number;
-  total_cost?: number;
-  gain_loss?: number;
-  gain_loss_percent?: number;
-  day_change?: number;
-  day_change_percent?: number;
-}
-
-interface Position {
-  id: number;
-  symbol: string;
-  company_name?: string;
-  quantity: number;
-  avg_cost: number;
-  current_price: number;
-  market_value: number;
-  gain_loss: number;
-  gain_loss_percent: number;
-  day_change: number;
-  day_change_percent: number;
-}
-
-interface PerformanceData {
-  date: string;
-  total_value: number;
-  total_cost: number;
-  unrealized_pl: number;
-  realized_pl: number;
-  total_pl: number;
-  [key: string]: number | string;
-}
 
 interface AnalyticsData {
   portfolio: Portfolio;
@@ -116,22 +81,6 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: analyticsData?.portfolio?.currency || 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
 
   // Prepare chart data
   const prepareChartData = () => {
@@ -384,7 +333,7 @@ export const Analytics: React.FC = () => {
         </div>
         <div className="portfolio-meta">
           <span className="portfolio-currency">{analyticsData.portfolio.currency}</span>
-          <span className="portfolio-created">Since {formatDate(analyticsData.portfolio.created_at)}</span>
+          <span className="portfolio-created">Since {formatDateWithYear(analyticsData.portfolio.created_at)}</span>
         </div>
       </div>
 
@@ -433,7 +382,7 @@ export const Analytics: React.FC = () => {
             <div className="tile-header">
               <h3>Portfolio Value</h3>
               <div className="tile-value">
-                {formatCurrency(analyticsData.portfolio.total_value || 0)}
+                {formatCurrency(analyticsData.portfolio.total_value || 0, analyticsData?.portfolio?.currency)}
               </div>
             </div>
             <div className="chart-container">
@@ -461,7 +410,7 @@ export const Analytics: React.FC = () => {
             <div className="tile-header">
               <h3>Portfolio P&L</h3>
               <div className={`tile-value ${(analyticsData.portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(analyticsData.portfolio.gain_loss || 0)}
+                {formatCurrency(analyticsData.portfolio.gain_loss || 0, analyticsData?.portfolio?.currency)}
               </div>
             </div>
             <div className="chart-container">

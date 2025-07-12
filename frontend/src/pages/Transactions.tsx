@@ -1,37 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { usePortfolios } from '../hooks/usePortfolios';
+import { formatCurrency, formatDateWithYear } from '../shared/formatters';
+import { Portfolio, Transaction } from '../shared/types';
 import '../styles/transactions.css';
 
-interface Transaction {
-  id: number;
-  portfolio_id: number;
-  portfolio_name: string;
-  symbol: string;
-  action: 'buy' | 'sell';
-  quantity: number;
-  price: number;
-  total_amount: number;
-  fees: number;
-  date: string;
-  notes?: string;
-  verified: boolean;
-  currency: string;
-}
-
-interface Portfolio {
-  id: number;
-  name: string;
-  currency: string;
-  created_at: string;
-  stock_count: number;
-  total_value?: number;
-  total_cost?: number;
-  gain_loss?: number;
-  gain_loss_percent?: number;
-  day_change?: number;
-  day_change_percent?: number;
-}
 
 
 
@@ -176,22 +149,6 @@ export const Transactions: React.FC = () => {
   };
 
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   // Filter transactions
   const filteredTransactions = transactions.filter(transaction => {
@@ -201,7 +158,7 @@ export const Transactions: React.FC = () => {
     if (selectedAction !== 'all' && transaction.action !== selectedAction) {
       return false;
     }
-    if (searchSymbol && !transaction.symbol.toLowerCase().includes(searchSymbol.toLowerCase())) {
+    if (searchSymbol && transaction.symbol && !transaction.symbol.toLowerCase().includes(searchSymbol.toLowerCase())) {
       return false;
     }
     if (dateRange.start && transaction.date < dateRange.start) {
@@ -298,7 +255,7 @@ export const Transactions: React.FC = () => {
           </div>
           <div className="portfolio-meta">
             <span className="portfolio-currency">{currentPortfolio.currency}</span>
-            <span className="portfolio-created">Since {formatDate(currentPortfolio.created_at)}</span>
+            <span className="portfolio-created">Since {formatDateWithYear(currentPortfolio.created_at)}</span>
           </div>
         </div>
       )}
@@ -441,21 +398,21 @@ export const Transactions: React.FC = () => {
                 {filteredTransactions.map((transaction) => (
                   <div key={transaction.id} className="table-row">
                     <div className="table-cell date" data-label="Date">
-                      {formatDate(transaction.date)}
+                      {formatDateWithYear(transaction.date)}
                     </div>
                     
                     <div className="table-cell symbol" data-label="Symbol">
                       <div className="symbol-info">
                         <div className="symbol-icon">
-                          {transaction.symbol.substring(0, 2)}
+                          {transaction.symbol?.substring(0, 2) || '--'}
                         </div>
-                        <span className="symbol-text">{transaction.symbol}</span>
+                        <span className="symbol-text">{transaction.symbol || 'Unknown'}</span>
                       </div>
                     </div>
                     
                     <div className="table-cell action" data-label="Action">
-                      <span className={`action-badge ${transaction.action}`}>
-                        {transaction.action.toUpperCase()}
+                      <span className={`action-badge ${transaction.action || 'unknown'}`}>
+                        {transaction.action?.toUpperCase() || 'UNKNOWN'}
                       </span>
                     </div>
                     
@@ -468,7 +425,7 @@ export const Transactions: React.FC = () => {
                     </div>
                     
                     <div className="table-cell total" data-label="Total">
-                      {formatCurrency(transaction.total_amount)}
+                      {formatCurrency(transaction.total_amount || 0)}
                     </div>
                     
                     <div className="table-cell currency" data-label="Currency">

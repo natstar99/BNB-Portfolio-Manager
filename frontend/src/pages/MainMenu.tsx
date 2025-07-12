@@ -1,19 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePortfolios } from '../hooks/usePortfolios';
+import { Portfolio } from '../shared/types';
 import '../styles/main-menu.css';
 
-interface Portfolio {
-  id: number;
-  name: string;
-  currency: string;
-  created_at: string;
-  stock_count: number;
-  total_value?: number;
-  total_cost?: number;
-  gain_loss?: number;
-  gain_loss_percent?: number;
-}
 
 export const MainMenu: React.FC = () => {
   const { portfolios, createPortfolio, deletePortfolio, loading, error } = usePortfolios();
