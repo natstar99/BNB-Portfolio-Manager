@@ -107,7 +107,11 @@ export interface PerformanceData {
   total_cost: number;
   unrealized_pl: number;
   realized_pl: number;
-  total_pl: number;
+  daily_pl: number;
+  total_return: number;
+  return_pct: number;
+  total_return_pct: number;
+  active_positions: number;
   [key: string]: number | string;
 }
 

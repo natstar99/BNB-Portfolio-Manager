@@ -216,3 +216,74 @@ ON FACT_TRANSACTIONS(transaction_date DESC, portfolio_key);
 CREATE INDEX IF NOT EXISTS idx_daily_metrics_active_positions 
 ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, stock_key, date_key) 
 WHERE cumulative_shares > 0.000001;
+
+-- =============================================
+-- PORTFOLIO ANALYTICS TIMESERIES VIEW
+-- =============================================
+
+-- Portfolio time-series data for analytics charts
+-- This provides aggregated daily portfolio metrics for chart visualization
+CREATE VIEW V_PORTFOLIO_ANALYTICS_TIMESERIES AS
+WITH daily_totals AS (
+    SELECT 
+        dm.portfolio_key,
+        dm.date_key,
+        dd.date_value,
+        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.market_value ELSE 0 END) as total_value,
+        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.total_cost_basis ELSE 0 END) as total_cost,
+        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.unrealized_pl ELSE 0 END) as unrealized_pl,
+        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.daily_pl ELSE 0 END) as daily_pl,
+        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.realized_pl ELSE 0 END) as realized_pl,
+        COUNT(CASE WHEN dm.cumulative_shares > 0.000001 THEN 1 END) as active_positions
+    FROM FACT_DAILY_PORTFOLIO_METRICS dm
+    INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
+    GROUP BY dm.portfolio_key, dm.date_key, dd.date_value
+)
+SELECT 
+    dt.portfolio_key,
+    dt.date_value as date,
+    dt.total_value,
+    dt.total_cost, 
+    dt.unrealized_pl,
+    dt.daily_pl,
+    dt.realized_pl,
+    dt.active_positions,
+    -- Calculate percentage returns
+    CASE 
+        WHEN dt.total_cost > 0 THEN (dt.unrealized_pl / dt.total_cost) * 100 
+        ELSE 0 
+    END as return_pct,
+    -- Calculate total return (unrealized + realized)
+    (dt.unrealized_pl + dt.realized_pl) as total_return,
+    CASE 
+        WHEN dt.total_cost > 0 THEN ((dt.unrealized_pl + dt.realized_pl) / dt.total_cost) * 100 
+        ELSE 0 
+    END as total_return_pct
+FROM daily_totals dt
+WHERE dt.total_value > 0  -- Only include dates with portfolio value
+ORDER BY dt.portfolio_key, dt.date_value;
+
+-- =============================================
+-- STOCK-LEVEL ANALYTICS TIMESERIES VIEW
+-- =============================================
+
+-- Stock-level time-series data for individual stock charts
+CREATE VIEW V_STOCK_ANALYTICS_TIMESERIES AS
+SELECT 
+    dm.portfolio_key,
+    dm.stock_key,
+    s.instrument_code as symbol,
+    s.name as company_name,
+    dd.date_value as date,
+    dm.market_value,
+    dm.total_cost_basis,
+    dm.unrealized_pl,
+    dm.daily_pl,
+    dm.cumulative_shares,
+    dm.close_price,
+    dm.average_cost_basis
+FROM FACT_DAILY_PORTFOLIO_METRICS dm
+INNER JOIN DIM_STOCK s ON dm.stock_key = s.stock_key
+INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
+WHERE dm.cumulative_shares > 0.000001  -- Only active positions
+ORDER BY dm.portfolio_key, dm.stock_key, dd.date_value;

@@ -80,8 +80,7 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
           dataKey="total_value"
           stroke="var(--color-primary)"
           strokeWidth={2}
-          dot={{ fill: 'var(--color-primary)', strokeWidth: 2, r: 4 }}
-          activeDot={{ r: 6, stroke: 'var(--color-primary)', strokeWidth: 2 }}
+          dot={false}
         />
         <Line
           type="monotone"
@@ -89,8 +88,7 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
           stroke="var(--color-text-secondary)"
           strokeWidth={2}
           strokeDasharray="5 5"
-          dot={{ fill: 'var(--color-text-secondary)', strokeWidth: 2, r: 3 }}
-          activeDot={{ r: 5, stroke: 'var(--color-text-secondary)', strokeWidth: 2 }}
+          dot={false}
         />
       </LineChart>
     </ResponsiveContainer>

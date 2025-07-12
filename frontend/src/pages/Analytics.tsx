@@ -30,6 +30,7 @@ export const Analytics: React.FC = () => {
   const { hasPortfolios, isNewUser } = usePortfolios();
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [performanceData, setPerformanceData] = useState<PerformanceData[]>([]);
+  const [stocksData, setStocksData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timePeriod, setTimePeriod] = useState<'30D' | '1Y' | '1W' | '1D' | 'ALL'>('30D');
@@ -67,11 +68,20 @@ export const Analytics: React.FC = () => {
       }
 
       // Fetch performance data
-      const performanceResponse = await fetch(`/api/analytics/portfolio/${portfolioId}/performance`);
+      const performanceResponse = await fetch(`/api/analytics/portfolio/${portfolioId}/timeseries`);
       if (performanceResponse.ok) {
         const performanceData = await performanceResponse.json();
         if (performanceData.success && performanceData.data) {
           setPerformanceData(performanceData.data);
+        }
+      }
+
+      // Fetch stock timeseries data
+      const stocksResponse = await fetch(`/api/analytics/portfolio/${portfolioId}/stocks`);
+      if (stocksResponse.ok) {
+        const stocksData = await stocksResponse.json();
+        if (stocksData.success && stocksData.data) {
+          setStocksData(stocksData.data);
         }
       }
     } catch (err) {
@@ -86,7 +96,7 @@ export const Analytics: React.FC = () => {
   const prepareChartData = () => {
     if (!analyticsData) return null;
 
-    // Only use real performance data - no mock data
+    // Only real performance data - empty if none available
     const dataToUse = performanceData || [];
 
     // Filter data based on time period - ensure filteredData is always an array
@@ -126,16 +136,33 @@ export const Analytics: React.FC = () => {
       color: STOCK_COLORS[index % STOCK_COLORS.length]
     }));
 
-    // Prepare stock value data for individual charts
-    const stockValueData = (filteredData || []).map(item => {
-      const result: any = { date: item.date };
-      analyticsData.positions.forEach((position) => {
-        // Use actual position data - no mock values
-        result[position.symbol] = position.market_value;
-        result[`${position.symbol}_pl`] = position.gain_loss;
+    // Prepare stock value data for individual charts using actual timeseries
+    const stockValueData: any[] = [];
+    
+    if (stocksData.length > 0 && filteredData.length > 0) {
+      // Create a map of dates from the portfolio data
+      const dateSet = new Set(filteredData.map(item => item.date));
+      
+      // Group stock data by date
+      const stocksByDate: { [date: string]: any } = {};
+      
+      stocksData.forEach(stock => {
+        stock.timeseries.forEach((point: any) => {
+          if (dateSet.has(point.date)) {
+            if (!stocksByDate[point.date]) {
+              stocksByDate[point.date] = { date: point.date };
+            }
+            stocksByDate[point.date][stock.symbol] = point.market_value;
+            stocksByDate[point.date][`${stock.symbol}_pl`] = point.unrealized_pl;
+          }
+        });
       });
-      return result;
-    });
+      
+      // Convert to array and sort by date
+      stockValueData.push(...Object.values(stocksByDate).sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      ));
+    }
 
     return {
       portfolioData: filteredData,

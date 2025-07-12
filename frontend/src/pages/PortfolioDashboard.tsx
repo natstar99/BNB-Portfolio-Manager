@@ -1,62 +1,3 @@
-/**
- * Portfolio Dashboard - Main portfolio overview and management interface
- * ====================================================================
- * 
- * This component serves as the primary dashboard for individual portfolios, providing:
- * - Comprehensive portfolio metrics and performance overview
- * - Current positions table with real-time market values
- * - Recent transaction history and activity feed
- * - Performance chart visualization with mock/real data
- * - Portfolio management actions and settings
- * - Market data refresh functionality (NEW FEATURE)
- * 
- * ARCHITECTURAL DESIGN:
- * - Single comprehensive API call to fetch all dashboard data
- * - Graceful fallback to mock data for charts when real data unavailable
- * - Real-time state management for loading/error/success states
- * - Responsive design with mobile-friendly breakpoints
- * 
- * KEY INTEGRATION POINTS:
- * 1. Portfolio Analytics API: `/api/portfolios/{id}/analytics` for comprehensive data
- * 2. Performance API: `/api/analytics/portfolio/{id}/performance` for chart data
- * 3. Market Data API: `/api/market-data/update-portfolio/{id}` for data refresh (NEW)
- * 4. Navigation: Seamless routing to stocks, transactions, import, and analytics
- * 
- * MAJOR FEATURES:
- * - Live Portfolio Metrics: Value, cost, P&L, day change with color coding
- * - Interactive Positions Table: Click-through to transaction details by stock
- * - Performance Visualization: Chart with fallback to generated mock data
- * - Recent Activity Feed: Latest 4 transactions with truncation for space
- * - Market Data Refresh: One-click update of all stock prices (NEW FEATURE)
- * - Settings Modal: Accounting method and currency configuration
- * 
- * CRITICAL DESIGN DECISIONS:
- * 1. Single Data Fetch: Reduces API calls and improves performance
- * 2. Mock Data Fallback: Ensures charts always render even without historical data
- * 3. Error Isolation: Individual component failures don't crash entire dashboard
- * 4. Market Data Updates: Async with loading states and auto-refresh after completion
- * 5. Currency Formatting: Dynamic based on portfolio base currency
- * 
- * RECENT CHANGES:
- * - Added market data update button with loading states
- * - Integrated automatic portfolio refresh after market data updates
- * - Enhanced error handling for network failures
- * - Improved responsive design for mobile compatibility
- * 
- * STATE MANAGEMENT:
- * - portfolio: Complete portfolio entity with metrics
- * - positions: Array of current stock positions with market values
- * - recentTransactions: Latest transaction activity for quick reference
- * - performanceData: Historical performance data for chart rendering
- * - updatingMarketData: Loading state for market data refresh operation (NEW)
- * 
- * ERROR HANDLING:
- * - Network failures with retry functionality
- * - Missing portfolio handling with navigation fallback
- * - Graceful degradation when market data unavailable
- * - User-friendly error messages for all failure scenarios
- */
-
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MetricCard } from '../components/ui/MetricCard';
@@ -132,9 +73,7 @@ export const PortfolioDashboard: React.FC = () => {
         }
       } catch (perfError) {
         console.warn('Could not fetch performance data:', perfError);
-        // Create mock data if performance data is not available
-        const mockData = createMockPerformanceData();
-        setPerformanceData(mockData);
+        // If no performance data just show empty
       }
 
     } catch (err) {
@@ -173,35 +112,8 @@ export const PortfolioDashboard: React.FC = () => {
     }
   };
 
-  const createMockPerformanceData = (): PerformanceData[] => {
-    if (!portfolio) return [];
-    
-    const mockData = [];
-    const now = new Date();
-    for (let i = 30; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const baseValue = portfolio.total_value || 10000;
-      const variance = Math.random() * 0.1 - 0.05; // ±5% variance
-      const totalValue = baseValue * (1 + variance);
-      const totalCost = portfolio.total_cost || baseValue * 0.9;
-      
-      mockData.push({
-        date: date.toISOString().split('T')[0],
-        total_value: totalValue,
-        total_cost: totalCost,
-        unrealized_pl: totalValue - totalCost,
-        realized_pl: 0,
-        total_pl: totalValue - totalCost
-      });
-    }
-    return mockData;
-  };
-
   const getChartData = () => {
-    if (performanceData.length > 0) {
-      return performanceData;
-    }
-    return createMockPerformanceData();
+    return performanceData;
   };
 
   if (loading) {
@@ -599,12 +511,23 @@ export const PortfolioDashboard: React.FC = () => {
 
                 {/* Portfolio Value Chart */}
                 <div className="performance-chart">
-                  {portfolio && (
+                  {portfolio && getChartData().length > 0 ? (
                     <PortfolioValueChart
                       data={getChartData()}
                       currency={portfolio.currency}
                       isLarge={false}
                     />
+                  ) : (
+                    <div className="chart-placeholder">
+                      <div className="chart-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                          <path d="M3 3v18h18"/>
+                          <path d="M7 16l4-4 4 4 6-6"/>
+                        </svg>
+                      </div>
+                      <p>No performance data available</p>
+                      <span className="chart-note">Historical data will appear once portfolio metrics are calculated</span>
+                    </div>
                   )}
                 </div>
 

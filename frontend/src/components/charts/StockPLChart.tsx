@@ -88,8 +88,7 @@ export const StockPLChart: React.FC<StockPLChartProps> = ({
             dataKey={`${stock.symbol}_pl`}
             stroke={stock.color}
             strokeWidth={2}
-            dot={{ fill: stock.color, strokeWidth: 2, r: 3 }}
-            activeDot={{ r: 5, stroke: stock.color, strokeWidth: 2 }}
+            dot={false}
             connectNulls={false}
           />
         ))}

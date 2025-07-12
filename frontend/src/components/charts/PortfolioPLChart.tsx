@@ -7,7 +7,7 @@ interface PortfolioPLChartProps {
     date: string;
     unrealized_pl: number;
     realized_pl: number;
-    total_pl: number;
+    total_return: number;
   }>;
   currency: string;
   isLarge?: boolean;
@@ -82,11 +82,10 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
         <ReferenceLine y={0} stroke="var(--color-border)" strokeWidth={2} />
         <Line
           type="monotone"
-          dataKey="total_pl"
+          dataKey="total_return"
           stroke="var(--color-primary)"
           strokeWidth={3}
-          dot={{ fill: 'var(--color-primary)', strokeWidth: 2, r: 4 }}
-          activeDot={{ r: 6, stroke: 'var(--color-primary)', strokeWidth: 2 }}
+          dot={false}
         />
         <Line
           type="monotone"
@@ -94,8 +93,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           stroke="var(--color-success)"
           strokeWidth={2}
           strokeDasharray="5 5"
-          dot={{ fill: 'var(--color-success)', strokeWidth: 2, r: 3 }}
-          activeDot={{ r: 5, stroke: 'var(--color-success)', strokeWidth: 2 }}
+          dot={false}
         />
         <Line
           type="monotone"
@@ -103,8 +101,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           stroke="var(--color-secondary)"
           strokeWidth={2}
           strokeDasharray="3 3"
-          dot={{ fill: 'var(--color-secondary)', strokeWidth: 2, r: 3 }}
-          activeDot={{ r: 5, stroke: 'var(--color-secondary)', strokeWidth: 2 }}
+          dot={false}
         />
       </LineChart>
     </ResponsiveContainer>
