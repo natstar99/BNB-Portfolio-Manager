@@ -388,6 +388,30 @@ class MarketDataService:
                     if commit:
                         db.session.commit()
                     logger.info(f"Updated current price for {stock.yahoo_symbol}: {latest_record['close_price']}")
+                
+                # SINGLE RESPONSIBILITY: Market data update triggers dependent metrics calculation
+                # This ensures FACT_DAILY_PORTFOLIO_METRICS is updated when market data changes
+                if stock.portfolio_key:  # Always calculate metrics when market data is loaded
+                    try:
+                        from app.services.daily_metrics_service import DailyMetricsService
+                        
+                        metrics_service = DailyMetricsService()
+                        metrics_result = metrics_service.recalculate_portfolio_metrics(
+                            portfolio_key=stock.portfolio_key,
+                            stock_key=stock_key,
+                            from_date=start_date,  # Use same date range as market data
+                            commit=commit  # Respect parent commit parameter
+                        )
+                        
+                        if metrics_result.get('success'):
+                            metrics_count = metrics_result.get('metrics_calculated', 0)
+                            logger.info(f"Daily metrics recalculated for {stock.yahoo_symbol}: {metrics_count} metrics calculated")
+                        else:
+                            logger.warning(f"Daily metrics calculation failed for {stock.yahoo_symbol}: {metrics_result.get('error')}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Daily metrics calculation failed for stock_key {stock_key}: {str(e)}")
+                        # Don't fail market data update if metrics fail - log and continue
             
             return {
                 'success': load_result['success'],
@@ -676,4 +700,104 @@ class MarketDataService:
                 'success': False,
                 'error': str(e),
                 'stock_key': stock_key
+            }
+
+    def update_portfolio_market_data(self, portfolio_id: int) -> Dict[str, Any]:
+        """
+        Update market data for all stocks in a portfolio efficiently.
+        
+        DESIGN DECISION: Unlike the inefficient import process, this method allows
+        each stock to determine its own optimal start date, avoiding the issue where
+        all stocks fetch data from the earliest transaction date of any stock.
+        
+        INTEGRATION POINT: Called from dashboard "Update Market Data" button to
+        refresh market prices for all currently held positions in a portfolio.
+        
+        Args:
+            portfolio_id: Portfolio ID to update market data for
+            
+        Returns:
+            Dict: Update results with per-stock details and summary
+        """
+        try:
+            logger.info(f"Starting portfolio market data update for portfolio {portfolio_id}")
+            
+            # Get all stock_keys for stocks that have current positions in this portfolio
+            from app.models.transaction import Transaction
+            from app.models.stock import Stock
+            
+            # Get unique stock_keys that have transactions in this portfolio
+            portfolio_stocks = db.session.query(Transaction.stock_key).filter_by(
+                portfolio_key=portfolio_id
+            ).distinct().all()
+            
+            if not portfolio_stocks:
+                return {
+                    'success': True,
+                    'message': 'No stocks found in portfolio',
+                    'total_stocks': 0,
+                    'successful_stocks': 0,
+                    'failed_stocks': 0,
+                    'total_records_loaded': 0,
+                    'results': []
+                }
+            
+            stock_keys = [stock.stock_key for stock in portfolio_stocks]
+            logger.info(f"Found {len(stock_keys)} stocks in portfolio {portfolio_id}")
+            
+            # Process each stock individually - let each determine its own optimal date range
+            # This is the key difference from the inefficient import process
+            results = []
+            successful_stocks = 0
+            failed_stocks = 0
+            total_records_loaded = 0
+            
+            for stock_key in stock_keys:
+                try:
+                    # Let each stock determine its own optimal start date
+                    # This uses the existing efficient logic in fetch_and_load_stock_data
+                    result = self.fetch_and_load_stock_data(
+                        stock_key=stock_key,
+                        start_date=None,  # Let the method determine optimal start date
+                        end_date=None,    # Default to today
+                        commit=True       # Commit each stock individually for progress
+                    )
+                    
+                    results.append(result)
+                    
+                    if result['success']:
+                        successful_stocks += 1
+                        total_records_loaded += result.get('loaded_count', 0) + result.get('updated_count', 0)
+                        logger.info(f"Successfully updated market data for stock_key {stock_key}")
+                    else:
+                        failed_stocks += 1
+                        logger.warning(f"Failed to update market data for stock_key {stock_key}: {result.get('error')}")
+                        
+                except Exception as e:
+                    failed_stocks += 1
+                    error_result = {
+                        'success': False,
+                        'stock_key': stock_key,
+                        'error': str(e)
+                    }
+                    results.append(error_result)
+                    logger.error(f"Exception updating market data for stock_key {stock_key}: {str(e)}")
+            
+            return {
+                'success': True,
+                'message': f'Portfolio market data update completed: {successful_stocks} successful, {failed_stocks} failed',
+                'portfolio_id': portfolio_id,
+                'total_stocks': len(stock_keys),
+                'successful_stocks': successful_stocks,
+                'failed_stocks': failed_stocks,
+                'total_records_loaded': total_records_loaded,
+                'results': results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error updating portfolio market data for portfolio {portfolio_id}: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'portfolio_id': portfolio_id
             }

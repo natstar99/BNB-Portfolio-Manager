@@ -32,7 +32,6 @@ export const StockManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedStocks, setSelectedStocks] = useState<number[]>([]);
-  const [bulkAction, setBulkAction] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'pending' | 'verified' | 'inactive' | 'error'>('all');
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
 
@@ -85,33 +84,6 @@ export const StockManagement: React.FC = () => {
       setSelectedStocks([]);
     } else {
       setSelectedStocks(filteredStocks.map(stock => stock.id));
-    }
-  };
-
-  const handleBulkAction = async () => {
-    if (!bulkAction || selectedStocks.length === 0) return;
-
-    try {
-      const response = await fetch(`/api/portfolio/${portfolioId}/stocks/bulk-action`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: bulkAction,
-          stock_ids: selectedStocks,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Bulk action failed');
-      }
-
-      await loadStocks();
-      setSelectedStocks([]);
-      setBulkAction('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk action failed');
     }
   };
 
@@ -193,29 +165,6 @@ export const StockManagement: React.FC = () => {
 
   const handleStockEdit = (stock: Stock) => {
     setEditingStock(stock);
-  };
-
-  const handleStockSave = async (updatedStock: Partial<Stock>) => {
-    if (!editingStock) return;
-
-    try {
-      const response = await fetch(`/api/portfolio/${portfolioId}/stocks/${editingStock.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updatedStock),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update stock');
-      }
-
-      await loadStocks();
-      setEditingStock(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update stock');
-    }
   };
 
   const getFilteredStocks = () => {

@@ -1,6 +1,81 @@
 """
-Transaction Import Service - Kimball Star Schema Implementation
-Handles importing transactions through staging tables with validation and processing
+Transaction Import Service - Efficient Multi-Step Import Pipeline
+===============================================================
+
+This service manages the complete 5-step transaction import process with proper ETL separation
+and efficient market data collection. Handles CSV/Excel file processing, data validation,
+stock verification, and final transaction loading with optimized market data fetching.
+
+ARCHITECTURAL DESIGN:
+- Follows ETL (Extract, Transform, Load) pattern with clear separation of concerns
+- Uses Kimball star schema staging approach for data integrity
+- Implements transaction-level error handling to prevent partial imports
+- Optimized market data collection that avoids inefficient global date ranges
+
+5-STEP IMPORT WORKFLOW:
+1. File Analysis: Parse CSV/Excel and detect column structure automatically
+2. Column Mapping: Allow user to map file columns to required transaction fields
+3. Data Preview: Show processed data with validation errors highlighted
+4. Stock Verification: Validate instrument codes against Yahoo Finance API
+5. Final Import: Create transactions and collect optimized market data
+
+KEY INTEGRATION POINTS:
+1. MarketDataService: Yahoo Finance integration for stock verification and price data
+2. DailyMetricsService: Portfolio metrics calculation after successful imports
+3. TransactionValidator: Business rule validation for transaction data
+4. DateParser: Consistent date handling across different input formats
+5. RawTransaction Model: Staging table for import process state management
+
+MAJOR FEATURES:
+- Multi-Format Support: CSV, Excel, TSV with automatic delimiter detection
+- Flexible Column Mapping: Handles various broker export formats intelligently
+- Stock Verification: Real-time validation against Yahoo Finance with metadata
+- Error Isolation: Transaction failures don't block valid imports
+- Efficient Market Data: Fixed date range inefficiency (CRITICAL IMPROVEMENT)
+- Progress Tracking: Detailed status reporting throughout import process
+
+CRITICAL DESIGN DECISIONS:
+1. Staging Approach: Uses RawTransaction table to prevent data loss during validation
+2. Stock Creation First: Ensures all stocks exist before creating transactions
+3. Optimized Market Data Collection: Each stock determines its own date range (FIXED)
+4. Transaction Safety: Explicit transaction boundaries with proper rollback handling
+5. Error Reporting: Comprehensive validation with user-friendly error messages
+
+RECENT MAJOR IMPROVEMENTS:
+- FIXED DATE RANGE INEFFICIENCY: Previously all stocks fetched data from global earliest
+  date, now each stock optimizes its own date range (saves significant API calls)
+- Enhanced Error Isolation: Market data failures don't rollback successful imports
+- Improved Progress Reporting: Better visibility into import status and failures
+- Atomic Operations: Proper transaction boundaries prevent partial state corruption
+
+MARKET DATA OPTIMIZATION DETAILS:
+OLD (INEFFICIENT): All stocks used earliest transaction date from ANY stock in import
+- Stock A: First transaction 2020 → fetches from 2020
+- Stock B: First transaction Nov 2024 → also fetches from 2020 (wasteful!)
+
+NEW (EFFICIENT): Each stock determines optimal start date individually
+- Stock A: Fetches from 2020 (its earliest transaction)
+- Stock B: Fetches from Nov 2024 (its earliest transaction)
+- Or from last available market data if exists
+- Fallback to 1 year ago if no transaction history
+
+PERFORMANCE CONSIDERATIONS:
+- Yahoo Finance API rate limiting with retry logic
+- Bulk database operations for large imports
+- Streaming file processing for memory efficiency
+- Optimized SQL queries using star schema indexes
+
+ERROR HANDLING STRATEGY:
+- File-level errors: Return immediately with clear messages
+- Row-level validation: Collect all errors for user review
+- Stock verification failures: Allow partial imports of valid stocks
+- Market data failures: Log but don't block transaction imports
+- Database errors: Full rollback with detailed error reporting
+
+FUTURE DEVELOPERS NOTE:
+This service is the core of the portfolio data pipeline. The market data optimization
+is critical for performance - do not revert to global date range approach. Each stock
+should determine its own optimal fetching strategy to minimize Yahoo Finance API usage.
 """
 
 import pandas as pd
@@ -351,8 +426,7 @@ class TransactionImportService:
                     if stocks_needing_market_data:
                         try:
                             market_data_results = self.collect_market_data_for_stocks(
-                                stocks_needing_market_data, 
-                                earliest_transaction_date
+                                stocks_needing_market_data
                             )
                             logger.info(f"Market data collection completed: {market_data_results.get('successful_stocks', 0)} successful")
                         except Exception as e:
@@ -402,7 +476,7 @@ class TransactionImportService:
     
     # ============= MARKET DATA COLLECTION METHODS =============
     
-    def collect_market_data_for_stocks(self, stock_keys: List[int], from_date: date) -> Dict[str, Any]:
+    def collect_market_data_for_stocks(self, stock_keys: List[int]) -> Dict[str, Any]:
         """
         Collect market data for stocks after successful transaction import.
         
@@ -415,82 +489,66 @@ class TransactionImportService:
         
         CRITICAL DECISIONS:
         1. Error Isolation: Market data failures don't rollback transaction imports
-        2. Batch Processing: Processes multiple stocks efficiently using MarketDataService
-        3. Date Range Optimization: Uses earliest transaction date as start point
+        2. Efficient Date Ranges: Each stock determines its own optimal start date
+        3. Individual Processing: Fixed inefficiency where all stocks used global earliest date
         4. Automatic Retry: MarketDataService handles Yahoo Finance API failures
         
         Args:
             stock_keys: List of stock_key values that need market data
-            from_date: Earliest date to collect market data from (typically earliest transaction date)
             
         Returns:
             Dict: Market data collection results with detailed per-stock status
         """
         try:
-            logger.info(f"Starting market data collection for {len(stock_keys)} stocks from {from_date}")
+            logger.info(f"Starting market data collection for {len(stock_keys)} stocks (each with optimal date range)")
             
-            # Use the updated MarketDataService for batch processing
+            # Process each stock individually to allow optimal date range determination
+            # This fixes the inefficiency where all stocks used the earliest date from any stock
+            results = []
+            successful_stocks = 0
+            failed_stocks = 0
+            total_records_loaded = 0
             
-            # Collect market data from earliest transaction date to today
-            # CRITICAL: Use commit=False since we're inside a transaction context manager
-            results = self.market_data_service.batch_fetch_market_data(
-                stock_keys=stock_keys,
-                start_date=from_date,
-                end_date=None,  # Will default to today
-                commit=False  # Don't commit - we're inside transaction context
-            )
-            
-            # Log detailed results for debugging
-            if results.get('success'):
-                logger.info(f"Market data collection completed successfully:")
-                logger.info(f"  - Total stocks processed: {results.get('total_stocks', 0)}")
-                logger.info(f"  - Successful stocks: {results.get('successful_stocks', 0)}")
-                logger.info(f"  - Failed stocks: {results.get('failed_stocks', 0)}")
-                logger.info(f"  - Total records loaded: {results.get('total_records_loaded', 0)}")
-                
-                # Log any failures for investigation
-                failed_results = [r for r in results.get('results', []) if not r.get('success')]
-                if failed_results:
-                    logger.warning(f"Market data collection failed for {len(failed_results)} stocks:")
-                    for failed_result in failed_results:
-                        logger.warning(f"  - Stock {failed_result.get('stock_key')}: {failed_result.get('error')}")
-                
-                # CRITICAL INTEGRATION: Trigger daily metrics calculation after successful market data collection
-                # This completes the data pipeline: Transactions → Market Data → Daily Metrics
-                if results.get('successful_stocks', 0) > 0:
-                    logger.info("Triggering daily metrics calculation after market data collection")
+            for stock_key in stock_keys:
+                try:
+                    # Let each stock determine its own optimal start date
+                    # This uses existing efficient logic in fetch_and_load_stock_data
+                    result = self.market_data_service.fetch_and_load_stock_data(
+                        stock_key=stock_key,
+                        start_date=None,  # Let method determine optimal start date per stock
+                        end_date=None,    # Default to today
+                        commit=False      # Don't commit - we're inside transaction context
+                    )
                     
-                    # Get stocks that successfully had market data collected
-                    successful_stock_keys = []
-                    for result in results.get('results', []):
-                        if result.get('success') and result.get('stock_key'):
-                            successful_stock_keys.append(result['stock_key'])
+                    results.append(result)
                     
-                    if successful_stock_keys:
-                        try:
-                            # Calculate daily metrics for stocks with new market data
-                            # This ensures FACT_DAILY_PORTFOLIO_METRICS is populated
-                            metrics_results = self.trigger_daily_metrics_calculation(
-                                stock_keys=successful_stock_keys,
-                                from_date=from_date
-                            )
-                            
-                            # Add metrics results to the response
-                            results['daily_metrics_results'] = metrics_results
-                            
-                            logger.info(f"Daily metrics calculation completed: {metrics_results.get('successful_calculations', 0)} stocks processed")
-                            
-                        except Exception as e:
-                            logger.error(f"Daily metrics calculation failed (market data collection still successful): {str(e)}")
-                            results['daily_metrics_results'] = {
-                                'success': False,
-                                'error': str(e),
-                                'stocks_processed': len(successful_stock_keys)
-                            }
-            else:
-                logger.error(f"Market data collection failed: {results.get('error')}")
+                    if result['success']:
+                        successful_stocks += 1
+                        total_records_loaded += result.get('loaded_count', 0) + result.get('updated_count', 0)
+                        logger.info(f"Successfully collected market data for stock_key {stock_key}")
+                    else:
+                        failed_stocks += 1
+                        logger.warning(f"Failed to collect market data for stock_key {stock_key}: {result.get('error')}")
+                        
+                except Exception as e:
+                    failed_stocks += 1
+                    error_result = {
+                        'success': False,
+                        'stock_key': stock_key,
+                        'error': str(e)
+                    }
+                    results.append(error_result)
+                    logger.error(f"Exception collecting market data for stock_key {stock_key}: {str(e)}")
             
-            return results
+            # Return results in same format as old batch method for compatibility
+            return {
+                'success': True,
+                'total_stocks': len(stock_keys),
+                'successful_stocks': successful_stocks,
+                'failed_stocks': failed_stocks,
+                'total_records_loaded': total_records_loaded,
+                'results': results
+            }
             
         except Exception as e:
             logger.error(f"Error in market data collection for transaction import: {str(e)}")

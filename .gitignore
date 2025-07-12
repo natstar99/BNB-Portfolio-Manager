@@ -14,7 +14,6 @@ logs/
 build/
 *.spec
 
-
 # Hide database
 *.db
 
@@ -170,6 +169,7 @@ coverage*.info
 # Visual Studio code coverage results
 *.coverage
 *.coveragexml
+coverage/
 
 # NCrunch
 _NCrunch_*

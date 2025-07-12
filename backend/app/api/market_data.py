@@ -1,7 +1,59 @@
+"""
+Market Data API Endpoints - Yahoo Finance Integration for Portfolio Management
+============================================================================
+
+This module provides REST API endpoints for market data operations including:
+- Stock verification and validation against Yahoo Finance
+- Individual and bulk stock market data updates
+- Portfolio-wide market data refresh functionality
+- Current price fetching and currency conversion
+
+ARCHITECTURAL DESIGN:
+- Clean separation between API endpoints and business logic in MarketDataService
+- Error isolation: market data failures don't impact core portfolio operations
+- Efficient batching for multiple stock operations
+- Consistent JSON response format across all endpoints
+
+KEY INTEGRATION POINTS:
+1. MarketDataService: Core business logic for Yahoo Finance operations
+2. Portfolio/Stock Models: Kimball star schema entities for data persistence
+3. Dashboard UI: Portfolio-wide market data update button functionality
+4. Transaction Import: Bulk market data collection after import completion
+
+MAJOR FEATURES:
+- Stock Verification: Validate instruments against Yahoo Finance before adding
+- Individual Updates: Refresh market data for specific stocks with date control
+- Bulk Operations: Process multiple stocks efficiently in single request
+- Portfolio Updates: One-click refresh of all stocks in a portfolio (NEW FEATURE)
+- Currency Conversion: Real-time exchange rate fetching for multi-currency portfolios
+
+CRITICAL DESIGN DECISIONS:
+1. Portfolio Updates Use Individual Stock Logic: Unlike transaction import inefficiency,
+   each stock determines its own optimal date range rather than using global earliest date
+2. Error Handling: Individual stock failures don't stop batch operations
+3. Date Range Optimization: Leverages existing efficient logic in MarketDataService
+4. Transaction Safety: Proper commit/rollback handling for data consistency
+
+RECENT CHANGES:
+- Added portfolio-wide market data update endpoint for dashboard integration
+- Fixed date range inefficiency from transaction import process
+- Enhanced error reporting with per-stock status details
+
+SECURITY CONSIDERATIONS:
+- Portfolio ID validation to prevent unauthorized access
+- Input sanitization for all date and symbol parameters
+- Graceful error handling to prevent information disclosure
+
+PERFORMANCE NOTES:
+- Yahoo Finance API has rate limits - service implements retry logic
+- Bulk operations use individual processing to optimize date ranges
+- Caching strategies implemented in service layer for current prices
+"""
+
 from flask import jsonify, request
 from app.api import bp
 from app.services.market_data_service import MarketDataService
-from app.models import Stock
+from app.models import Stock, Portfolio
 from app import db
 from datetime import datetime
 
@@ -57,7 +109,8 @@ def update_stock_data(stock_id):
                 }), 400
         
         market_service = MarketDataService()
-        success = market_service.fetch_and_update_stock_data(stock_id, start_date)
+        result = market_service.fetch_and_load_stock_data(stock.stock_key, start_date)
+        success = result.get('success', False)
         
         if success:
             return jsonify({
@@ -93,7 +146,7 @@ def get_current_price(stock_id):
         
         # Update stock's current price if we got a valid price
         if price > 0:
-            market_service.update_stock_current_price(stock_id, price)
+            market_service.update_stock_current_price(stock.stock_key, price)
         
         return jsonify({
             'success': True,
@@ -208,6 +261,39 @@ def bulk_update_market_data():
                 'results': results
             }
         })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@bp.route('/market-data/update-portfolio/<int:portfolio_id>', methods=['POST'])
+def update_portfolio_market_data(portfolio_id):
+    """Update market data for all stocks in a portfolio"""
+    try:
+        # Verify portfolio exists
+        portfolio = Portfolio.query.filter_by(portfolio_key=portfolio_id).first()
+        if not portfolio:
+            return jsonify({
+                'success': False,
+                'error': 'Portfolio not found'
+            }), 404
+        
+        market_service = MarketDataService()
+        result = market_service.update_portfolio_market_data(portfolio_id)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Market data update failed')
+            }), 500
         
     except Exception as e:
         return jsonify({

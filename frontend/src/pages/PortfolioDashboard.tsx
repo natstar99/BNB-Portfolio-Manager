@@ -1,3 +1,62 @@
+/**
+ * Portfolio Dashboard - Main portfolio overview and management interface
+ * ====================================================================
+ * 
+ * This component serves as the primary dashboard for individual portfolios, providing:
+ * - Comprehensive portfolio metrics and performance overview
+ * - Current positions table with real-time market values
+ * - Recent transaction history and activity feed
+ * - Performance chart visualization with mock/real data
+ * - Portfolio management actions and settings
+ * - Market data refresh functionality (NEW FEATURE)
+ * 
+ * ARCHITECTURAL DESIGN:
+ * - Single comprehensive API call to fetch all dashboard data
+ * - Graceful fallback to mock data for charts when real data unavailable
+ * - Real-time state management for loading/error/success states
+ * - Responsive design with mobile-friendly breakpoints
+ * 
+ * KEY INTEGRATION POINTS:
+ * 1. Portfolio Analytics API: `/api/portfolios/{id}/analytics` for comprehensive data
+ * 2. Performance API: `/api/analytics/portfolio/{id}/performance` for chart data
+ * 3. Market Data API: `/api/market-data/update-portfolio/{id}` for data refresh (NEW)
+ * 4. Navigation: Seamless routing to stocks, transactions, import, and analytics
+ * 
+ * MAJOR FEATURES:
+ * - Live Portfolio Metrics: Value, cost, P&L, day change with color coding
+ * - Interactive Positions Table: Click-through to transaction details by stock
+ * - Performance Visualization: Chart with fallback to generated mock data
+ * - Recent Activity Feed: Latest 4 transactions with truncation for space
+ * - Market Data Refresh: One-click update of all stock prices (NEW FEATURE)
+ * - Settings Modal: Accounting method and currency configuration
+ * 
+ * CRITICAL DESIGN DECISIONS:
+ * 1. Single Data Fetch: Reduces API calls and improves performance
+ * 2. Mock Data Fallback: Ensures charts always render even without historical data
+ * 3. Error Isolation: Individual component failures don't crash entire dashboard
+ * 4. Market Data Updates: Async with loading states and auto-refresh after completion
+ * 5. Currency Formatting: Dynamic based on portfolio base currency
+ * 
+ * RECENT CHANGES:
+ * - Added market data update button with loading states
+ * - Integrated automatic portfolio refresh after market data updates
+ * - Enhanced error handling for network failures
+ * - Improved responsive design for mobile compatibility
+ * 
+ * STATE MANAGEMENT:
+ * - portfolio: Complete portfolio entity with metrics
+ * - positions: Array of current stock positions with market values
+ * - recentTransactions: Latest transaction activity for quick reference
+ * - performanceData: Historical performance data for chart rendering
+ * - updatingMarketData: Loading state for market data refresh operation (NEW)
+ * 
+ * ERROR HANDLING:
+ * - Network failures with retry functionality
+ * - Missing portfolio handling with navigation fallback
+ * - Graceful degradation when market data unavailable
+ * - User-friendly error messages for all failure scenarios
+ */
+
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MetricCard } from '../components/ui/MetricCard';
@@ -60,6 +119,7 @@ export const PortfolioDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [updatingMarketData, setUpdatingMarketData] = useState(false);
   const [portfolioSettings, setPortfolioSettings] = useState({
     accounting_method: 'fifo',
     base_currency: 'USD'
@@ -156,6 +216,34 @@ export const PortfolioDashboard: React.FC = () => {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const updateMarketData = async () => {
+    if (!portfolioId) return;
+    
+    try {
+      setUpdatingMarketData(true);
+      
+      const response = await fetch(`/api/market-data/update-portfolio/${portfolioId}`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Refresh portfolio data after successful market data update
+        await fetchPortfolioData();
+        
+        // Show success message (you could add a toast notification here)
+        console.log('Market data updated successfully:', result.data);
+      } else {
+        setError(result.error || 'Failed to update market data');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update market data');
+    } finally {
+      setUpdatingMarketData(false);
+    }
   };
 
   const createMockPerformanceData = (): PerformanceData[] => {
@@ -265,6 +353,16 @@ export const PortfolioDashboard: React.FC = () => {
             </svg>
             Import Data
           </Link>
+          <button 
+            onClick={updateMarketData} 
+            disabled={updatingMarketData}
+            className="btn btn-outline"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
+            </svg>
+            {updatingMarketData ? 'Updating...' : 'Update Market Data'}
+          </button>
           <button onClick={() => setShowSettingsModal(true)} className="btn btn-primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>

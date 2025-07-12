@@ -10,7 +10,7 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const { portfolioId } = useParams();
-  const { portfolios, selectedPortfolio, selectPortfolio, hasPortfolios, isNewUser, loading } = usePortfolios();
+  const { portfolios } = usePortfolios();
   
   // Determine if we're in portfolio context
   const isInPortfolioContext = location.pathname.startsWith('/portfolio/');
