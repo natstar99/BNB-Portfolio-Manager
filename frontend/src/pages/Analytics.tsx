@@ -67,7 +67,7 @@ export const Analytics: React.FC = () => {
   const [performanceData, setPerformanceData] = useState<PerformanceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timePeriod, setTimePeriod] = useState<'30D' | '1Y' | '1W' | '1D'>('30D');
+  const [timePeriod, setTimePeriod] = useState<'30D' | '1Y' | '1W' | '1D' | 'ALL'>('30D');
   const [selectedChart, setSelectedChart] = useState<string | null>(null);
 
   useEffect(() => {
@@ -140,7 +140,10 @@ export const Analytics: React.FC = () => {
     // Use mock data if performance data is not available
     const mockPerformanceData = [];
     const now = new Date();
-    for (let i = 30; i >= 0; i--) {
+    
+    // Generate enough mock data to support 1Y view (400 days to be safe)
+    const maxDays = 400;
+    for (let i = maxDays; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       const baseValue = analyticsData.portfolio.total_value || 10000;
       const variance = Math.random() * 0.1 - 0.05; // ±5% variance
@@ -161,13 +164,17 @@ export const Analytics: React.FC = () => {
     const dataToUse = performanceData.length > 0 ? performanceData : mockPerformanceData;
 
     // Filter data based on time period
-    const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
-    const days = daysMap[timePeriod];
-    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    let filteredData = dataToUse;
     
-    const filteredData = dataToUse.filter(item => 
-      new Date(item.date) >= startDate
-    );
+    if (timePeriod !== 'ALL') {
+      const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
+      const days = daysMap[timePeriod];
+      const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      
+      filteredData = dataToUse.filter(item => 
+        new Date(item.date) >= startDate
+      );
+    }
 
     // Prepare asset allocation data
     const allocationData = analyticsData.positions.map(position => ({
@@ -398,13 +405,13 @@ export const Analytics: React.FC = () => {
         </div>
         <div className="header-actions">
           <div className="time-period-selector">
-            {(['1D', '1W', '30D', '1Y'] as const).map((period) => (
+            {(['1D', '1W', '30D', '1Y', 'ALL'] as const).map((period) => (
               <button
                 key={period}
                 className={`btn btn-outline btn-sm ${timePeriod === period ? 'active' : ''}`}
                 onClick={() => setTimePeriod(period)}
               >
-                {period}
+                {period === 'ALL' ? 'All Time' : period}
               </button>
             ))}
           </div>

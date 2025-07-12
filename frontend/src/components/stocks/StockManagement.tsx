@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { BulkStockActions } from './BulkStockActions';
-import { StockEditor } from './StockEditor';
 
 interface Stock {
   id: number;
@@ -512,17 +511,6 @@ export const StockManagement: React.FC = () => {
           </div>
         )}
       </div>
-
-      {editingStock && (
-        <StockEditor
-          stock={editingStock}
-          markets={markets}
-          onSave={handleStockSave}
-          onCancel={() => setEditingStock(null)}
-          onVerify={handleSingleVerification}
-          loading={loading}
-        />
-      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Portfolio, Stock, Transaction, ApiResponse, PaginatedResponse } from '../types/shared';
+import { Portfolio, Stock, Transaction, ApiResponse } from '../types/shared';
 
 // Create axios instance with base configuration
 const api = axios.create({

@@ -34,14 +34,6 @@ function App() {
               {/* Global Routes */}
               <Route path="/settings" element={<Settings />} />
               
-              {/* Legacy Routes - Redirect to Main Menu */}
-              <Route path="/portfolios" element={<MainMenu />} />
-              <Route path="/dashboard" element={<MainMenu />} />
-              <Route path="/transactions" element={<MainMenu />} />
-              <Route path="/analytics" element={<MainMenu />} />
-              
-              {/* Stocks Management (Global) */}
-              <Route path="/stocks" element={<div className="page"><div className="page-header"><div className="header-content"><h1>Stock Database</h1><p className="page-subtitle">Manage your stock database and corporate actions</p></div></div><div className="coming-soon"><div className="coming-soon-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg></div><h2>Stock Management</h2><p>This section will allow you to manage your stock database, handle stock splits, dividends, and verify stock data with Yahoo Finance.</p></div></div>} />
             </Routes>
           </Layout>
         </div>

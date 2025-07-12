@@ -22,11 +22,11 @@ portfolio_aggregates AS (
     SELECT 
         dm.portfolio_key,
         COUNT(DISTINCT CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.stock_key END) as active_positions,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.market_value ELSE 0 END) as total_value,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.total_cost_basis ELSE 0 END) as total_cost,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.unrealized_pl ELSE 0 END) as unrealized_pl,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.daily_pl ELSE 0 END) as day_change,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.realized_pl ELSE 0 END) as realized_pl,
+        SUM(dm.market_value) as total_value,
+        SUM(dm.total_cost_basis) as total_cost,
+        SUM(dm.unrealized_pl) as unrealized_pl,
+        SUM(dm.daily_pl) as day_change,
+        SUM(dm.realized_pl) as realized_pl,
         -- Calculate percentage changes
         CASE 
             WHEN SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.total_cost_basis ELSE 0 END) > 0 THEN
