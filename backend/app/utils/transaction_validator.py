@@ -1,14 +1,3 @@
-"""
-Centralized transaction validation utility to eliminate DRY violations.
-
-This utility consolidates validation logic that was previously duplicated in:
-- transaction_import_service.py (confirm_raw_data method, lines 136-173)
-- import_transactions.py (/validate endpoint, lines 274-293)
-
-DESIGN DECISION: Single responsibility for transaction validation with comprehensive error reporting.
-BUG FIXES INCLUDED: Consistent validation rules, proper error formatting, type checking.
-"""
-
 import pandas as pd
 from typing import Dict, List, Any, Tuple
 from datetime import date

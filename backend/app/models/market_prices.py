@@ -64,18 +64,6 @@ class MarketPrice(db.Model):
         return market_price
     
     @staticmethod
-    def bulk_create(price_data: List[Dict[str, Any]]):
-        """Bulk create market price records for efficiency"""
-        market_prices = []
-        for data in price_data:
-            price = MarketPrice(**data)
-            market_prices.append(price)
-            db.session.add(price)
-        
-        db.session.commit()
-        return market_prices
-    
-    @staticmethod
     def get_by_stock_and_date(stock_key: int, date_key: int):
         """Get market price for specific stock and date"""
         return MarketPrice.query.filter_by(
@@ -84,59 +72,8 @@ class MarketPrice(db.Model):
         ).first()
     
     @staticmethod
-    def get_price_range(stock_key: int, start_date_key: int, end_date_key: int):
-        """Get market prices for stock within date range"""
-        return MarketPrice.query.filter(
-            MarketPrice.stock_key == stock_key,
-            MarketPrice.date_key >= start_date_key,
-            MarketPrice.date_key <= end_date_key
-        ).order_by(MarketPrice.date_key).all()
-    
-    @staticmethod
-    def get_missing_dates(stock_key: int, start_date_key: int, end_date_key: int) -> List[int]:
-        """Get list of missing date keys for a stock in given range"""
-        existing_dates = db.session.query(MarketPrice.date_key).filter(
-            MarketPrice.stock_key == stock_key,
-            MarketPrice.date_key >= start_date_key,
-            MarketPrice.date_key <= end_date_key
-        ).all()
-        
-        existing_date_keys = {date[0] for date in existing_dates}
-        
-        # Generate all trading days in range (excluding weekends)
-        from app.models.date_dimension import DateDimension
-        all_trading_days = DateDimension.get_trading_days_in_range(start_date_key, end_date_key)
-        
-        missing_dates = [date_key for date_key in all_trading_days if date_key not in existing_date_keys]
-        return missing_dates
-    
-    @staticmethod
     def get_latest_price(stock_key: int) -> Optional['MarketPrice']:
         """Get the most recent market price for a stock"""
         return MarketPrice.query.filter_by(
             stock_key=stock_key
         ).order_by(MarketPrice.date_key.desc()).first()
-    
-    @staticmethod
-    def get_stocks_needing_updates() -> List[int]:
-        """Get list of stock_keys that need price updates (missing recent data)"""
-        from datetime import date
-        today_key = int(date.today().strftime('%Y%m%d'))
-        yesterday_key = today_key - 1  # Simplified - should handle weekends properly
-        
-        # Find stocks that don't have yesterday's price
-        stocks_with_recent_prices = db.session.query(MarketPrice.stock_key).filter(
-            MarketPrice.date_key >= yesterday_key
-        ).distinct().all()
-        
-        recent_stock_keys = {stock[0] for stock in stocks_with_recent_prices}
-        
-        # Get all active stocks
-        from app.models.stock import Stock
-        all_active_stocks = db.session.query(Stock.stock_key).filter(
-            Stock.verification_status == 'verified'
-        ).all()
-        
-        all_stock_keys = {stock[0] for stock in all_active_stocks}
-        
-        return list(all_stock_keys - recent_stock_keys)

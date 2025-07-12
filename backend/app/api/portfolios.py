@@ -110,65 +110,6 @@ def delete_portfolio(portfolio_id):
         db.session.rollback()
         raise
 
-
-@bp.route('/portfolios/<int:portfolio_id>/stocks', methods=['GET'])
-@handle_api_errors
-def get_portfolio_stocks(portfolio_id):
-    """Get all stocks in a portfolio"""
-    portfolio = Portfolio.get_by_id(portfolio_id)
-    
-    if not portfolio:
-        return error_response('Portfolio not found', 404)
-    
-    return success_response([stock.to_dict() for stock in portfolio.stocks])
-
-
-@bp.route('/portfolios/<int:portfolio_id>/stocks', methods=['POST'])
-@handle_api_errors
-def add_stock_to_portfolio(portfolio_id):
-    """Add a stock to a portfolio"""
-    portfolio = Portfolio.get_by_id(portfolio_id)
-    
-    if not portfolio:
-        return error_response('Portfolio not found', 404)
-    
-    data = request.get_json()
-    if not data or 'stock_id' not in data:
-        raise ValueError('Stock ID is required')
-    
-    stock = Stock.get_by_id(data['stock_id'])
-    if not stock:
-        return error_response('Stock not found', 404)
-    
-    try:
-        portfolio.add_stock(stock)
-        return success_response(message='Stock added to portfolio successfully')
-    except Exception as e:
-        db.session.rollback()
-        raise
-
-
-@bp.route('/portfolios/<int:portfolio_id>/stocks/<int:stock_id>', methods=['DELETE'])
-@handle_api_errors
-def remove_stock_from_portfolio(portfolio_id, stock_id):
-    """Remove a stock from a portfolio"""
-    portfolio = Portfolio.get_by_id(portfolio_id)
-    
-    if not portfolio:
-        return error_response('Portfolio not found', 404)
-    
-    stock = Stock.get_by_id(stock_id)
-    if not stock:
-        return error_response('Stock not found', 404)
-    
-    try:
-        portfolio.remove_stock(stock)
-        return success_response(message='Stock removed from portfolio successfully')
-    except Exception as e:
-        db.session.rollback()
-        raise
-
-
 @bp.route('/portfolios/<int:portfolio_id>/stocks/for-verification', methods=['GET'])
 @handle_api_errors
 def get_portfolio_stocks_for_verification(portfolio_id):
@@ -188,24 +129,6 @@ def get_portfolio_stocks_for_verification(portfolio_id):
             'new_stock_symbols': stock_objects  # Changed from strings to full objects
         }
     })
-
-
-@bp.route('/portfolios/<int:portfolio_id>/positions', methods=['GET'])
-@handle_api_errors
-def get_portfolio_positions(portfolio_id):
-    """Get portfolio positions with calculated metrics"""
-    portfolio = Portfolio.get_by_id(portfolio_id)
-    
-    if not portfolio:
-        return error_response('Portfolio not found', 404)
-    
-    positions = portfolio.get_current_positions()
-    
-    return success_response({
-        'positions': positions,
-        'count': len(positions)
-    })
-
 
 @bp.route('/portfolios/<int:portfolio_id>/analytics', methods=['GET'])
 @handle_api_errors
