@@ -167,10 +167,10 @@ class TransactionValidator:
         """
         from app.models.transaction import RawTransaction
         
-        # KISS DEBUG: Check what exists in database first
+        # Check what exists in database first
         existing_count = RawTransaction.query.filter_by(portfolio_id=portfolio_id).count()
-        logger.warning(f"DUPLICATE CHECK: Portfolio {portfolio_id} has {existing_count} existing transactions in STG_RAW_TRANSACTIONS")
-        logger.warning(f"DUPLICATE CHECK: Checking {len(valid_transactions)} transactions for duplicates")
+        logger.debug(f"Portfolio {portfolio_id} has {existing_count} existing transactions in STG_RAW_TRANSACTIONS")
+        logger.debug(f"Checking {len(valid_transactions)} transactions for duplicates")
         
         new_transactions = []
         duplicate_count = 0
@@ -200,24 +200,22 @@ class TransactionValidator:
                     duplicate_count += 1
                     logger.debug(f"Duplicate found: {trans['instrument_code']} on {trans['date']} (ID: {existing.id})")
                 else:
-                    # Debug logging to help identify why no match was found
                     logger.debug(f"No duplicate for: {trans['instrument_code']} {trans['date']} qty={quantity_decimal} price={price_decimal}")
                     new_transactions.append(trans)
                     
             except Exception as e:
                 logger.error(f"Error checking duplicates for transaction {trans}: {str(e)}")
-                # Include transaction anyway - better to have false positive than lose data
+                # Include transaction anyway to avoid data loss
                 new_transactions.append(trans)
         
-        logger.warning(f"DUPLICATE CHECK RESULT: {len(new_transactions)} new, {duplicate_count} duplicates")
+        logger.debug(f"Duplicate check result: {len(new_transactions)} new, {duplicate_count} duplicates")
         
-        # KISS DEBUG: If no duplicates found but data exists, show sample data
+        # If no duplicates found but data exists, show sample data for debugging
         if duplicate_count == 0 and existing_count > 0 and len(valid_transactions) > 0:
             sample_existing = RawTransaction.query.filter_by(portfolio_id=portfolio_id).first()
             sample_import = valid_transactions[0]
-            logger.warning(f"NO DUPLICATES FOUND BUT DATA EXISTS!")
-            logger.warning(f"Sample DB: {sample_existing.raw_instrument_code} {sample_existing.raw_date} {sample_existing.raw_quantity} {sample_existing.raw_price}")
-            logger.warning(f"Sample Import: {sample_import['instrument_code']} {DateParser.date_to_raw_int(sample_import['date'])} {sample_import['quantity']} {sample_import['price']}")
+            logger.debug(f"No duplicates found but data exists - Sample DB: {sample_existing.raw_instrument_code} {sample_existing.raw_date}")
+            logger.debug(f"Sample Import: {sample_import['instrument_code']} {DateParser.date_to_raw_int(sample_import['date'])}")
         
         return new_transactions, duplicate_count
     

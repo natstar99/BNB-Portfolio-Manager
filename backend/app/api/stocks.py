@@ -1,53 +1,41 @@
-from flask import jsonify, request
+from flask import request
 from app.api import bp
 from app.models import Stock
 from app import db
+from app.utils.error_handler import handle_api_errors, success_response, error_response
 
 
 @bp.route('/stocks', methods=['GET'])
+@handle_api_errors
 def get_stocks():
     """Get all stocks"""
-    try:
-        stocks = Stock.get_all()
-        return jsonify({
-            'success': True,
-            'data': [stock.to_dict() for stock in stocks]
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    stocks = Stock.get_all()
+    return success_response([stock.to_dict() for stock in stocks])
 
 
 @bp.route('/stocks', methods=['POST'])
+@handle_api_errors
 def create_stock():
     """Create a new stock"""
+    data = request.get_json()
+    
+    if not data or 'yahoo_symbol' not in data or 'instrument_code' not in data or 'portfolio_key' not in data:
+        raise ValueError('Yahoo symbol, instrument code, and portfolio_key are required')
+    
+    yahoo_symbol = data['yahoo_symbol']
+    instrument_code = data['instrument_code']
+    portfolio_key = data['portfolio_key']
+    
+    # Check if stock already exists for this portfolio
+    existing = Stock.query.filter_by(
+        portfolio_key=portfolio_key,
+        instrument_code=instrument_code
+    ).first()
+    
+    if existing:
+        raise ValueError('Stock with this instrument code already exists in this portfolio')
+    
     try:
-        data = request.get_json()
-        
-        if not data or 'yahoo_symbol' not in data or 'instrument_code' not in data or 'portfolio_key' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'Yahoo symbol, instrument code, and portfolio_key are required'
-            }), 400
-        
-        yahoo_symbol = data['yahoo_symbol']
-        instrument_code = data['instrument_code']
-        portfolio_key = data['portfolio_key']
-        
-        # Check if stock already exists for this portfolio
-        existing = Stock.query.filter_by(
-            portfolio_key=portfolio_key,
-            instrument_code=instrument_code
-        ).first()
-        
-        if existing:
-            return jsonify({
-                'success': False,
-                'error': 'Stock with this instrument code already exists in this portfolio'
-            }), 400
-        
         stock = Stock.create(
             portfolio_key=portfolio_key,
             yahoo_symbol=yahoo_symbol,
@@ -62,42 +50,24 @@ def create_stock():
             drp_enabled=data.get('drp_enabled', False)
         )
         
-        return jsonify({
-            'success': True,
-            'data': stock.to_dict(),
-            'message': 'Stock created successfully'
-        }), 201
-        
+        response = success_response(stock.to_dict(), 'Stock created successfully')
+        response.status_code = 201
+        return response
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        raise
 
 
 @bp.route('/stocks/<int:stock_id>', methods=['GET'])
+@handle_api_errors
 def get_stock(stock_id):
     """Get a specific stock"""
-    try:
-        stock = Stock.get_by_id(stock_id)
-        
-        if not stock:
-            return jsonify({
-                'success': False,
-                'error': 'Stock not found'
-            }), 404
-        
-        return jsonify({
-            'success': True,
-            'data': stock.to_dict()
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    stock = Stock.get_by_id(stock_id)
+    
+    if not stock:
+        return error_response('Stock not found', 404)
+    
+    return success_response(stock.to_dict())
 
 
 @bp.route('/stocks/<int:stock_id>', methods=['PUT'])

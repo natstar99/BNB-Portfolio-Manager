@@ -149,7 +149,6 @@ export const PortfolioDashboard: React.FC = () => {
       }
       
       const analyticsData = await analyticsResponse.json();
-      console.log('Analytics data received:', analyticsData); // Debug logging
       
       if (analyticsData.success && analyticsData.data) {
         // Set portfolio data with metrics
@@ -161,11 +160,6 @@ export const PortfolioDashboard: React.FC = () => {
         // Set recent transactions data
         setRecentTransactions(analyticsData.data.recent_transactions || []);
         
-        console.log('Dashboard data set:', {
-          portfolio: analyticsData.data.portfolio,
-          positions: analyticsData.data.positions?.length || 0,
-          transactions: analyticsData.data.recent_transactions?.length || 0
-        });
       } else {
         throw new Error(analyticsData.error || 'Invalid response format');
       }
@@ -235,7 +229,6 @@ export const PortfolioDashboard: React.FC = () => {
         await fetchPortfolioData();
         
         // Show success message (you could add a toast notification here)
-        console.log('Market data updated successfully:', result.data);
       } else {
         setError(result.error || 'Failed to update market data');
       }
@@ -792,7 +785,6 @@ export const PortfolioDashboard: React.FC = () => {
               <button 
                 onClick={() => {
                   // TODO: Save settings to backend
-                  console.log('Saving settings:', portfolioSettings);
                   setShowSettingsModal(false);
                 }}
                 className="btn btn-primary"

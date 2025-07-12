@@ -13,6 +13,7 @@ dist/
 logs/
 build/
 *.spec
+.claude/
 
 # Hide database
 *.db
