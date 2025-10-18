@@ -48,6 +48,8 @@ from typing import Dict, List, Optional, Tuple, Any
 from decimal import Decimal
 
 from app import db
+from app.models.currency_exchange_rate import CurrencyExchangeRate
+from app.models.portfolio import Portfolio
 from app.models.daily_metrics import DailyPortfolioMetric
 from app.models.market_prices import MarketPrice
 from app.models.transaction import Transaction, TransactionType
@@ -184,7 +186,47 @@ class DailyMetricsService:
             if not market_price:
                 # Skip days without market data (weekends, holidays, etc.)
                 return None
-            
+
+            # Get portfolio base currency and stock currency for conversion
+            portfolio = Portfolio.get_by_id(portfolio_key)
+            if not portfolio:
+                logger.error(f"Portfolio {portfolio_key} not found")
+                return None
+
+            stock = Stock.get_by_id(stock_key)
+            if not stock:
+                logger.error(f"Stock {stock_key} not found")
+                return None
+
+            base_currency = portfolio.base_currency
+            stock_currency = stock.currency
+
+            # Get exchange rate for this date (stock currency to portfolio base currency)
+            exchange_rate = 1.0
+            if stock_currency and stock_currency.upper() != base_currency.upper():
+                rate_record = CurrencyExchangeRate.get_rate(
+                    from_currency=stock_currency,
+                    to_currency=base_currency,
+                    rate_date=target_date
+                )
+
+                if not rate_record:
+                    # Fallback: get most recent rate before target date
+                    rate_record = CurrencyExchangeRate.query.filter(
+                        CurrencyExchangeRate.from_currency == stock_currency.upper(),
+                        CurrencyExchangeRate.to_currency == base_currency.upper(),
+                        CurrencyExchangeRate.date_key < date_key
+                    ).order_by(CurrencyExchangeRate.date_key.desc()).first()
+
+                    if not rate_record:
+                        logger.error(f"No exchange rate found for {stock_currency}/{base_currency} before {target_date}")
+                        return None
+
+                    logger.info(f"Using fallback exchange rate from {rate_record.date_key} for {target_date}")
+
+                exchange_rate = float(rate_record.exchange_rate)
+                logger.debug(f"Exchange rate {stock_currency}/{base_currency} = {exchange_rate} on {target_date}")
+
             # Initialize cumulative values from previous day or start from zero
             if previous_metric:
                 cumulative_shares = float(previous_metric.cumulative_shares)
@@ -210,8 +252,9 @@ class DailyMetricsService:
                 trans_type = transaction.transaction_type
                 quantity = float(transaction.quantity)
                 price = float(transaction.price)
-                value = float(transaction.total_value)
-                
+                # CRITICAL: Use total_value_base (in portfolio base currency) not total_value (original currency)
+                value = float(transaction.total_value_base)
+
                 transaction_quantity += quantity
                 transaction_value += value
                 transaction_type = trans_type.transaction_type  # Use the last transaction type if multiple
@@ -253,9 +296,10 @@ class DailyMetricsService:
                 cumulative_shares *= split_ratio
                 cumulative_split_ratio *= split_ratio
             
-            # Calculate current values
+            # Calculate current values (convert close price to base currency)
             close_price = float(market_price.close_price)
-            market_value = cumulative_shares * close_price
+            close_price_base = close_price * exchange_rate  # Convert to portfolio base currency
+            market_value = cumulative_shares * close_price_base
             
             # Calculate average cost basis
             average_cost_basis = 0.0
@@ -270,10 +314,25 @@ class DailyMetricsService:
             if previous_metric:
                 previous_market_value = float(previous_metric.market_value)
                 daily_pl = market_value - previous_market_value
-                
-                # Adjust for any transactions today
+
+                # Adjust for any transactions today to isolate market movement
+                # Daily P&L should reflect market price changes, not capital additions/withdrawals
                 if day_transactions:
-                    daily_pl -= transaction_value  # Remove transaction impact from daily P&L
+                    for transaction in day_transactions:
+                        trans_type = transaction.transaction_type.transaction_type
+                        # Use total_value_base for currency consistency
+                        trans_value = float(transaction.total_value_base)
+
+                        if trans_type == 'BUY':
+                            # We added capital, subtract it to show only market movement
+                            daily_pl -= trans_value
+                        elif trans_type == 'SELL':
+                            # We withdrew capital, add it back to show only market movement
+                            daily_pl += trans_value
+                        elif trans_type == 'DIVIDEND':
+                            # Dividends don't affect share count, but add cash
+                            # Already counted in cumulative_dividends, no adjustment needed
+                            pass
             
             # Calculate daily P&L percentage
             daily_pl_pct = 0.0
@@ -291,7 +350,7 @@ class DailyMetricsService:
                 portfolio_key=portfolio_key,
                 stock_key=stock_key,
                 date_key=date_key,
-                close_price=close_price,
+                close_price=close_price_base,  # Store in portfolio base currency
                 dividend=float(market_price.dividend) if market_price.dividend else 0.0,
                 split_ratio=float(market_price.split_ratio) if market_price.split_ratio else 1.0,
                 transaction_type=transaction_type,
