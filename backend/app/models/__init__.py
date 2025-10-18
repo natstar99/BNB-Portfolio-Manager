@@ -6,15 +6,17 @@ from .yahoo_market_code import YahooMarketCode
 from .date_dimension import DateDimension
 from .market_prices import MarketPrice
 from .daily_metrics import DailyPortfolioMetric
+from .currency_exchange_rate import CurrencyExchangeRate
 
 __all__ = [
     'Portfolio',
-    'Stock', 
+    'Stock',
     'Transaction',
     'TransactionType',
     'RawTransaction',
     'YahooMarketCode',
     'DateDimension',
     'MarketPrice',
-    'DailyPortfolioMetric'
+    'DailyPortfolioMetric',
+    'CurrencyExchangeRate'
 ]

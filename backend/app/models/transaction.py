@@ -102,24 +102,50 @@ class Transaction(db.Model):
         }
     
     @staticmethod
-    def create(stock_key: int, portfolio_key: int, transaction_type: str, 
-               transaction_date: date, quantity: float, price: float, **kwargs):
-        """Create a new transaction"""
+    def create(stock_key: int, portfolio_key: int, transaction_type: str,
+               transaction_date: date, quantity: float, price: float,
+               original_currency: str, base_currency: str, exchange_rate: float):
+        """
+        Create a new transaction with explicit currency handling.
+
+        Args:
+            stock_key: Foreign key to DIM_STOCK
+            portfolio_key: Foreign key to DIM_PORTFOLIO
+            transaction_type: Transaction type string (e.g., 'BUY', 'SELL')
+            transaction_date: Date of the transaction
+            quantity: Number of shares/units
+            price: Price per share in original currency
+            original_currency: Currency of the stock (from DIM_STOCK.currency)
+            base_currency: Portfolio's base currency (from DIM_PORTFOLIO.base_currency)
+            exchange_rate: Exchange rate from original_currency to base_currency
+
+        Returns:
+            Transaction: Created transaction object
+
+        Raises:
+            ValueError: If transaction_type is invalid or required parameters missing
+        """
+        # Validate required parameters
+        if not original_currency or not base_currency:
+            raise ValueError("original_currency and base_currency are required")
+
+        if exchange_rate is None or exchange_rate <= 0:
+            raise ValueError("exchange_rate must be a positive number")
+
         # Get transaction type
         trans_type = TransactionType.get_by_type(transaction_type)
         if not trans_type:
             raise ValueError(f"Invalid transaction type: {transaction_type}")
-        
+
         # Get date key (date must exist due to batch population in import service)
         date_key = int(transaction_date.strftime('%Y%m%d'))
-        
-        # Calculate total value
+
+        # Calculate total value in original currency
         total_value = quantity * price
-        
-        # Calculate base currency value (assuming USD for now)
-        exchange_rate = kwargs.get('exchange_rate', 1.0)
+
+        # Calculate base currency value
         total_value_base = total_value * exchange_rate
-        
+
         transaction = Transaction(
             stock_key=stock_key,
             portfolio_key=portfolio_key,
@@ -129,11 +155,12 @@ class Transaction(db.Model):
             quantity=quantity,
             price=price,
             total_value=total_value,
-            total_value_base=total_value_base,
+            original_currency=original_currency.upper(),
+            base_currency=base_currency.upper(),
             exchange_rate=exchange_rate,
-            **kwargs
+            total_value_base=total_value_base
         )
-        
+
         db.session.add(transaction)
         # Note: Commit is handled by caller for atomic processing
         return transaction

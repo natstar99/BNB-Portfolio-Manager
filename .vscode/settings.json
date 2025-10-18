@@ -15,4 +15,5 @@
         "**/coverage_html": true,
         "**/node_modules": true,
     },
+    "claude-code.useTerminal": false,
 }

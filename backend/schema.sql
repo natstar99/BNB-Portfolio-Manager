@@ -95,6 +95,21 @@ CREATE TABLE DIM_YAHOO_MARKET_CODES (
     market_suffix TEXT
 );
 
+-- Currency exchange rates dimension table
+-- Stores historical exchange rates fetched from Yahoo Finance
+CREATE TABLE DIM_CURRENCY_EXCHANGE_RATES (
+    exchange_rate_key INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_currency VARCHAR(10) NOT NULL,
+    to_currency VARCHAR(10) NOT NULL,
+    date_key INTEGER NOT NULL,
+    exchange_rate DECIMAL(10, 6) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(from_currency, to_currency, date_key),
+    FOREIGN KEY (date_key) REFERENCES DIM_DATE(date_key)
+);
+
 -- =============================================
 -- FACT TABLES
 -- =============================================
@@ -112,12 +127,12 @@ CREATE TABLE FACT_TRANSACTIONS (
     quantity DECIMAL(15, 6) NOT NULL,
     price DECIMAL(10, 4) NOT NULL,
     total_value DECIMAL(20, 2) NOT NULL,
-    
+
     -- Currency information
-    original_currency VARCHAR(10) DEFAULT 'USD',
-    base_currency VARCHAR(10) DEFAULT 'USD',
-    exchange_rate DECIMAL(10, 6) DEFAULT 1.0,
-    
+    original_currency VARCHAR(10) NOT NULL,
+    base_currency VARCHAR(10) NOT NULL,
+    exchange_rate DECIMAL(10, 6) NOT NULL,
+
     -- Calculated fields
     total_value_base DECIMAL(20, 2) NOT NULL,
     
@@ -241,6 +256,9 @@ CREATE INDEX idx_daily_metrics_portfolio_stock ON FACT_DAILY_PORTFOLIO_METRICS(p
 -- Market codes table indexes
 CREATE INDEX idx_market_codes_suffix ON DIM_YAHOO_MARKET_CODES(market_suffix);
 
+-- Currency exchange rates table indexes
+CREATE INDEX idx_currency_rates_lookup ON DIM_CURRENCY_EXCHANGE_RATES(from_currency, to_currency, date_key);
+CREATE INDEX idx_currency_rates_date ON DIM_CURRENCY_EXCHANGE_RATES(date_key);
 
 -- Stock table index for market_key
 CREATE INDEX idx_dim_stock_market ON DIM_STOCK(market_key);

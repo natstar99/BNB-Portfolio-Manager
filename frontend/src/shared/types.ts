@@ -4,6 +4,7 @@ export interface Portfolio {
   id: number;
   name: string;
   currency: string;
+  description?: string;
   created_at: string;
   updated_at: string;
   // Optional financial metrics (may not be present initially)

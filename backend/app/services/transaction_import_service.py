@@ -8,6 +8,7 @@ from werkzeug.datastructures import FileStorage
 from app.models import Stock, Transaction, TransactionType, Portfolio, RawTransaction
 from app.services.market_data_service import MarketDataService
 from app.services.daily_metrics_service import DailyMetricsService
+from app.services.currency_service import CurrencyService
 from app.utils.date_parser import DateParser
 from app import db
 
@@ -24,6 +25,7 @@ class TransactionImportService:
         # Initialize services for complete data pipeline
         self.market_data_service = MarketDataService()
         self.daily_metrics_service = DailyMetricsService()
+        self.currency_service = CurrencyService()
         
         # Standard column mappings for common file formats
         self.standard_mappings = {
@@ -201,81 +203,195 @@ class TransactionImportService:
             >>> else:
             >>>     print(f"Import failed: {result['import_errors']}")
         """
-        # ATOMIC PROCESSING: Wrap entire operation in explicit transaction
+        # PRE-FETCH: Do this OUTSIDE the transaction block to avoid commit conflicts
+        try:
+            # Get all unprocessed transactions for analysis (read-only, no locks yet)
+            unprocessed_transactions = RawTransaction.query.filter_by(
+                portfolio_id=portfolio_key,
+                processed_flag=False
+            ).order_by(RawTransaction.raw_date).all()
+
+            if not unprocessed_transactions:
+                return {
+                    'success': True,
+                    'successful_imports': 0,
+                    'stocks_created': 0,
+                    'import_errors': [],
+                    'message': 'No unprocessed transactions found'
+                }
+
+            # Calculate date range from all transactions
+            all_dates = [DateParser.raw_int_to_date(tx.raw_date) for tx in unprocessed_transactions]
+            earliest_transaction_date = min(all_dates)
+            latest_transaction_date = max(all_dates)
+
+            # Ensure all dates exist in DIM_DATE dimension (batch operation)
+            from app.models.date_dimension import DateDimension
+            DateDimension.ensure_date_range_exists(earliest_transaction_date, latest_transaction_date, commit=True)
+            logger.info(f"Ensured DIM_DATE populated from {earliest_transaction_date} to {latest_transaction_date}")
+
+            # Group transactions by instrument code to retrieve stocks
+            instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
+
+            # Get existing verified stocks (created in Step 4)
+            stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
+
+            # Get portfolio to access base_currency
+            portfolio = Portfolio.get_by_id(portfolio_key)
+            if not portfolio:
+                raise ValueError(f"Portfolio {portfolio_key} not found")
+
+            portfolio_base_currency = portfolio.base_currency
+            logger.info(f"Portfolio base currency: {portfolio_base_currency}")
+
+            # PRE-FETCH all required exchange rates in bulk to avoid slow individual API calls
+            logger.info("Pre-fetching exchange rates for all transactions...")
+            currency_pairs_needed = {}  # {(from_curr, to_curr): [dates]}
+
+            for raw_tx in unprocessed_transactions:
+                instrument_code = raw_tx.raw_instrument_code
+                if instrument_code not in stock_key_mapping:
+                    continue
+
+                stock = Stock.get_by_id(stock_key_mapping[instrument_code])
+                if not stock or not stock.currency:
+                    continue
+
+                stock_currency = stock.currency.upper()
+                if stock_currency != portfolio_base_currency.upper():
+                    pair = (stock_currency, portfolio_base_currency)
+                    transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
+
+                    if pair not in currency_pairs_needed:
+                        currency_pairs_needed[pair] = set()
+                    currency_pairs_needed[pair].add(transaction_date)
+
+            # Batch fetch all exchange rates (commits separately, outside transaction)
+            for (from_curr, to_curr), dates in currency_pairs_needed.items():
+                if dates:
+                    min_date = min(dates)
+                    # Fetch all the way to today for daily metrics calculation
+                    max_date = date.today()
+                    logger.info(f"Fetching {from_curr}/{to_curr} rates from {min_date} to {max_date}")
+                    self.currency_service.fetch_rates_for_date_range(
+                        from_currency=from_curr,
+                        to_currency=to_curr,
+                        start_date=min_date,
+                        end_date=max_date
+                    )
+
+            # Commit all pre-fetched exchange rates as a separate atomic operation
+            db.session.commit()
+            logger.info("Exchange rate pre-fetching complete and committed. Processing transactions...")
+
+        except Exception as e:
+            logger.error(f"Error in pre-fetch phase: {str(e)}")
+            return {
+                'success': False,
+                'error': f"Pre-fetch failed: {str(e)}",
+                'transactions_imported': 0,
+                'verified_transactions_found': 0,
+                'stocks_with_transactions': 0,
+                'actual_import_errors': 1,
+                'unverified_transactions': 0,
+                'currency_conversions_required': 0,
+                'currency_conversion_failures': 0,
+                'import_errors': [str(e)],
+                'total_transactions_attempted': 0,
+                'market_data_results': {}
+            }
+
+        # ATOMIC PROCESSING: Now wrap the actual transaction import in a transaction block
         with db.session.begin():
             try:
-                # Use database-level locking to prevent race conditions
-                # Get all unprocessed transactions for this portfolio with row-level locks
+                # Re-fetch with locks for actual processing
                 unprocessed_transactions = RawTransaction.query.filter_by(
                     portfolio_id=portfolio_key,
                     processed_flag=False
                 ).with_for_update().order_by(RawTransaction.raw_date).all()
-                
-                if not unprocessed_transactions:
-                    return {
-                        'success': True,
-                        'successful_imports': 0,
-                        'stocks_created': 0,
-                        'import_errors': [],
-                        'message': 'No unprocessed transactions found'
-                    }
-                
-                # PERFORMANCE OPTIMIZATION: Pre-populate DIM_DATE for entire range once
-                # Calculate date range from all transactions
-                all_dates = [DateParser.raw_int_to_date(tx.raw_date) for tx in unprocessed_transactions]
-                earliest_transaction_date = min(all_dates)
-                latest_transaction_date = max(all_dates)
-            
-                # Ensure all dates exist in DIM_DATE dimension (batch operation)
-                from app.models.date_dimension import DateDimension
-                DateDimension.ensure_date_range_exists(earliest_transaction_date, latest_transaction_date, commit=False)
-                logger.info(f"Ensured DIM_DATE populated from {earliest_transaction_date} to {latest_transaction_date}")
-            
-                # Group transactions by instrument code to retrieve stocks
-                instrument_codes = list(set([tx.raw_instrument_code for tx in unprocessed_transactions]))
-                
-                # Get existing verified stocks (created in Step 4)
-                stock_key_mapping = self.get_existing_stocks(instrument_codes, portfolio_key)
-            
+
                 # Count transactions that belong to verified stocks (before processing)
                 verified_transactions_attempted = len([
-                    tx for tx in unprocessed_transactions 
+                    tx for tx in unprocessed_transactions
                     if tx.raw_instrument_code in stock_key_mapping
                 ])
-            
+
                 successful_imports = 0
                 errors = []
-            
+                currency_conversions_required = 0
+                currency_conversion_failures = 0
+
                 # Process each unprocessed transaction
                 for raw_tx in unprocessed_transactions:
                     try:
                         instrument_code = raw_tx.raw_instrument_code
-                        
+
                         if instrument_code not in stock_key_mapping:
                             errors.append(f"No verified stock found for instrument {instrument_code}")
                             continue
-                    
+
                         stock_key = stock_key_mapping[instrument_code]
-                        
+
+                        # Get stock to access currency
+                        stock = Stock.get_by_id(stock_key)
+                        if not stock:
+                            errors.append(f"Stock {stock_key} not found")
+                            continue
+
+                        stock_currency = stock.currency
+                        if not stock_currency:
+                            errors.append(f"Stock {instrument_code} has no currency set")
+                            continue
+
                         # Convert raw_date to date object using shared utility
                         transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
-                    
-                        # Create transaction in FACT_TRANSACTIONS
+
+                        # Determine exchange rate
+                        if stock_currency.upper() == portfolio_base_currency.upper():
+                            # Same currency, no conversion needed
+                            exchange_rate = 1.0
+                        else:
+                            # Different currencies, look up from pre-fetched rates
+                            currency_conversions_required += 1
+
+                            # Look up from cache (should be there from pre-fetch)
+                            from app.models.currency_exchange_rate import CurrencyExchangeRate
+                            cached_rate = CurrencyExchangeRate.get_rate(
+                                from_currency=stock_currency,
+                                to_currency=portfolio_base_currency,
+                                rate_date=transaction_date
+                            )
+
+                            if not cached_rate:
+                                # Exchange rate not found (shouldn't happen after pre-fetch)
+                                currency_conversion_failures += 1
+                                error_msg = f"Exchange rate not found for {stock_currency}/{portfolio_base_currency} on {transaction_date}"
+                                errors.append(error_msg)
+                                logger.warning(f"{error_msg} - skipping transaction for {instrument_code}")
+                                continue
+
+                            exchange_rate = float(cached_rate.exchange_rate)
+                            logger.debug(f"Using exchange rate {stock_currency}/{portfolio_base_currency} = {exchange_rate} on {transaction_date}")
+
+                        # Create transaction in FACT_TRANSACTIONS with proper currency handling
                         transaction = Transaction.create(
                             stock_key=stock_key,
                             portfolio_key=portfolio_key,
                             transaction_type=raw_tx.raw_transaction_type,
                             transaction_date=transaction_date,
                             quantity=float(raw_tx.raw_quantity),
-                            price=float(raw_tx.raw_price)
+                            price=float(raw_tx.raw_price),
+                            original_currency=stock_currency,
+                            base_currency=portfolio_base_currency,
+                            exchange_rate=exchange_rate
                         )
-                    
+
                         # Mark raw transaction as processed
                         raw_tx.processed_flag = True
-                        
+
                         successful_imports += 1
                         logger.debug(f"Created transaction {transaction.transaction_key} from raw transaction {raw_tx.id}")
-                    
+
                     except Exception as e:
                         error_msg = f"Error processing raw transaction {raw_tx.id}: {str(e)}"
                         errors.append(error_msg)
@@ -324,7 +440,7 @@ class TransactionImportService:
                 actual_import_errors = len([e for e in errors if 'No verified stock found' not in str(e)])
                 unverified_transactions = len([e for e in errors if 'No verified stock found' in str(e)])
                 stocks_with_transactions = len([k for k in stock_key_mapping.keys()])
-                
+
                 return {
                     'success': True,
                     'transactions_imported': successful_imports,
@@ -332,11 +448,13 @@ class TransactionImportService:
                     'stocks_with_transactions': stocks_with_transactions,
                     'actual_import_errors': actual_import_errors,
                     'unverified_transactions': unverified_transactions,
+                    'currency_conversions_required': currency_conversions_required,
+                    'currency_conversion_failures': currency_conversion_failures,
                     'import_errors': errors,
                     'total_transactions_attempted': len(unprocessed_transactions),
                     'earliest_date': earliest_transaction_date.isoformat() if earliest_transaction_date else None,
                     'market_data_results': market_data_results,
-                    'message': f'Successfully imported {successful_imports} transactions for {stocks_with_transactions} stocks'
+                    'message': f'Successfully imported {successful_imports} transactions for {stocks_with_transactions} stocks ({currency_conversions_required} with currency conversion)'
                 }
                 
             except Exception as e:
@@ -350,6 +468,8 @@ class TransactionImportService:
                     'stocks_with_transactions': 0,
                     'actual_import_errors': 1,
                     'unverified_transactions': 0,
+                    'currency_conversions_required': 0,
+                    'currency_conversion_failures': 0,
                     'import_errors': [str(e)],
                     'total_transactions_attempted': 0,
                     'market_data_results': {}
