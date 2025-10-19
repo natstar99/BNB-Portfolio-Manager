@@ -219,10 +219,17 @@ class DailyMetricsService:
                     ).order_by(CurrencyExchangeRate.date_key.desc()).first()
 
                     if not rate_record:
-                        logger.error(f"No exchange rate found for {stock_currency}/{base_currency} before {target_date}")
+                        error_msg = (
+                            f"[CURRENCY_NOT_FOUND] No exchange rate available for {stock_currency}/{base_currency} "
+                            f"on or before {target_date} for portfolio {portfolio_key}, stock {stock_key}. "
+                            f"This prevents accurate daily metrics calculation. "
+                            f"Remediation: Run 'Update Market Data' to fetch missing exchange rates, or verify currency codes are correct."
+                        )
+                        logger.error(error_msg)
                         return None
 
-                    logger.info(f"Using fallback exchange rate from {rate_record.date_key} for {target_date}")
+                    logger.info(f"[STALE_RATE] Using fallback exchange rate from date_key {rate_record.date_key} for {target_date} "
+                              f"({stock_currency}/{base_currency})")
 
                 exchange_rate = float(rate_record.exchange_rate)
                 logger.debug(f"Exchange rate {stock_currency}/{base_currency} = {exchange_rate} on {target_date}")

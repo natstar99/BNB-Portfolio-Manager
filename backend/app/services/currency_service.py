@@ -8,6 +8,9 @@ import time
 
 from app.models.currency_exchange_rate import CurrencyExchangeRate
 from app.models.date_dimension import DateDimension
+from app.models.portfolio import Portfolio
+from app.models.stock import Stock
+from app.models.transaction import Transaction
 from app.utils.date_parser import DateParser
 from app import db
 
@@ -312,6 +315,145 @@ class CurrencyService:
                 'errors': errors + [error_msg]
             }
 
+    def fetch_rates_for_date_range_with_interpolation(self, from_currency: str, to_currency: str,
+                                                       start_date: date, end_date: date = None) -> dict:
+        """
+        Fetch exchange rates for a date range with weekend/holiday interpolation.
+
+        This enhanced version of fetch_rates_for_date_range fills gaps in the data
+        (weekends and holidays) by copying the nearest previous trading day's rate.
+        This ensures complete date coverage for daily metrics calculations.
+
+        Args:
+            from_currency: Source currency code
+            to_currency: Target currency code
+            start_date: Start date for the range
+            end_date: End date for the range (defaults to today)
+
+        Returns:
+            dict: Results with rates_fetched, rates_cached, rates_interpolated, and success status
+        """
+        # First, fetch all available trading day rates
+        base_result = self.fetch_rates_for_date_range(from_currency, to_currency, start_date, end_date)
+
+        if not base_result['success']:
+            return base_result
+
+        if end_date is None:
+            end_date = date.today()
+
+        # Normalize currency codes
+        from_currency = from_currency.upper().strip()
+        to_currency = to_currency.upper().strip()
+
+        # If same currency, no interpolation needed
+        if from_currency == to_currency:
+            base_result['rates_interpolated'] = 0
+            return base_result
+
+        logger.info(f"Starting weekend/holiday interpolation for {from_currency}/{to_currency} from {start_date} to {end_date}")
+
+        # Get all existing rates in the range
+        existing_rates = CurrencyExchangeRate.query.filter(
+            CurrencyExchangeRate.from_currency == from_currency,
+            CurrencyExchangeRate.to_currency == to_currency,
+            CurrencyExchangeRate.date_key >= int(start_date.strftime('%Y%m%d')),
+            CurrencyExchangeRate.date_key <= int(end_date.strftime('%Y%m%d'))
+        ).order_by(CurrencyExchangeRate.date_key).all()
+
+        # Build dict of existing rates by date
+        existing_dates = {rate.date_key: float(rate.exchange_rate) for rate in existing_rates}
+
+        # Generate all dates in range
+        current_date = start_date
+        dates_to_fill = []
+
+        while current_date <= end_date:
+            date_key = int(current_date.strftime('%Y%m%d'))
+            if date_key not in existing_dates:
+                dates_to_fill.append(current_date)
+            current_date += timedelta(days=1)
+
+        if not dates_to_fill:
+            logger.info(f"No gaps found for {from_currency}/{to_currency}, interpolation not needed")
+            base_result['rates_interpolated'] = 0
+            return base_result
+
+        logger.info(f"Found {len(dates_to_fill)} date gaps to interpolate for {from_currency}/{to_currency}")
+
+        # Fill gaps with nearest previous trading day rate
+        rates_to_create = []
+        rates_interpolated = 0
+
+        for gap_date in dates_to_fill:
+            gap_date_key = int(gap_date.strftime('%Y%m%d'))
+
+            # Find nearest previous trading day rate
+            previous_rate = None
+            previous_date_keys = [dk for dk in existing_dates.keys() if dk < gap_date_key]
+
+            if previous_date_keys:
+                nearest_prev_date_key = max(previous_date_keys)
+                previous_rate = existing_dates[nearest_prev_date_key]
+
+                # Ensure date exists in DIM_DATE
+                DateDimension.get_or_create_date_entry(gap_date, commit=False)
+
+                # Create interpolated rate
+                rates_to_create.append({
+                    'from_currency': from_currency,
+                    'to_currency': to_currency,
+                    'rate_date': gap_date,
+                    'exchange_rate': previous_rate
+                })
+
+                # Add to existing_dates for subsequent gap fills
+                existing_dates[gap_date_key] = previous_rate
+                rates_interpolated += 1
+
+                logger.debug(f"Interpolated {from_currency}/{to_currency} for {gap_date} using rate from {nearest_prev_date_key}: {previous_rate}")
+            else:
+                # No previous rate available, try finding next rate
+                next_date_keys = [dk for dk in existing_dates.keys() if dk > gap_date_key]
+                if next_date_keys:
+                    nearest_next_date_key = min(next_date_keys)
+                    next_rate = existing_dates[nearest_next_date_key]
+
+                    DateDimension.get_or_create_date_entry(gap_date, commit=False)
+
+                    rates_to_create.append({
+                        'from_currency': from_currency,
+                        'to_currency': to_currency,
+                        'rate_date': gap_date,
+                        'exchange_rate': next_rate
+                    })
+
+                    existing_dates[gap_date_key] = next_rate
+                    rates_interpolated += 1
+
+                    logger.warning(f"[DATA_GAP] No previous rate found for {gap_date}, using future rate from {nearest_next_date_key}: {next_rate}")
+                else:
+                    logger.error(f"[DATA_GAP] Cannot interpolate {from_currency}/{to_currency} for {gap_date}: no trading day rates available")
+
+        # Bulk create interpolated rates
+        if rates_to_create:
+            try:
+                CurrencyExchangeRate.bulk_create(rates_to_create, commit=False)
+                logger.info(f"Created {rates_interpolated} interpolated rates for {from_currency}/{to_currency}")
+            except Exception as e:
+                error_msg = f"Error creating interpolated rates: {str(e)}"
+                logger.error(error_msg)
+                base_result['success'] = False
+                base_result['errors'] = base_result.get('errors', []) + [error_msg]
+                return base_result
+
+        # Update result with interpolation info
+        base_result['rates_interpolated'] = rates_interpolated
+        base_result['total_rates'] = base_result.get('total_rates', 0) + rates_interpolated
+        base_result['message'] = f"Fetched {base_result['rates_fetched']} new rates, {base_result['rates_cached']} cached, {rates_interpolated} interpolated"
+
+        return base_result
+
     def get_supported_currencies(self) -> list:
         """
         Get list of commonly supported currency codes.
@@ -325,3 +467,208 @@ class CurrencyService:
             'TWD', 'DKK', 'PLN', 'THB', 'IDR', 'HUF', 'CZK', 'ILS', 'CLP', 'PHP',
             'AED', 'COP', 'SAR', 'MYR', 'RON', 'ARS', 'VND', 'PKR', 'EGP', 'NGN'
         ]
+
+    def ensure_exchange_rates_for_portfolio(self, portfolio_key: int, start_date: date, end_date: date = None) -> dict:
+        """
+        Unified method to ensure all required exchange rates exist for a portfolio.
+
+        This is the primary method for proactively fetching exchange rates before
+        operations like transaction import or market data updates. It:
+        1. Analyzes all stocks in the portfolio to identify currency pairs needed
+        2. Batch fetches exchange rates for all pairs across the date range
+        3. Implements weekend/holiday interpolation (copies nearest trading day rate)
+        4. Returns detailed results for monitoring and error handling
+
+        This method is idempotent - safe to call multiple times.
+
+        Args:
+            portfolio_key: Portfolio identifier
+            start_date: Start date for exchange rate coverage
+            end_date: End date for exchange rate coverage (defaults to today)
+
+        Returns:
+            dict: Results with detailed status per currency pair
+                {
+                    'success': bool,
+                    'portfolio_key': int,
+                    'base_currency': str,
+                    'date_range': {'start': str, 'end': str},
+                    'currency_pairs': [
+                        {
+                            'from_currency': str,
+                            'to_currency': str,
+                            'rates_fetched': int,
+                            'rates_cached': int,
+                            'rates_interpolated': int,
+                            'success': bool,
+                            'error': str (if failed)
+                        }
+                    ],
+                    'total_rates_fetched': int,
+                    'total_rates_cached': int,
+                    'total_rates_interpolated': int,
+                    'errors': [str]
+                }
+        """
+        if end_date is None:
+            end_date = date.today()
+
+        # Get portfolio to determine base currency
+        portfolio = Portfolio.get_by_id(portfolio_key)
+        if not portfolio:
+            error_msg = f"[INVALID_PORTFOLIO] Portfolio {portfolio_key} not found"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'error': error_msg,
+                'errors': [error_msg]
+            }
+
+        base_currency = portfolio.base_currency.upper().strip()
+        logger.info(f"Ensuring exchange rates for portfolio {portfolio_key} ({portfolio.portfolio_name}) - Base currency: {base_currency}")
+
+        # Get all stocks in this portfolio (stocks with transactions)
+        stock_keys = db.session.query(Transaction.stock_key).filter(
+            Transaction.portfolio_key == portfolio_key
+        ).distinct().all()
+
+        stock_keys = [sk[0] for sk in stock_keys]
+
+        if not stock_keys:
+            logger.info(f"No stocks found for portfolio {portfolio_key}")
+            return {
+                'success': True,
+                'portfolio_key': portfolio_key,
+                'base_currency': base_currency,
+                'message': 'No stocks in portfolio, no exchange rates needed',
+                'currency_pairs': [],
+                'total_rates_fetched': 0,
+                'total_rates_cached': 0,
+                'total_rates_interpolated': 0,
+                'errors': []
+            }
+
+        # Get stock currencies
+        stocks = Stock.query.filter(Stock.stock_key.in_(stock_keys)).all()
+
+        # Identify unique currency pairs needed
+        currency_pairs = set()
+        for stock in stocks:
+            stock_currency = stock.currency.upper().strip() if stock.currency else 'USD'
+            if stock_currency != base_currency:
+                currency_pairs.add((stock_currency, base_currency))
+
+        if not currency_pairs:
+            logger.info(f"All stocks in portfolio {portfolio_key} use base currency {base_currency}")
+            return {
+                'success': True,
+                'portfolio_key': portfolio_key,
+                'base_currency': base_currency,
+                'message': 'All stocks use portfolio base currency, no conversion needed',
+                'currency_pairs': [],
+                'total_rates_fetched': 0,
+                'total_rates_cached': 0,
+                'total_rates_interpolated': 0,
+                'errors': []
+            }
+
+        logger.info(f"Found {len(currency_pairs)} currency pairs to fetch: {currency_pairs}")
+
+        # Fetch rates for each currency pair
+        pair_results = []
+        total_fetched = 0
+        total_cached = 0
+        total_interpolated = 0
+        all_errors = []
+        overall_success = True
+
+        for from_curr, to_curr in currency_pairs:
+            logger.info(f"Fetching rates for {from_curr}/{to_curr} from {start_date} to {end_date}")
+
+            try:
+                # Validate currency pair
+                if from_curr not in self.get_supported_currencies():
+                    error_msg = f"[INVALID_CURRENCY] Currency '{from_curr}' not in supported currencies list"
+                    logger.error(error_msg)
+                    pair_results.append({
+                        'from_currency': from_curr,
+                        'to_currency': to_curr,
+                        'success': False,
+                        'error': error_msg,
+                        'rates_fetched': 0,
+                        'rates_cached': 0,
+                        'rates_interpolated': 0
+                    })
+                    all_errors.append(error_msg)
+                    overall_success = False
+                    continue
+
+                # Fetch rates for this pair (with weekend/holiday interpolation)
+                result = self.fetch_rates_for_date_range_with_interpolation(
+                    from_currency=from_curr,
+                    to_currency=to_curr,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+
+                if result['success']:
+                    pair_results.append({
+                        'from_currency': from_curr,
+                        'to_currency': to_curr,
+                        'success': True,
+                        'rates_fetched': result['rates_fetched'],
+                        'rates_cached': result['rates_cached'],
+                        'rates_interpolated': result.get('rates_interpolated', 0)
+                    })
+                    total_fetched += result['rates_fetched']
+                    total_cached += result['rates_cached']
+                    total_interpolated += result.get('rates_interpolated', 0)
+                else:
+                    error_msg = f"[YAHOO_API_ERROR] Failed to fetch {from_curr}/{to_curr}: {result.get('error', 'Unknown error')}"
+                    logger.error(error_msg)
+                    pair_results.append({
+                        'from_currency': from_curr,
+                        'to_currency': to_curr,
+                        'success': False,
+                        'error': error_msg,
+                        'rates_fetched': 0,
+                        'rates_cached': 0,
+                        'rates_interpolated': 0
+                    })
+                    all_errors.append(error_msg)
+                    overall_success = False
+
+            except Exception as e:
+                error_msg = f"[YAHOO_API_ERROR] Exception fetching {from_curr}/{to_curr}: {str(e)}"
+                logger.error(error_msg)
+                pair_results.append({
+                    'from_currency': from_curr,
+                    'to_currency': to_curr,
+                    'success': False,
+                    'error': error_msg,
+                    'rates_fetched': 0,
+                    'rates_cached': 0,
+                    'rates_interpolated': 0
+                })
+                all_errors.append(error_msg)
+                overall_success = False
+
+        result_summary = {
+            'success': overall_success,
+            'portfolio_key': portfolio_key,
+            'base_currency': base_currency,
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat()
+            },
+            'currency_pairs': pair_results,
+            'total_rates_fetched': total_fetched,
+            'total_rates_cached': total_cached,
+            'total_rates_interpolated': total_interpolated,
+            'errors': all_errors
+        }
+
+        logger.info(f"Exchange rate fetch complete for portfolio {portfolio_key}: "
+                   f"{total_fetched} fetched, {total_cached} cached, {total_interpolated} interpolated")
+
+        return result_summary

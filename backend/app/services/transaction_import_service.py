@@ -244,45 +244,29 @@ class TransactionImportService:
             portfolio_base_currency = portfolio.base_currency
             logger.info(f"Portfolio base currency: {portfolio_base_currency}")
 
-            # PRE-FETCH all required exchange rates in bulk to avoid slow individual API calls
+            # PRE-FETCH all required exchange rates using unified currency service method
             logger.info("Pre-fetching exchange rates for all transactions...")
-            currency_pairs_needed = {}  # {(from_curr, to_curr): [dates]}
 
-            for raw_tx in unprocessed_transactions:
-                instrument_code = raw_tx.raw_instrument_code
-                if instrument_code not in stock_key_mapping:
-                    continue
-
-                stock = Stock.get_by_id(stock_key_mapping[instrument_code])
-                if not stock or not stock.currency:
-                    continue
-
-                stock_currency = stock.currency.upper()
-                if stock_currency != portfolio_base_currency.upper():
-                    pair = (stock_currency, portfolio_base_currency)
-                    transaction_date = DateParser.raw_int_to_date(raw_tx.raw_date)
-
-                    if pair not in currency_pairs_needed:
-                        currency_pairs_needed[pair] = set()
-                    currency_pairs_needed[pair].add(transaction_date)
-
-            # Batch fetch all exchange rates (commits separately, outside transaction)
-            for (from_curr, to_curr), dates in currency_pairs_needed.items():
-                if dates:
-                    min_date = min(dates)
-                    # Fetch all the way to today for daily metrics calculation
-                    max_date = date.today()
-                    logger.info(f"Fetching {from_curr}/{to_curr} rates from {min_date} to {max_date}")
-                    self.currency_service.fetch_rates_for_date_range(
-                        from_currency=from_curr,
-                        to_currency=to_curr,
-                        start_date=min_date,
-                        end_date=max_date
-                    )
+            # Use unified method to ensure all exchange rates exist
+            currency_result = self.currency_service.ensure_exchange_rates_for_portfolio(
+                portfolio_key=portfolio_key,
+                start_date=earliest_transaction_date,
+                end_date=date.today()  # Fetch to today for daily metrics
+            )
 
             # Commit all pre-fetched exchange rates as a separate atomic operation
             db.session.commit()
-            logger.info("Exchange rate pre-fetching complete and committed. Processing transactions...")
+
+            # Log currency fetch results
+            if currency_result['success']:
+                logger.info(f"Exchange rate pre-fetching complete: "
+                          f"{currency_result['total_rates_fetched']} fetched, "
+                          f"{currency_result['total_rates_cached']} cached, "
+                          f"{currency_result['total_rates_interpolated']} interpolated")
+            else:
+                logger.warning(f"[CURRENCY_FETCH_PARTIAL] Some exchange rates failed: {currency_result.get('errors')}")
+
+            logger.info("Processing transactions...")
 
         except Exception as e:
             logger.error(f"Error in pre-fetch phase: {str(e)}")
@@ -365,9 +349,19 @@ class TransactionImportService:
                             if not cached_rate:
                                 # Exchange rate not found (shouldn't happen after pre-fetch)
                                 currency_conversion_failures += 1
-                                error_msg = f"Exchange rate not found for {stock_currency}/{portfolio_base_currency} on {transaction_date}"
+
+                                # Provide detailed error context with category and remediation
+                                error_category = "[CURRENCY_NOT_FOUND]"
+                                error_msg = (
+                                    f"{error_category} Exchange rate missing for {stock_currency}/{portfolio_base_currency} on {transaction_date}. "
+                                    f"Stock: {instrument_code}. "
+                                    f"This may indicate: (1) Yahoo Finance data gap, (2) Weekend/holiday without interpolation, "
+                                    f"(3) Pre-fetch failure. "
+                                    f"Remediation: Check if currency pair is valid and supported, verify Yahoo Finance availability, "
+                                    f"or manually add exchange rate to database."
+                                )
                                 errors.append(error_msg)
-                                logger.warning(f"{error_msg} - skipping transaction for {instrument_code}")
+                                logger.warning(f"{error_msg} - skipping transaction")
                                 continue
 
                             exchange_rate = float(cached_rate.exchange_rate)

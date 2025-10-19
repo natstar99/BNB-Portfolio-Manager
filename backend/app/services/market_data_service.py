@@ -9,6 +9,7 @@ import time
 from app.models.stock import Stock
 from app.models.market_prices import MarketPrice
 from app.models.date_dimension import DateDimension
+from app.models.transaction import Transaction
 from app import db
 from sqlalchemy.exc import IntegrityError
 
@@ -497,27 +498,71 @@ class MarketDataService:
     def update_portfolio_market_data(self, portfolio_id: int) -> Dict[str, Any]:
         """
         Update market data for all stocks in a portfolio efficiently.
-        
+
         DESIGN DECISION: Unlike the inefficient import process, this method allows
         each stock to determine its own optimal start date, avoiding the issue where
         all stocks fetch data from the earliest transaction date of any stock.
-        
+
         INTEGRATION POINT: Called from dashboard "Update Market Data" button to
         refresh market prices for all currently held positions in a portfolio.
-        
+
+        CURRENCY HANDLING: Pre-fetches all required exchange rates before updating
+        market data to ensure daily metrics calculations can complete successfully.
+
         Args:
             portfolio_id: Portfolio ID to update market data for
-            
+
         Returns:
-            Dict: Update results with per-stock details and summary
+            Dict: Update results with per-stock details, currency fetch status, and summary
         """
         try:
             logger.info(f"Starting portfolio market data update for portfolio {portfolio_id}")
-            
-            # Get all stock_keys for stocks that have current positions in this portfolio
-            from app.models.transaction import Transaction
+
+            # PHASE 1: PRE-FETCH EXCHANGE RATES
+            # Ensure all exchange rates exist before updating market data
+            from app.services.currency_service import CurrencyService
             from app.models.stock import Stock
-            
+
+            currency_service = CurrencyService()
+
+            # Determine date range for exchange rates
+            # Get earliest transaction date for this portfolio
+            earliest_transaction = Transaction.query.filter_by(
+                portfolio_key=portfolio_id
+            ).order_by(Transaction.transaction_date).first()
+
+            if earliest_transaction:
+                start_date = earliest_transaction.transaction_date
+                end_date = date.today()
+
+                logger.info(f"Pre-fetching exchange rates for portfolio {portfolio_id} from {start_date} to {end_date}")
+
+                currency_result = currency_service.ensure_exchange_rates_for_portfolio(
+                    portfolio_key=portfolio_id,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+
+                # Commit exchange rates separately
+                db.session.commit()
+
+                if not currency_result['success']:
+                    logger.warning(f"[CURRENCY_FETCH_PARTIAL] Some exchange rates failed to fetch for portfolio {portfolio_id}: {currency_result.get('errors')}")
+                else:
+                    logger.info(f"Successfully pre-fetched exchange rates: {currency_result['total_rates_fetched']} fetched, "
+                              f"{currency_result['total_rates_cached']} cached, {currency_result['total_rates_interpolated']} interpolated")
+            else:
+                currency_result = {
+                    'success': True,
+                    'message': 'No transactions found, no exchange rates needed',
+                    'total_rates_fetched': 0,
+                    'total_rates_cached': 0,
+                    'total_rates_interpolated': 0,
+                    'errors': []
+                }
+
+            # PHASE 2: UPDATE MARKET DATA
+            # Get all stock_keys for stocks that have current positions in this portfolio
             # Get unique stock_keys that have transactions in this portfolio
             portfolio_stocks = db.session.query(Transaction.stock_key).filter_by(
                 portfolio_key=portfolio_id
@@ -583,6 +628,13 @@ class MarketDataService:
                 'successful_stocks': successful_stocks,
                 'failed_stocks': failed_stocks,
                 'total_records_loaded': total_records_loaded,
+                'currency_status': {
+                    'success': currency_result['success'],
+                    'rates_fetched': currency_result['total_rates_fetched'],
+                    'rates_cached': currency_result['total_rates_cached'],
+                    'rates_interpolated': currency_result['total_rates_interpolated'],
+                    'errors': currency_result.get('errors', [])
+                },
                 'results': results
             }
             
