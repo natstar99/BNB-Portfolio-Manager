@@ -115,14 +115,15 @@ def delete_portfolio(portfolio_id):
 def get_portfolio_stocks_for_verification(portfolio_id):
     """Get all portfolio stocks formatted for StockVerification component"""
     portfolio = Portfolio.get_by_id(portfolio_id)
-    
+
     if not portfolio:
         return error_response('Portfolio not found', 404)
-    
-    # Get all stocks in the portfolio and return them as complete stock objects
+
+    # Get all stocks in the portfolio and sort alphabetically by ticker (instrument_code)
     # The StockVerification component will use these to populate the verification table
-    stock_objects = [stock.to_dict() for stock in portfolio.stocks]
-    
+    sorted_stocks = sorted(portfolio.stocks, key=lambda stock: stock.instrument_code.upper())
+    stock_objects = [stock.to_dict() for stock in sorted_stocks]
+
     return success_response({
         'new_stock_symbols': stock_objects,  # Changed from strings to full objects
         'validation_results': {

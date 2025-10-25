@@ -244,14 +244,37 @@ class TransactionImportService:
             portfolio_base_currency = portfolio.base_currency
             logger.info(f"Portfolio base currency: {portfolio_base_currency}")
 
-            # PRE-FETCH all required exchange rates using unified currency service method
+            # PRE-FETCH all required exchange rates for staged transaction stocks
             logger.info("Pre-fetching exchange rates for all transactions...")
 
-            # Use unified method to ensure all exchange rates exist
+            # Get currencies from staged stocks (not just stocks with existing transactions)
+            from app.models.stock import Stock
+            staged_stocks = Stock.query.filter(
+                Stock.portfolio_key == portfolio_key,
+                Stock.instrument_code.in_(instrument_codes)
+            ).all()
+
+            # Manually fetch currency rates for each staged stock
+            currency_pairs_fetched = []
+            for stock in staged_stocks:
+                stock_currency = stock.currency.upper().strip() if stock.currency else 'USD'
+                if stock_currency != portfolio_base_currency:
+                    logger.info(f"Fetching {stock_currency}/{portfolio_base_currency} for stock {stock.instrument_code}")
+                    result = self.currency_service.fetch_rates_for_date_range_with_interpolation(
+                        from_currency=stock_currency,
+                        to_currency=portfolio_base_currency,
+                        start_date=earliest_transaction_date,
+                        end_date=date.today()
+                    )
+                    currency_pairs_fetched.append(f"{stock_currency}/{portfolio_base_currency}: {result.get('message', 'unknown')}")
+
+            logger.info(f"Currency pairs fetched: {currency_pairs_fetched}")
+
+            # Also ensure rates for any existing portfolio stocks
             currency_result = self.currency_service.ensure_exchange_rates_for_portfolio(
                 portfolio_key=portfolio_key,
                 start_date=earliest_transaction_date,
-                end_date=date.today()  # Fetch to today for daily metrics
+                end_date=date.today()
             )
 
             # Commit all pre-fetched exchange rates as a separate atomic operation
@@ -338,16 +361,16 @@ class TransactionImportService:
                             # Different currencies, look up from pre-fetched rates
                             currency_conversions_required += 1
 
-                            # Look up from cache (should be there from pre-fetch)
+                            # Look up from cache with forward-fill for holidays/weekends
                             from app.models.currency_exchange_rate import CurrencyExchangeRate
-                            cached_rate = CurrencyExchangeRate.get_rate(
+                            cached_rate, is_forward_filled = CurrencyExchangeRate.get_rate_with_forward_fill(
                                 from_currency=stock_currency,
                                 to_currency=portfolio_base_currency,
                                 rate_date=transaction_date
                             )
 
                             if not cached_rate:
-                                # Exchange rate not found (shouldn't happen after pre-fetch)
+                                # Exchange rate not found even with forward-fill (no historical data at all)
                                 currency_conversion_failures += 1
 
                                 # Provide detailed error context with category and remediation
@@ -365,7 +388,13 @@ class TransactionImportService:
                                 continue
 
                             exchange_rate = float(cached_rate.exchange_rate)
-                            logger.debug(f"Using exchange rate {stock_currency}/{portfolio_base_currency} = {exchange_rate} on {transaction_date}")
+
+                            # Log when using forward-filled rate for transparency
+                            if is_forward_filled:
+                                logger.debug(f"Forward-filling exchange rate {stock_currency}/{portfolio_base_currency} on {transaction_date} "
+                                           f"from previous date {cached_rate.date_key}: {exchange_rate}")
+                            else:
+                                logger.debug(f"Using exchange rate {stock_currency}/{portfolio_base_currency} = {exchange_rate} on {transaction_date}")
 
                         # Create transaction in FACT_TRANSACTIONS with proper currency handling
                         transaction = Transaction.create(

@@ -222,13 +222,13 @@ class TransactionValidator:
         """
         from app.models.stock import Stock
         
-        # Get unique instruments
-        unique_instruments = list(set([t['instrument_code'] for t in valid_transactions]))
-        
+        # Get unique instruments and sort alphabetically
+        unique_instruments = sorted(list(set([t['instrument_code'] for t in valid_transactions])))
+
         # Check which stocks are new vs existing FOR THIS PORTFOLIO ONLY
         new_stocks = []
         existing_stocks = []
-        
+
         for instrument in unique_instruments:
             # Check if stock with this instrument code exists in THIS portfolio only
             existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_id, instrument)
@@ -236,6 +236,10 @@ class TransactionValidator:
                 existing_stocks.append(instrument)
             else:
                 new_stocks.append(instrument)
+
+        # Sort both lists alphabetically for consistent display
+        new_stocks.sort()
+        existing_stocks.sort()
         
         # Create transaction breakdown by instrument
         transaction_breakdown = {}

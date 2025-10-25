@@ -77,3 +77,58 @@ class MarketPrice(db.Model):
         return MarketPrice.query.filter_by(
             stock_key=stock_key
         ).order_by(MarketPrice.date_key.desc()).first()
+
+    @staticmethod
+    def get_price_with_forward_fill(stock_key: int, date_key: int) -> tuple[Optional['MarketPrice'], bool]:
+        """
+        Get market price for a date, with forward-fill for missing dates.
+
+        This method implements forward-filling to handle market holidays and data gaps.
+        When market data doesn't exist for a specific date (e.g., Christmas, Thanksgiving,
+        or data provider outages), it returns the most recent previous market price.
+
+        This ensures continuous daily portfolio metrics calculation even when markets
+        are closed or data is unavailable, preventing portfolio value gaps that would
+        cause aggregation issues in analytics views.
+
+        Args:
+            stock_key: Stock identifier
+            date_key: Date in YYYYMMDD format
+
+        Returns:
+            Tuple[Optional[MarketPrice], bool]:
+                - (MarketPrice, False) if actual data exists for the requested date
+                - (MarketPrice, True) if forward-filled from a previous date
+                - (None, False) if no historical data exists at all
+
+        Example:
+            # Dec 25 (Christmas) - market closed, no data
+            price, is_filled = get_price_with_forward_fill(stock_key, 20241225)
+            # Returns: (MarketPrice from Dec 24, True)
+
+            # Dec 26 - market open, data available
+            price, is_filled = get_price_with_forward_fill(stock_key, 20241226)
+            # Returns: (MarketPrice from Dec 26, False)
+        """
+        # Try to get actual market price for this date
+        market_price = MarketPrice.query.filter_by(
+            stock_key=stock_key,
+            date_key=date_key
+        ).first()
+
+        if market_price:
+            # Actual data exists for this date
+            return market_price, False
+
+        # No data for this date - forward-fill from most recent previous date
+        previous_price = MarketPrice.query.filter(
+            MarketPrice.stock_key == stock_key,
+            MarketPrice.date_key < date_key
+        ).order_by(MarketPrice.date_key.desc()).first()
+
+        if previous_price:
+            # Found historical data to forward-fill from
+            return previous_price, True
+
+        # No historical data exists at all (shouldn't happen in normal operation)
+        return None, False

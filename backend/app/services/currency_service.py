@@ -94,6 +94,10 @@ class CurrencyService:
 
         Yahoo Finance currency pair format: XXXYYY=X (e.g., AUDUSD=X for AUD to USD)
 
+        IMPORTANT: Yahoo Finance doesn't support all currency pair directions.
+        If the direct pair (e.g., USDAUD=X) is not available, this method
+        automatically tries the inverse pair (e.g., AUDUSD=X) and inverts the rate.
+
         Args:
             from_currency: Source currency code
             to_currency: Target currency code
@@ -104,6 +108,7 @@ class CurrencyService:
         """
         # Build Yahoo Finance currency pair symbol
         yahoo_symbol = f"{from_currency}{to_currency}=X"
+        inverse_yahoo_symbol = f"{to_currency}{from_currency}=X"
 
         try:
             # Retry logic for Yahoo Finance API reliability
@@ -112,8 +117,8 @@ class CurrencyService:
                     ticker = yf.Ticker(yahoo_symbol)
 
                     # Fetch historical data around the target date
-                    # Get a few days around target to handle weekends/holidays
-                    start_date = rate_date - timedelta(days=5)
+                    # Get a wider window (2 weeks back) to handle weekends/holidays and data gaps
+                    start_date = rate_date - timedelta(days=14)
                     end_date = rate_date + timedelta(days=1)
 
                     data = ticker.history(start=start_date, end=end_date, auto_adjust=False)
@@ -124,7 +129,16 @@ class CurrencyService:
                             time.sleep(self.retry_delay)
                             continue
 
-                        # If no exact data, try getting the most recent rate
+                        # Direct pair failed - try inverse pair (e.g., try AUDUSD=X instead of USDAUD=X)
+                        logger.info(f"Direct pair {yahoo_symbol} not available, trying inverse pair {inverse_yahoo_symbol}")
+                        inverse_rate = self._try_inverse_pair(to_currency, from_currency, rate_date)
+                        if inverse_rate is not None:
+                            # Invert the rate: if AUDUSD=1.5, then USDAUD=1/1.5
+                            direct_rate = 1.0 / inverse_rate
+                            logger.info(f"Using inverted rate for {yahoo_symbol}: {direct_rate} (from {inverse_yahoo_symbol}={inverse_rate})")
+                            return direct_rate
+
+                        # If inverse also failed, try getting the most recent rate
                         return self._get_fallback_rate(from_currency, to_currency)
 
                     # Try to find exact date first
@@ -161,6 +175,59 @@ class CurrencyService:
 
         except Exception as e:
             logger.error(f"Error fetching exchange rate from Yahoo for {yahoo_symbol}: {str(e)}")
+            return None
+
+    def _try_inverse_pair(self, from_currency: str, to_currency: str, rate_date: date) -> Optional[float]:
+        """
+        Try fetching the inverse currency pair when direct pair is not available.
+
+        This is a helper method that attempts to fetch the reverse currency pair
+        from Yahoo Finance. The caller should invert the returned rate.
+
+        Args:
+            from_currency: Source currency code (inverse of original)
+            to_currency: Target currency code (inverse of original)
+            rate_date: Date for the exchange rate
+
+        Returns:
+            float or None: Exchange rate for inverse pair if successful
+        """
+        yahoo_symbol = f"{from_currency}{to_currency}=X"
+
+        try:
+            ticker = yf.Ticker(yahoo_symbol)
+            # Use same wider window (2 weeks) for inverse pair
+            start_date = rate_date - timedelta(days=14)
+            end_date = rate_date + timedelta(days=1)
+
+            data = ticker.history(start=start_date, end=end_date, auto_adjust=False)
+
+            if data.empty:
+                logger.warning(f"Inverse pair {yahoo_symbol} also has no data")
+                return None
+
+            # Convert index to date objects
+            data.index = pd.to_datetime(data.index).date
+
+            # Try exact date first
+            if rate_date in data.index:
+                close_price = float(data.loc[rate_date]['Close'])
+                logger.info(f"Found exact inverse rate for {yahoo_symbol} on {rate_date}: {close_price}")
+                return close_price
+
+            # Use nearest previous date
+            available_dates = [d for d in data.index if d <= rate_date]
+            if available_dates:
+                nearest_date = max(available_dates)
+                close_price = float(data.loc[nearest_date]['Close'])
+                logger.info(f"Using nearest inverse rate for {yahoo_symbol} on {nearest_date}: {close_price}")
+                return close_price
+
+            logger.warning(f"No suitable date found in inverse pair data for {yahoo_symbol}")
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error fetching inverse pair {yahoo_symbol}: {str(e)}")
             return None
 
     def _get_fallback_rate(self, from_currency: str, to_currency: str) -> Optional[float]:
@@ -237,28 +304,42 @@ class CurrencyService:
                 'errors': []
             }
 
-        logger.info(f"Fetching exchange rates for {from_currency}/{to_currency} from {start_date} to {end_date}")
+        logger.info(f"[BULK_FETCH] Fetching exchange rates for {from_currency}/{to_currency} from {start_date} to {end_date}")
 
         yahoo_symbol = f"{from_currency}{to_currency}=X"
+        inverse_yahoo_symbol = f"{to_currency}{from_currency}=X"
         rates_fetched = 0
         rates_cached = 0
         errors = []
+        should_invert = False
 
         try:
             # Fetch bulk historical data from Yahoo Finance
+            logger.info(f"[BULK_FETCH] Attempting to fetch {yahoo_symbol}...")
             ticker = yf.Ticker(yahoo_symbol)
             data = ticker.history(start=start_date, end=end_date + timedelta(days=1), auto_adjust=False)
+            logger.info(f"[BULK_FETCH] {yahoo_symbol} returned {len(data)} rows")
 
             if data.empty:
-                error_msg = f"No data returned from Yahoo Finance for {yahoo_symbol}"
-                logger.error(error_msg)
-                return {
-                    'success': False,
-                    'error': error_msg,
-                    'rates_fetched': 0,
-                    'rates_cached': 0,
-                    'errors': [error_msg]
-                }
+                # Direct pair failed - try inverse pair (e.g., try AUDEUR=X instead of EURAUD=X)
+                logger.warning(f"No data for {yahoo_symbol}, trying inverse pair {inverse_yahoo_symbol}")
+                ticker = yf.Ticker(inverse_yahoo_symbol)
+                data = ticker.history(start=start_date, end=end_date + timedelta(days=1), auto_adjust=False)
+
+                if data.empty:
+                    error_msg = f"No data returned from Yahoo Finance for {yahoo_symbol} or {inverse_yahoo_symbol}"
+                    logger.error(error_msg)
+                    return {
+                        'success': False,
+                        'error': error_msg,
+                        'rates_fetched': 0,
+                        'rates_cached': 0,
+                        'errors': [error_msg]
+                    }
+                else:
+                    # Inverse pair worked - we'll need to invert all rates
+                    should_invert = True
+                    logger.info(f"Using inverse pair {inverse_yahoo_symbol} - will invert rates")
 
             # Prepare batch data for insertion
             rates_to_create = []
@@ -276,12 +357,16 @@ class CurrencyService:
                     # Ensure date exists in DIM_DATE
                     DateDimension.get_or_create_date_entry(idx_date, commit=False)
 
-                    # Prepare rate data
+                    # Get exchange rate - invert if using inverse pair
+                    raw_rate = float(row['Close'])
+                    exchange_rate = (1.0 / raw_rate) if should_invert else raw_rate
+
+                    # Prepare rate data (always stored as from_currency → to_currency)
                     rates_to_create.append({
                         'from_currency': from_currency,
                         'to_currency': to_currency,
                         'rate_date': idx_date,
-                        'exchange_rate': float(row['Close'])
+                        'exchange_rate': exchange_rate
                     })
 
                 except Exception as e:
@@ -293,7 +378,16 @@ class CurrencyService:
             if rates_to_create:
                 CurrencyExchangeRate.bulk_create(rates_to_create, commit=False)
                 rates_fetched = len(rates_to_create)
-                logger.info(f"Prepared {rates_fetched} exchange rates for {from_currency}/{to_currency}")
+
+                if should_invert:
+                    logger.info(f"Prepared {rates_fetched} exchange rates for {from_currency}/{to_currency} "
+                              f"(inverted from {inverse_yahoo_symbol})")
+                else:
+                    logger.info(f"Prepared {rates_fetched} exchange rates for {from_currency}/{to_currency}")
+
+            message = f'Fetched {rates_fetched} new rates, {rates_cached} already cached'
+            if should_invert:
+                message += f' (inverted from {inverse_yahoo_symbol})'
 
             return {
                 'success': True,
@@ -301,7 +395,7 @@ class CurrencyService:
                 'rates_cached': rates_cached,
                 'total_rates': rates_fetched + rates_cached,
                 'errors': errors,
-                'message': f'Fetched {rates_fetched} new rates, {rates_cached} already cached'
+                'message': message
             }
 
         except Exception as e:

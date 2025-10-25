@@ -83,6 +83,68 @@ class CurrencyExchangeRate(db.Model):
         ).first()
 
     @staticmethod
+    def get_rate_with_forward_fill(from_currency: str, to_currency: str, rate_date: date) -> tuple:
+        """
+        Get exchange rate for a date, with forward-fill for missing dates.
+
+        This method implements forward-filling to handle weekends, holidays, and data gaps
+        in currency exchange rates. When a rate doesn't exist for a specific date, it returns
+        the most recent previous rate.
+
+        This is critical for transaction imports and daily metrics calculations to prevent
+        transactions from being skipped due to missing exchange rates on non-trading days.
+
+        Args:
+            from_currency: Source currency code (e.g., 'USD')
+            to_currency: Target currency code (e.g., 'AUD')
+            rate_date: Date for the exchange rate
+
+        Returns:
+            Tuple[Optional[CurrencyExchangeRate], bool]:
+                - (CurrencyExchangeRate, False) if actual rate exists for the requested date
+                - (CurrencyExchangeRate, True) if forward-filled from a previous date
+                - (None, False) if no historical rate exists at all
+
+        Example:
+            # Sept 15, 2024 (Sunday) - no forex trading
+            rate, is_filled = get_rate_with_forward_fill('USD', 'AUD', date(2024, 9, 15))
+            # Returns: (CurrencyExchangeRate from Sept 13 (Friday), True)
+
+            # Sept 16, 2024 (Monday) - forex market open, data available
+            rate, is_filled = get_rate_with_forward_fill('USD', 'AUD', date(2024, 9, 16))
+            # Returns: (CurrencyExchangeRate from Sept 16, False)
+        """
+        from_currency = from_currency.upper()
+        to_currency = to_currency.upper()
+
+        # Try to get exact rate for this date
+        date_key = DateParser.date_to_raw_int(rate_date)
+
+        exact_rate = CurrencyExchangeRate.query.filter_by(
+            from_currency=from_currency,
+            to_currency=to_currency,
+            date_key=date_key
+        ).first()
+
+        if exact_rate:
+            # Exact rate exists for this date
+            return exact_rate, False
+
+        # No rate for this date - forward-fill from most recent previous date
+        previous_rate = CurrencyExchangeRate.query.filter(
+            CurrencyExchangeRate.from_currency == from_currency,
+            CurrencyExchangeRate.to_currency == to_currency,
+            CurrencyExchangeRate.date_key < date_key
+        ).order_by(CurrencyExchangeRate.date_key.desc()).first()
+
+        if previous_rate:
+            # Found historical rate to forward-fill from
+            return previous_rate, True
+
+        # No historical rate exists at all (shouldn't happen after currency pre-fetch)
+        return None, False
+
+    @staticmethod
     def get_or_create(from_currency: str, to_currency: str, rate_date: date, exchange_rate: float):
         """
         Get existing exchange rate or create new one if it doesn't exist.

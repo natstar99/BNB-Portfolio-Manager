@@ -43,7 +43,7 @@ Any changes must maintain mathematical accuracy and handle edge cases like:
 """
 
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 from decimal import Decimal
 
@@ -119,12 +119,48 @@ class DailyMetricsService:
             # Get date range from first transaction to today
             end_date = date.today()
             end_date_key = int(end_date.strftime('%Y%m%d'))
-            
-            # Get all trading days in this range
+
+            # Get all trading days in this range (weekdays only, excludes weekends/holidays)
             trading_days = DateDimension.get_trading_days_in_range(from_date_key, end_date_key)
-            
+
+            # CRITICAL: Fill gaps from last existing metric to today
+            # This ensures continuous metrics even when there are holidays/weekends
+            # Without this, cumulative_shares becomes 0 because there's no previous_metric
+            last_metric = DailyPortfolioMetric.query.filter_by(
+                portfolio_key=portfolio_key,
+                stock_key=stock_key
+            ).order_by(DailyPortfolioMetric.date_key.desc()).first()
+
+            if last_metric:
+                last_metric_date_key = last_metric.date_key
+
+                # Generate ALL calendar days from day after last metric to today
+                # Convert date_keys to actual dates
+                last_metric_date = datetime.strptime(str(last_metric_date_key), '%Y%m%d').date()
+                current_date = last_metric_date + timedelta(days=1)
+
+                dates_to_add = []
+                while current_date <= end_date:
+                    date_key_to_add = int(current_date.strftime('%Y%m%d'))
+                    if date_key_to_add not in trading_days:
+                        dates_to_add.append(date_key_to_add)
+                        # Ensure date exists in DIM_DATE (critical for views with INNER JOIN)
+                        DateDimension.get_or_create_date_entry(current_date, commit=True)
+                    current_date += timedelta(days=1)
+
+                if dates_to_add:
+                    trading_days.extend(dates_to_add)
+                    trading_days.sort()
+                    logger.info(f"Added {len(dates_to_add)} gap days (weekends/holidays) to ensure continuous metrics from {last_metric_date_key} to {end_date_key}")
+            elif end_date_key not in trading_days:
+                # No existing metrics at all, just add today if it's missing
+                DateDimension.get_or_create_date_entry(end_date, commit=True)
+                trading_days.append(end_date_key)
+                trading_days.sort()
+                logger.debug(f"Added today ({end_date_key}) as first metric date")
+
             metrics_calculated = 0
-            
+
             # Process each trading day
             for date_key in trading_days:
                 metric = self._calculate_daily_metric(portfolio_key, stock_key, date_key, transactions, commit=commit)
@@ -180,12 +216,19 @@ class DailyMetricsService:
             
             # Get transactions for this specific date
             day_transactions = [t for t in all_transactions if t.transaction_date == target_date]
-            
-            # Get market price for this date
-            market_price = MarketPrice.get_by_stock_and_date(stock_key, date_key)
+
+            # Get market price for this date (with forward-fill for holidays/gaps)
+            market_price, is_forward_filled = MarketPrice.get_price_with_forward_fill(stock_key, date_key)
             if not market_price:
-                # Skip days without market data (weekends, holidays, etc.)
+                # No market data exists at all (even historically)
+                # This should only happen for very first transaction before any market data
+                logger.warning(f"No market data available for stock {stock_key} on or before {date_key}")
                 return None
+
+            # Log when we're using forward-filled data for transparency
+            if is_forward_filled:
+                logger.debug(f"Forward-filling market price for stock {stock_key} on {date_key} "
+                            f"from previous date {market_price.date_key}")
 
             # Get portfolio base currency and stock currency for conversion
             portfolio = Portfolio.get_by_id(portfolio_key)
@@ -202,34 +245,30 @@ class DailyMetricsService:
             stock_currency = stock.currency
 
             # Get exchange rate for this date (stock currency to portfolio base currency)
+            # Use forward-fill to handle weekends/holidays automatically
             exchange_rate = 1.0
             if stock_currency and stock_currency.upper() != base_currency.upper():
-                rate_record = CurrencyExchangeRate.get_rate(
+                rate_record, is_forward_filled = CurrencyExchangeRate.get_rate_with_forward_fill(
                     from_currency=stock_currency,
                     to_currency=base_currency,
                     rate_date=target_date
                 )
 
                 if not rate_record:
-                    # Fallback: get most recent rate before target date
-                    rate_record = CurrencyExchangeRate.query.filter(
-                        CurrencyExchangeRate.from_currency == stock_currency.upper(),
-                        CurrencyExchangeRate.to_currency == base_currency.upper(),
-                        CurrencyExchangeRate.date_key < date_key
-                    ).order_by(CurrencyExchangeRate.date_key.desc()).first()
+                    # No exchange rate available at all (even historically)
+                    error_msg = (
+                        f"[CURRENCY_NOT_FOUND] No exchange rate available for {stock_currency}/{base_currency} "
+                        f"on or before {target_date} for portfolio {portfolio_key}, stock {stock_key}. "
+                        f"This prevents accurate daily metrics calculation. "
+                        f"Remediation: Run 'Update Market Data' to fetch missing exchange rates, or verify currency codes are correct."
+                    )
+                    logger.error(error_msg)
+                    return None
 
-                    if not rate_record:
-                        error_msg = (
-                            f"[CURRENCY_NOT_FOUND] No exchange rate available for {stock_currency}/{base_currency} "
-                            f"on or before {target_date} for portfolio {portfolio_key}, stock {stock_key}. "
-                            f"This prevents accurate daily metrics calculation. "
-                            f"Remediation: Run 'Update Market Data' to fetch missing exchange rates, or verify currency codes are correct."
-                        )
-                        logger.error(error_msg)
-                        return None
-
-                    logger.info(f"[STALE_RATE] Using fallback exchange rate from date_key {rate_record.date_key} for {target_date} "
-                              f"({stock_currency}/{base_currency})")
+                # Log when using forward-filled rate for transparency
+                if is_forward_filled:
+                    logger.debug(f"Forward-filling exchange rate {stock_currency}/{base_currency} on {target_date} "
+                               f"from previous date {rate_record.date_key}: {rate_record.exchange_rate}")
 
                 exchange_rate = float(rate_record.exchange_rate)
                 logger.debug(f"Exchange rate {stock_currency}/{base_currency} = {exchange_rate} on {target_date}")
