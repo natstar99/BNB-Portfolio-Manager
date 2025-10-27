@@ -239,28 +239,28 @@ WITH daily_totals AS (
     INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
     GROUP BY dm.portfolio_key, dm.date_key, dd.date_value
 )
-SELECT 
+SELECT
     dt.portfolio_key,
     dt.date_value as date,
     dt.total_value,
-    dt.total_cost, 
+    dt.total_cost,
     dt.unrealized_pl,
     dt.daily_pl,
     dt.realized_pl,
     dt.active_positions,
     -- Calculate percentage returns
-    CASE 
-        WHEN dt.total_cost > 0 THEN (dt.unrealized_pl / dt.total_cost) * 100 
-        ELSE 0 
+    CASE
+        WHEN dt.total_cost > 0 THEN (dt.unrealized_pl / dt.total_cost) * 100
+        ELSE 0
     END as return_pct,
     -- Calculate total return (unrealized + realized)
     (dt.unrealized_pl + dt.realized_pl) as total_return,
-    CASE 
-        WHEN dt.total_cost > 0 THEN ((dt.unrealized_pl + dt.realized_pl) / dt.total_cost) * 100 
-        ELSE 0 
+    CASE
+        WHEN dt.total_cost > 0 THEN ((dt.unrealized_pl + dt.realized_pl) / dt.total_cost) * 100
+        ELSE 0
     END as total_return_pct
 FROM daily_totals dt
-WHERE dt.total_value > 0  -- Only include dates with portfolio value
+WHERE dt.active_positions > 0  -- Only include dates with active positions (allows weekend data)
 ORDER BY dt.portfolio_key, dt.date_value;
 
 -- =============================================

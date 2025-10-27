@@ -71,111 +71,103 @@ class DailyMetricsService:
     def recalculate_portfolio_metrics(self, portfolio_key: int, stock_key: int, from_date: date = None, commit: bool = True) -> Dict[str, Any]:
         """
         Recalculate daily metrics for a specific portfolio/stock combination from specified date forward.
-        Used when transactions are added or corrected.
-        
+        Uses INCREMENTAL calculation for performance - only calculates new dates since last metric.
+
         TRANSACTION CONTEXT MANAGEMENT: This method can be called within a transaction
         context manager from TransactionImportService. The commit parameter controls
         whether database operations are committed immediately or deferred.
-        
+
         Args:
             portfolio_key: Portfolio identifier
             stock_key: Stock identifier
             from_date: Start date for recalculation (optional - auto-determined)
             commit: Whether to commit database changes (default True for standalone use)
-            
+
         Returns:
             Dict: Results with success status and metrics count
         """
         try:
-            # Convert date to date_key format
-            if from_date:
-                from_date_key = int(from_date.strftime('%Y%m%d'))
-            else:
-                # Find the earliest transaction date for this portfolio/stock
-                earliest_transaction = Transaction.query.filter_by(
-                    portfolio_key=portfolio_key,
-                    stock_key=stock_key
-                ).order_by(Transaction.transaction_date).first()
-                
-                if not earliest_transaction:
-                    logger.info(f"No transactions found for portfolio {portfolio_key}, stock {stock_key}")
-                    return {'success': True, 'metrics_calculated': 0}
-                
-                from_date_key = int(earliest_transaction.transaction_date.strftime('%Y%m%d'))
-            
-            # Delete existing metrics from this date forward to recalculate
-            DailyPortfolioMetric.delete_metrics_from_date(portfolio_key, stock_key, from_date_key, commit=commit)
-            
-            # Get all transactions for this portfolio/stock from the start date
-            transactions = Transaction.query.join(TransactionType).filter(
-                Transaction.portfolio_key == portfolio_key,
-                Transaction.stock_key == stock_key,
-                Transaction.transaction_date >= from_date
-            ).order_by(Transaction.transaction_date).all()
-            
-            if not transactions:
-                return {'success': True, 'metrics_calculated': 0}
-            
-            # Get date range from first transaction to today
-            end_date = date.today()
-            end_date_key = int(end_date.strftime('%Y%m%d'))
-
-            # Get all trading days in this range (weekdays only, excludes weekends/holidays)
-            trading_days = DateDimension.get_trading_days_in_range(from_date_key, end_date_key)
-
-            # CRITICAL: Fill gaps from last existing metric to today
-            # This ensures continuous metrics even when there are holidays/weekends
-            # Without this, cumulative_shares becomes 0 because there's no previous_metric
+            # Find the last existing metric to determine where to start
             last_metric = DailyPortfolioMetric.query.filter_by(
                 portfolio_key=portfolio_key,
                 stock_key=stock_key
             ).order_by(DailyPortfolioMetric.date_key.desc()).first()
 
-            if last_metric:
-                last_metric_date_key = last_metric.date_key
+            # Determine start date for calculation
+            if from_date:
+                # Explicit from_date provided - recalculate from this date
+                # This requires deleting existing metrics from this date forward
+                from_date_key = int(from_date.strftime('%Y%m%d'))
+                if last_metric and last_metric.date_key >= from_date_key:
+                    # Delete metrics from this date forward for recalculation
+                    DailyPortfolioMetric.delete_metrics_from_date(portfolio_key, stock_key, from_date_key, commit=commit)
+                    logger.info(f"Deleting metrics from {from_date_key} for recalculation")
+                start_date = from_date
+            elif last_metric:
+                # Incremental calculation - start from day after last metric
+                last_metric_date = datetime.strptime(str(last_metric.date_key), '%Y%m%d').date()
+                start_date = last_metric_date + timedelta(days=1)
+                from_date_key = int(start_date.strftime('%Y%m%d'))
+                logger.debug(f"Incremental calculation from {from_date_key} (day after last metric {last_metric.date_key})")
+            else:
+                # No existing metrics - find first transaction
+                earliest_transaction = Transaction.query.filter_by(
+                    portfolio_key=portfolio_key,
+                    stock_key=stock_key
+                ).order_by(Transaction.transaction_date).first()
 
-                # Generate ALL calendar days from day after last metric to today
-                # Convert date_keys to actual dates
-                last_metric_date = datetime.strptime(str(last_metric_date_key), '%Y%m%d').date()
-                current_date = last_metric_date + timedelta(days=1)
+                if not earliest_transaction:
+                    logger.info(f"No transactions found for portfolio {portfolio_key}, stock {stock_key}")
+                    return {'success': True, 'metrics_calculated': 0}
 
-                dates_to_add = []
-                while current_date <= end_date:
-                    date_key_to_add = int(current_date.strftime('%Y%m%d'))
-                    if date_key_to_add not in trading_days:
-                        dates_to_add.append(date_key_to_add)
-                        # Ensure date exists in DIM_DATE (critical for views with INNER JOIN)
-                        DateDimension.get_or_create_date_entry(current_date, commit=True)
-                    current_date += timedelta(days=1)
+                start_date = earliest_transaction.transaction_date
+                from_date_key = int(start_date.strftime('%Y%m%d'))
+                logger.debug(f"Starting from first transaction date {from_date_key}")
 
-                if dates_to_add:
-                    trading_days.extend(dates_to_add)
-                    trading_days.sort()
-                    logger.info(f"Added {len(dates_to_add)} gap days (weekends/holidays) to ensure continuous metrics from {last_metric_date_key} to {end_date_key}")
-            elif end_date_key not in trading_days:
-                # No existing metrics at all, just add today if it's missing
-                DateDimension.get_or_create_date_entry(end_date, commit=True)
-                trading_days.append(end_date_key)
-                trading_days.sort()
-                logger.debug(f"Added today ({end_date_key}) as first metric date")
+            # Check if already up-to-date
+            end_date = date.today()
+            if start_date > end_date:
+                logger.debug(f"Metrics already up-to-date for portfolio {portfolio_key}, stock {stock_key}")
+                return {'success': True, 'metrics_calculated': 0}
 
+            # Get all transactions for this portfolio/stock (need full history for cumulative calculations)
+            transactions = Transaction.query.join(TransactionType).filter(
+                Transaction.portfolio_key == portfolio_key,
+                Transaction.stock_key == stock_key
+            ).order_by(Transaction.transaction_date).all()
+
+            if not transactions:
+                logger.info(f"No transactions found for portfolio {portfolio_key}, stock {stock_key}")
+                return {'success': True, 'metrics_calculated': 0}
+
+            # Calculate metrics for ALL calendar days from start_date to today
+            # This includes weekends and holidays - forward-fill will handle missing market data
             metrics_calculated = 0
+            current_date = start_date
+            end_date_key = int(end_date.strftime('%Y%m%d'))
 
-            # Process each trading day
-            for date_key in trading_days:
+            while current_date <= end_date:
+                date_key = int(current_date.strftime('%Y%m%d'))
+
+                # Ensure date exists in DIM_DATE (required for views with INNER JOIN)
+                DateDimension.get_or_create_date_entry(current_date, commit=True)
+
+                # Calculate metric for this date
                 metric = self._calculate_daily_metric(portfolio_key, stock_key, date_key, transactions, commit=commit)
                 if metric:
                     metrics_calculated += 1
-            
-            logger.info(f"Recalculated {metrics_calculated} daily metrics for portfolio {portfolio_key}, stock {stock_key}")
-            
+
+                current_date += timedelta(days=1)
+
+            logger.info(f"Calculated {metrics_calculated} daily metrics for portfolio {portfolio_key}, stock {stock_key} from {from_date_key} to {end_date_key}")
+
             return {
                 'success': True,
                 'metrics_calculated': metrics_calculated,
                 'from_date_key': from_date_key,
                 'to_date_key': end_date_key
             }
-            
+
         except Exception as e:
             logger.error(f"Error recalculating metrics for portfolio {portfolio_key}, stock {stock_key}: {str(e)}")
             # Don't rollback here - let calling method handle transaction rollback

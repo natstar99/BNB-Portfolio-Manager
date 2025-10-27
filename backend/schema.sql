@@ -252,6 +252,8 @@ CREATE INDEX idx_market_prices_date ON FACT_MARKET_PRICES(date_key);
 CREATE INDEX idx_daily_metrics_portfolio_date ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, date_key);
 CREATE INDEX idx_daily_metrics_stock_date ON FACT_DAILY_PORTFOLIO_METRICS(stock_key, date_key);
 CREATE INDEX idx_daily_metrics_portfolio_stock ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, stock_key);
+-- Composite index for incremental calculation - optimizes last metric lookup
+CREATE INDEX idx_daily_metrics_portfolio_stock_date ON FACT_DAILY_PORTFOLIO_METRICS(portfolio_key, stock_key, date_key);
 
 -- Market codes table indexes
 CREATE INDEX idx_market_codes_suffix ON DIM_YAHOO_MARKET_CODES(market_suffix);
