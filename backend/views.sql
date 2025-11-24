@@ -148,55 +148,6 @@ WHERE p.is_active = TRUE
 ORDER BY t.transaction_date DESC, t.created_at DESC;
 
 -- =============================================
--- PORTFOLIO PERFORMANCE HISTORY VIEW
--- =============================================
-
--- Historical portfolio performance for charts and analytics
--- This provides time-series data for performance visualization
-CREATE VIEW V_PORTFOLIO_PERFORMANCE_HISTORY AS
-WITH daily_portfolio_totals AS (
-    SELECT 
-        dm.portfolio_key,
-        dm.date_key,
-        dd.date_value,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.market_value ELSE 0 END) as total_value,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.total_cost_basis ELSE 0 END) as total_cost,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.unrealized_pl ELSE 0 END) as unrealized_pl,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.daily_pl ELSE 0 END) as daily_pl,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.realized_pl ELSE 0 END) as realized_pl,
-        COUNT(CASE WHEN dm.cumulative_shares > 0.000001 THEN 1 END) as active_positions
-    FROM FACT_DAILY_PORTFOLIO_METRICS dm
-    INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
-    GROUP BY dm.portfolio_key, dm.date_key, dd.date_value
-)
-SELECT 
-    p.portfolio_key,
-    p.portfolio_name,
-    p.base_currency,
-    dpt.date_key,
-    dpt.date_value,
-    dpt.total_value,
-    dpt.total_cost,
-    dpt.unrealized_pl,
-    dpt.daily_pl,
-    dpt.realized_pl,
-    dpt.active_positions,
-    -- Calculate percentage returns
-    CASE 
-        WHEN dpt.total_cost > 0 THEN (dpt.unrealized_pl / dpt.total_cost) * 100
-        ELSE 0
-    END as unrealized_pl_percent,
-    -- Calculate cumulative return from start
-    CASE 
-        WHEN dpt.total_cost > 0 THEN ((dpt.total_value - dpt.total_cost) / dpt.total_cost) * 100
-        ELSE 0
-    END as cumulative_return_percent
-FROM DIM_PORTFOLIO p
-INNER JOIN daily_portfolio_totals dpt ON p.portfolio_key = dpt.portfolio_key
-WHERE p.is_active = TRUE
-ORDER BY p.portfolio_key, dpt.date_value DESC;
-
--- =============================================
 -- INDEXES FOR VIEW PERFORMANCE
 -- =============================================
 
@@ -225,7 +176,7 @@ WHERE cumulative_shares > 0.000001;
 -- This provides aggregated daily portfolio metrics for chart visualization
 CREATE VIEW V_PORTFOLIO_ANALYTICS_TIMESERIES AS
 WITH daily_totals AS (
-    SELECT 
+    SELECT
         dm.portfolio_key,
         dm.date_key,
         dd.date_value,
@@ -233,7 +184,7 @@ WITH daily_totals AS (
         SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.total_cost_basis ELSE 0 END) as total_cost,
         SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.unrealized_pl ELSE 0 END) as unrealized_pl,
         SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.daily_pl ELSE 0 END) as daily_pl,
-        SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.realized_pl ELSE 0 END) as realized_pl,
+        SUM(dm.realized_pl) as realized_pl,
         COUNT(CASE WHEN dm.cumulative_shares > 0.000001 THEN 1 END) as active_positions
     FROM FACT_DAILY_PORTFOLIO_METRICS dm
     INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
