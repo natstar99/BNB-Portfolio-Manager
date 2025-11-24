@@ -418,8 +418,8 @@ export const Analytics: React.FC = () => {
           <div className="analytics-tile" onClick={() => setSelectedChart('portfolio-pl')}>
             <div className="tile-header">
               <h3>Portfolio P&L</h3>
-              <div className={`tile-value ${(analyticsData.portfolio.gain_loss + analyticsData.portfolio.realized_pl || 0) >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(analyticsData.portfolio.gain_loss || 0, analyticsData?.portfolio?.currency)}
+              <div className={`tile-value ${(analyticsData.portfolio.total_pl || 0) >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(analyticsData.portfolio.total_pl || 0, analyticsData?.portfolio?.currency)}
               </div>
             </div>
             <div className="chart-container">

@@ -267,12 +267,12 @@ export const PortfolioDashboard: React.FC = () => {
               </div>
               <div className="summary-details">
                 <span className="summary-label">Total Return</span>
-                <span className={`summary-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(portfolio.gain_loss || 0, portfolio?.currency)}
+                <span className={`summary-value ${(portfolio.total_pl || 0) >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(portfolio.total_pl || 0, portfolio?.currency)}
                 </span>
-                {portfolio.gain_loss_percent !== undefined && (
-                  <span className={`summary-change ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
-                    {formatPercent(portfolio.gain_loss_percent)}
+                {portfolio.total_pl_percent !== undefined && (
+                  <span className={`summary-change ${(portfolio.total_pl_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
+                    {formatPercent(portfolio.total_pl_percent)}
                   </span>
                 )}
               </div>
@@ -491,11 +491,11 @@ export const PortfolioDashboard: React.FC = () => {
                 <div className="performance-metrics">
                   <div className="performance-metric">
                     <span className="metric-label">Total Return</span>
-                    <span className={`metric-value ${(portfolio.gain_loss || 0) >= 0 ? 'positive' : 'negative'}`}>
-                      {formatCurrency(portfolio.gain_loss || 0, portfolio?.currency)}
+                    <span className={`metric-value ${(portfolio.total_pl || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatCurrency(portfolio.total_pl || 0, portfolio?.currency)}
                     </span>
-                    <span className={`metric-percentage ${(portfolio.gain_loss_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
-                      {formatPercent(portfolio.gain_loss_percent || 0)}
+                    <span className={`metric-percentage ${(portfolio.total_pl_percent || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatPercent(portfolio.total_pl_percent || 0)}
                     </span>
                   </div>
                   <div className="performance-metric">

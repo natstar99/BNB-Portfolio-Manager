@@ -47,7 +47,7 @@ portfolio_aggregates AS (
                                  AND dm.date_key = lm.latest_date_key
     GROUP BY dm.portfolio_key
 )
-SELECT 
+SELECT
     p.portfolio_key,
     p.portfolio_name,
     p.base_currency,
@@ -55,11 +55,17 @@ SELECT
     COALESCE(pa.active_positions, 0) as stock_count,
     COALESCE(pa.total_value, 0.0) as total_value,
     COALESCE(pa.total_cost, 0.0) as total_cost,
-    COALESCE(pa.unrealized_pl, 0.0) as gain_loss,
-    COALESCE(pa.unrealized_pl_percent, 0.0) as gain_loss_percent,
+    COALESCE(pa.unrealized_pl, 0.0) as unrealized_pl,
+    COALESCE(pa.realized_pl, 0.0) as realized_pl,
+    -- Total P/L includes both unrealized (open positions) and realized (closed positions)
+    COALESCE(pa.unrealized_pl, 0.0) + COALESCE(pa.realized_pl, 0.0) as total_pl,
+    CASE
+        WHEN COALESCE(pa.total_cost, 0.0) > 0 THEN
+            ((COALESCE(pa.unrealized_pl, 0.0) + COALESCE(pa.realized_pl, 0.0)) / pa.total_cost) * 100
+        ELSE 0
+    END as total_pl_percent,
     COALESCE(pa.day_change, 0.0) as day_change,
-    COALESCE(pa.day_change_percent, 0.0) as day_change_percent,
-    COALESCE(pa.realized_pl, 0.0) as realized_pl
+    COALESCE(pa.day_change_percent, 0.0) as day_change_percent
 FROM DIM_PORTFOLIO p
 LEFT JOIN portfolio_aggregates pa ON p.portfolio_key = pa.portfolio_key
 WHERE p.is_active = TRUE;

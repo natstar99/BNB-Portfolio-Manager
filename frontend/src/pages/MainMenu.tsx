@@ -54,7 +54,7 @@ export const MainMenu: React.FC = () => {
   };
 
   const totalPortfolioValue = portfolios.reduce((sum, portfolio) => sum + (portfolio.total_value || 0), 0);
-  const totalGainLoss = portfolios.reduce((sum, portfolio) => sum + (portfolio.gain_loss || 0), 0);
+  const totalGainLoss = portfolios.reduce((sum, portfolio) => sum + (portfolio.total_pl || 0), 0);
 
   return (
     <div className="main-menu">
@@ -213,8 +213,8 @@ export const MainMenu: React.FC = () => {
                     </div>
                     <div className="metric">
                       <span className="label">Gain/Loss</span>
-                      <span className={`value ${portfolio.gain_loss ? (portfolio.gain_loss >= 0 ? 'positive' : 'negative') : ''}`}>
-                        {portfolio.gain_loss ? formatCurrency(portfolio.gain_loss) : '$0.00'}
+                      <span className={`value ${portfolio.total_pl ? (portfolio.total_pl >= 0 ? 'positive' : 'negative') : ''}`}>
+                        {portfolio.total_pl ? formatCurrency(portfolio.total_pl) : '$0.00'}
                       </span>
                     </div>
                     <div className="metric">

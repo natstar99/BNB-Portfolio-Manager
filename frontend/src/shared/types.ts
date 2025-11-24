@@ -1,5 +1,11 @@
 // Shared types between frontend and backend
 
+/**
+ * Portfolio Dashboard Summary
+ * Represents aggregated portfolio metrics at a single point in time (latest data).
+ * This is the total portfolio summary, NOT day-by-day historical data.
+ * Source: V_PORTFOLIO_DASHBOARD_SUMMARY view
+ */
 export interface Portfolio {
   id: number;
   name: string;
@@ -10,8 +16,10 @@ export interface Portfolio {
   // Optional financial metrics (may not be present initially)
   total_value?: number;
   total_cost?: number;
-  gain_loss?: number;
-  gain_loss_percent?: number;
+  unrealized_pl?: number;      // Unrealized profit/loss from open positions
+  realized_pl?: number;        // Realized profit/loss from closed positions
+  total_pl?: number;           // Total P/L (unrealized + realized)
+  total_pl_percent?: number;   // Total P/L as percentage of cost basis
   day_change?: number;
   day_change_percent?: number;
   stock_count?: number;
@@ -50,17 +58,6 @@ export interface Transaction {
   transaction_type: 'buy' | 'sell' | 'dividend' | 'split';
   currency_conversion_rate: number;
   original_price: number;
-}
-
-export interface PortfolioMetrics {
-  total_value: number;
-  total_investment: number;
-  unrealised_pl: number;
-  realised_pl: number;
-  total_return: number;
-  total_return_percentage: number;
-  daily_pl: number;
-  daily_pl_percentage: number;
 }
 
 export interface StockHolding {
@@ -102,14 +99,20 @@ export interface Position {
   day_change_percent: number;
 }
 
+/**
+ * Portfolio Performance Time-Series Data
+ * Represents day-by-day historical portfolio metrics (NOT aggregated totals).
+ * Each record is a snapshot of the portfolio on a specific date.
+ * Source: V_PORTFOLIO_ANALYTICS_TIMESERIES view
+ */
 export interface PerformanceData {
   date: string;
   total_value: number;
   total_cost: number;
-  unrealized_pl: number;
-  realized_pl: number;
-  daily_pl: number;
-  total_return: number;
+  unrealized_pl: number;       // Unrealized P/L on this date
+  realized_pl: number;         // Cumulative realized P/L up to this date
+  daily_pl: number;            // Day-over-day change in value
+  total_return: number;        // Total return (unrealized + realized)
   return_pct: number;
   total_return_pct: number;
   active_positions: number;

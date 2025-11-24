@@ -135,11 +135,12 @@ class Portfolio(db.Model):
                     'stock_count': int(result.stock_count) if result.stock_count is not None else 0,
                     'total_value': float(result.total_value) if result.total_value is not None else 0.0,
                     'total_cost': float(result.total_cost) if result.total_cost is not None else 0.0,
-                    'gain_loss': float(result.gain_loss) if result.gain_loss is not None else 0.0,
-                    'gain_loss_percent': float(result.gain_loss_percent) if result.gain_loss_percent is not None else 0.0,
+                    'unrealized_pl': float(result.unrealized_pl) if result.unrealized_pl is not None else 0.0,
+                    'realized_pl': float(result.realized_pl) if result.realized_pl is not None else 0.0,
+                    'total_pl': float(result.total_pl) if result.total_pl is not None else 0.0,
+                    'total_pl_percent': float(result.total_pl_percent) if result.total_pl_percent is not None else 0.0,
                     'day_change': float(result.day_change) if result.day_change is not None else 0.0,
-                    'day_change_percent': float(result.day_change_percent) if result.day_change_percent is not None else 0.0,
-                    'realized_pl': float(result.realized_pl) if result.realized_pl is not None else 0.0
+                    'day_change_percent': float(result.day_change_percent) if result.day_change_percent is not None else 0.0
                 }
             else:
                 # Return zero values if no data found for this portfolio
@@ -151,11 +152,12 @@ class Portfolio(db.Model):
                     'stock_count': 0,
                     'total_value': 0.0,
                     'total_cost': 0.0,
-                    'gain_loss': 0.0,
-                    'gain_loss_percent': 0.0,
+                    'unrealized_pl': 0.0,
+                    'realized_pl': 0.0,
+                    'total_pl': 0.0,
+                    'total_pl_percent': 0.0,
                     'day_change': 0.0,
-                    'day_change_percent': 0.0,
-                    'realized_pl': 0.0
+                    'day_change_percent': 0.0
                 }
         except Exception as e:
             print(f"Error fetching dashboard metrics for portfolio {self.portfolio_key}: {str(e)}")
@@ -168,11 +170,12 @@ class Portfolio(db.Model):
                 'stock_count': 0,
                 'total_value': 0.0,
                 'total_cost': 0.0,
-                'gain_loss': 0.0,
-                'gain_loss_percent': 0.0,
+                'unrealized_pl': 0.0,
+                'realized_pl': 0.0,
+                'total_pl': 0.0,
+                'total_pl_percent': 0.0,
                 'day_change': 0.0,
-                'day_change_percent': 0.0,
-                'realized_pl': 0.0
+                'day_change_percent': 0.0
             }
     
     def get_current_positions(self):
