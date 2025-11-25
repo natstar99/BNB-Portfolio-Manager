@@ -55,8 +55,8 @@ class Portfolio(db.Model):
                     'stock_count': metrics['stock_count'],
                     'total_value': metrics['total_value'],
                     'total_cost': metrics['total_cost'],
-                    'gain_loss': metrics['gain_loss'],
-                    'gain_loss_percent': metrics['gain_loss_percent'],
+                    'gain_loss': metrics['total_pl'],  # total_pl = unrealized_pl + realized_pl
+                    'gain_loss_percent': metrics['total_pl_percent'],
                     'day_change': metrics['day_change'],
                     'day_change_percent': metrics['day_change_percent'],
                     'realized_pl': metrics['realized_pl']

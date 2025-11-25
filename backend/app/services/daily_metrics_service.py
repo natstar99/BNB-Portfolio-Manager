@@ -271,13 +271,11 @@ class DailyMetricsService:
                 cumulative_split_ratio = float(previous_metric.cumulative_split_ratio)
                 total_cost_basis = float(previous_metric.total_cost_basis)
                 realized_pl = float(previous_metric.realized_pl)
-                cumulative_dividends = float(previous_metric.cumulative_dividends)
             else:
                 cumulative_shares = 0.0
                 cumulative_split_ratio = 1.0
                 total_cost_basis = 0.0
                 realized_pl = 0.0
-                cumulative_dividends = 0.0
             
             # Process transactions for this date
             transaction_quantity = 0.0
@@ -316,10 +314,10 @@ class DailyMetricsService:
                         realized_pl += (value - total_cost_basis)
                         total_cost_basis = 0.0
                         
-                elif trans_type.transaction_type == 'DIVIDEND':
-                    cash_dividend += value
-                    cumulative_dividends += value
-                    
+                # Manual DIVIDEND transactions - commented out in favor of automatic dividend detection
+                # elif trans_type.transaction_type == 'DIVIDEND':
+                #     cash_dividend += value
+
                 elif trans_type.transaction_type == 'SPLIT':
                     split_ratio = float(market_price.split_ratio) if market_price.split_ratio else 1.0
                     cumulative_shares *= split_ratio
@@ -338,8 +336,39 @@ class DailyMetricsService:
             close_price = float(market_price.close_price)
             close_price_base = close_price * exchange_rate  # Convert to portfolio base currency
             market_value = cumulative_shares * close_price_base
-            
-            # Calculate average cost basis
+
+            # Process automatic dividends from market data
+            # Only process dividends for active positions (market_value >= $0.01)
+            if market_price.dividend and float(market_price.dividend) > 0 and market_value >= 0.01:
+                dividend_per_share = float(market_price.dividend)
+                total_dividend_value = cumulative_shares * dividend_per_share
+
+                logger.debug(f"Dividend detected for stock {stock_key} on {date_key}: "
+                           f"{dividend_per_share} per share, {cumulative_shares} shares, "
+                           f"total value {total_dividend_value}, DRP enabled: {stock.drp_enabled}")
+
+                if stock.drp_enabled:
+                    # Dividend Reinvestment Plan: Convert dividend to additional shares
+                    # These are "free shares" that don't increase cost basis
+                    drp_shares = total_dividend_value / close_price_base
+                    cumulative_shares += drp_shares
+
+                    # Recalculate market value with new share count
+                    market_value = cumulative_shares * close_price_base
+
+                    cash_dividend = 0.0  # Fully reinvested
+
+                    logger.debug(f"DRP: Acquired {drp_shares} shares at {close_price_base}, "
+                               f"new total shares: {cumulative_shares}")
+                else:
+                    # Cash dividend: Add to realized P&L
+                    realized_pl += total_dividend_value
+                    cash_dividend = total_dividend_value
+                    drp_shares = 0.0
+
+                    logger.debug(f"Cash dividend: {total_dividend_value} added to realized P&L")
+
+            # Calculate average cost basis (must be after dividend processing as shares may have changed)
             average_cost_basis = 0.0
             if cumulative_shares > 0:
                 average_cost_basis = total_cost_basis / cumulative_shares
@@ -378,9 +407,10 @@ class DailyMetricsService:
                 daily_pl_pct = (daily_pl / float(previous_metric.market_value)) * 100
             
             # Calculate total return percentage
+            # Note: cumulative_dividends removed - DRP dividends are in share count, cash dividends are in realized_pl
             total_return_pct = 0.0
             if total_cost_basis > 0:
-                total_return = (market_value + realized_pl + cumulative_dividends - total_cost_basis)
+                total_return = (market_value + realized_pl - total_cost_basis)
                 total_return_pct = (total_return / total_cost_basis) * 100
             
             # Create the daily metric record
@@ -406,7 +436,7 @@ class DailyMetricsService:
                 total_return_pct=total_return_pct,
                 cash_dividend=cash_dividend,
                 drp_shares=drp_shares,
-                cumulative_dividends=cumulative_dividends
+                cumulative_dividends=0.0  # Deprecated - dividends now tracked via realized_pl and share count
             )
             
             db.session.add(metric)
@@ -474,9 +504,10 @@ class DailyMetricsService:
             total_daily_pl = sum(float(h.daily_pl) for h in current_holdings)
             
             # Calculate percentages
+            # Note: cumulative_dividends removed - DRP dividends are in share count, cash dividends are in realized_pl
             total_return_pct = 0.0
             daily_pl_pct = 0.0
-            
+
             if total_cost_basis > 0:
                 total_return = total_market_value + total_realized_pl - total_cost_basis
                 total_return_pct = (total_return / total_cost_basis) * 100
