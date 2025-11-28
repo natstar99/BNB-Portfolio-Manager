@@ -24,12 +24,6 @@ export const CURRENCIES = {
   CHF: 'CHF'
 } as const;
 
-export const CALCULATION_METHODS = {
-  FIFO: 'fifo',
-  LIFO: 'lifo',
-  HIFO: 'hifo'
-} as const;
-
 export const API_ENDPOINTS = {
   PORTFOLIOS: '/api/portfolios',
   STOCKS: '/api/stocks',

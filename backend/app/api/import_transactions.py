@@ -9,7 +9,6 @@ from app import db
 import io
 import pandas as pd
 import json
-import uuid
 from datetime import datetime
 
 

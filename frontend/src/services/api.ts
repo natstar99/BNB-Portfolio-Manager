@@ -45,38 +45,6 @@ export const portfolioApi = {
     api.delete(`/portfolios/${portfolioId}/stocks/${stockId}`).then(res => res.data),
 };
 
-// Stock API
-export const stockApi = {
-  getAll: (): Promise<ApiResponse<Stock[]>> =>
-    api.get('/stocks').then(res => res.data),
-  
-  getById: (id: number): Promise<ApiResponse<Stock>> =>
-    api.get(`/stocks/${id}`).then(res => res.data),
-  
-  create: (data: Partial<Stock>): Promise<ApiResponse<Stock>> =>
-    api.post('/stocks', data).then(res => res.data),
-  
-  update: (id: number, data: Partial<Stock>): Promise<ApiResponse<Stock>> =>
-    api.put(`/stocks/${id}`, data).then(res => res.data),
-  
-  delete: (id: number): Promise<ApiResponse<void>> =>
-    api.delete(`/stocks/${id}`).then(res => res.data),
-  
-  search: (query: string): Promise<ApiResponse<Stock[]>> =>
-    api.get(`/stocks/search?q=${encodeURIComponent(query)}`).then(res => res.data),
-  
-  updatePrice: (id: number, price: number): Promise<ApiResponse<Stock>> =>
-    api.put(`/stocks/${id}/price`, { price }).then(res => res.data),
-  
-  verify: (id: number): Promise<ApiResponse<Stock>> =>
-    api.post(`/stocks/${id}/verify`).then(res => res.data),
-  
-  getHistoricalPrices: (id: number, startDate?: string, endDate?: string): Promise<ApiResponse<any[]>> =>
-    api.get(`/stocks/${id}/historical-prices`, {
-      params: { start_date: startDate, end_date: endDate }
-    }).then(res => res.data),
-};
-
 // Transaction API
 export const transactionApi = {
   getAll: (params?: {

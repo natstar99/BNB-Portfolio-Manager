@@ -5,7 +5,6 @@ Simple coverage runner - tracks code usage and generates HTML report
 
 import coverage
 import os
-import sys
 
 def run_with_coverage():
     """Run Flask app with simple coverage tracking"""
