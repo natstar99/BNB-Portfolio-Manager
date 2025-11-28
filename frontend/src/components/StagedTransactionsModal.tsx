@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import '../styles/staged-transactions-modal.css';
 
 interface StagedTransaction {
   id: number;

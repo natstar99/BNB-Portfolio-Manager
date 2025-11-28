@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { StockVerification } from '../components/import/StockVerification';
 import { StagedTransactionsModal } from '../components/StagedTransactionsModal';
-import '../styles/transaction-import.css';
 
 export const StockManagement: React.FC = () => {
   const { portfolioId } = useParams<{ portfolioId: string }>();

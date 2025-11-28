@@ -1,0 +1,191 @@
+/* Terminal Theme - 1990s FBI/Corporate Statistical Terminal */
+[data-theme="terminal"] {
+  /* Terminal Colors */
+  --color-primary: #ffffff;
+  --color-primary-light: #ffffff;
+  --color-primary-dark: #cccccc;
+  --color-primary-rgb: 255, 255, 255;
+
+  /* Secondary Colors */
+  --color-secondary: #cccccc;
+  --color-secondary-light: #ffffff;
+  --color-secondary-dark: #999999;
+
+  /* Status Colors */
+  --color-success: #00ff00;
+  --color-success-light: #33ff33;
+  --color-success-dark: #00cc00;
+
+  --color-warning: #ff8800;
+  --color-warning-light: #ffaa33;
+  --color-warning-dark: #cc6600;
+
+  --color-error: #ff0000;
+  --color-error-light: #ff3333;
+  --color-error-dark: #cc0000;
+
+  /* Pure Black Background */
+  --color-background: #000000;
+  --color-surface: #000000;
+  --color-surface-secondary: #0a0a0a;
+  --color-surface-tertiary: #111111;
+  --color-surface-elevated: #050505;
+
+  /* White Text */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #cccccc;
+  --color-text-tertiary: #999999;
+  --color-text-inverse: #000000;
+
+  /* Softer Borders */
+  --color-border: #666666;
+  --color-border-light: #888888;
+  --color-border-dark: #444444;
+
+  /* Glass/Modal */
+  --glass-background: rgba(0, 0, 0, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+/* Terminal theme styling */
+[data-theme="terminal"] body {
+  background-color: var(--color-background) !important;
+  background-image: none;
+  font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+
+/* Terminal-style elements */
+[data-theme="terminal"] .card {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1rem;
+}
+
+/* Terminal-style table */
+[data-theme="terminal"] .table {
+  border: 1px solid var(--color-border);
+  border-collapse: collapse;
+}
+
+[data-theme="terminal"] .table th,
+[data-theme="terminal"] .table td {
+  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 14px;
+}
+
+[data-theme="terminal"] .table th {
+  background: transparent;
+  text-transform: uppercase;
+  font-weight: bold;
+  border-bottom: 2px solid var(--color-border);
+}
+
+[data-theme="terminal"] .table tbody tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+[data-theme="terminal"] .table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="terminal"] button {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 0;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+  font-size: 13px;
+}
+
+[data-theme="terminal"] button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="terminal"] a {
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+[data-theme="terminal"] a:hover {
+  text-decoration: underline;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="terminal"] h1,
+[data-theme="terminal"] h2,
+[data-theme="terminal"] h3 {
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+[data-theme="terminal"] h1 {
+  font-size: 1.2rem;
+}
+
+[data-theme="terminal"] .positive {
+  color: var(--color-success);
+}
+
+[data-theme="terminal"] .negative {
+  color: var(--color-error);
+}
+
+/* Modal overlay for terminal */
+[data-theme="terminal"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.9) !important;
+}
+
+[data-theme="terminal"] input,
+[data-theme="terminal"] textarea,
+[data-theme="terminal"] select {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+  border-radius: 0;
+  font-size: 14px;
+}
+
+[data-theme="terminal"] input:focus,
+[data-theme="terminal"] textarea:focus,
+[data-theme="terminal"] select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+}
+
+/* Orange accents for warnings/special elements */
+[data-theme="terminal"] .warning,
+[data-theme="terminal"] .alert {
+  color: var(--color-warning);
+}
+
+/* Statistical/data emphasis */
+[data-theme="terminal"] .stat-value,
+[data-theme="terminal"] .metric-value {
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* Box drawing characters aesthetic (optional enhancement) */
+[data-theme="terminal"] .box-border {
+  border-style: solid;
+  border-width: 1px;
+}

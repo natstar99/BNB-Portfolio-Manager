@@ -5,7 +5,6 @@ import { ColumnMapping } from '../components/import/ColumnMapping';
 import { DataPreview } from '../components/import/DataPreview';
 import { ImportSummary } from '../components/import/ImportSummary';
 import { StockVerification } from '../components/import/StockVerification';
-import '../styles/transaction-import.css';
 
 export interface ImportData {
   file: File | null;

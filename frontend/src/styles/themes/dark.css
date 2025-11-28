@@ -1,0 +1,37 @@
+/* Dark Theme - Warm Dark Palette */
+[data-theme="dark"] {
+  /* Keep primary colors from light theme */
+  --color-primary: #4a7c1e;
+  --color-primary-light: #5a8c2e;
+  --color-primary-dark: #3a6c0e;
+  --color-primary-rgb: 74, 124, 30;
+
+  /* Neutral Colors - Dark */
+  --color-background: #1a1612;
+  --color-surface: #2a241f;
+  --color-surface-secondary: #3a332c;
+  --color-surface-tertiary: #4a4139;
+  --color-surface-elevated: #2f2722;
+
+  --color-text-primary: #f5f3f0;
+  --color-text-secondary: #c8c4bf;
+  --color-text-tertiary: #a19b94;
+  --color-text-inverse: #2c2c2c;
+
+  --color-border: #3a332c;
+  --color-border-light: #4a4139;
+  --color-border-dark: #2a241f;
+
+  /* Dark Glass Effects */
+  --glass-background: rgba(42, 36, 31, 0.85);
+  --glass-border: rgba(161, 155, 148, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark theme background gradient */
+[data-theme="dark"] body {
+  background-color: var(--color-background) !important;
+  background-image:
+    radial-gradient(at 47% 33%, hsl(45, 15%, 12%) 0px, transparent 59%),
+    radial-gradient(at 82% 65%, hsl(35, 20%, 10%) 0px, transparent 55%);
+}

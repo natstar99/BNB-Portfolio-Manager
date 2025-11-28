@@ -11,7 +11,10 @@ import { StockManagement } from './pages/StockManagement';
 import { Settings } from './pages/Settings';
 import './styles/globals.css';
 import './styles/layout.css';
-import './App.css';
+import './styles/themes/dark.css';
+import './styles/themes/pipboy.css';
+import './styles/themes/plain.css';
+import './styles/themes/terminal.css';
 
 function App() {
   return (

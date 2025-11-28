@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePortfolios } from '../hooks/usePortfolios';
 import { Portfolio } from '../shared/types';
-import '../styles/settings.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -62,7 +61,7 @@ export const Settings: React.FC = () => {
       const data = await response.json();
 
       if (data.success) {
-        setMessage({ type: 'success', text: 'Portfolio base currency updated successfully' });
+        setMessage({ type: 'success', text: 'Portfolio currency updated successfully' });
         setEditingPortfolio(null);
         await refreshPortfolios();
       } else {
@@ -79,111 +78,98 @@ export const Settings: React.FC = () => {
   if (portfoliosLoading || loadingCurrencies) {
     return (
       <div className="page">
-        <div className="page-header">
-          <h1>Settings</h1>
-          <p className="page-subtitle">Configure your portfolio preferences</p>
-        </div>
-        <div className="loading">Loading...</div>
+        <h1>Settings</h1>
+        <p>Loading...</p>
       </div>
     );
   }
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>Settings</h1>
-        <p className="page-subtitle">Configure your portfolio preferences</p>
-      </div>
+      <h1>Settings</h1>
+      <p>Configure your portfolio preferences</p>
 
       {message && (
-        <div className={`message ${message.type}`}>
+        <div className={`message ${message.type}`} style={{ padding: '1rem', marginBottom: '1rem' }}>
           {message.text}
         </div>
       )}
 
-      <div className="settings-content">
-        <section className="settings-section glass">
-          <div className="settings-section-header">
-            <h2>Portfolio Currency Settings</h2>
-            <p>Set the base currency for each portfolio. All portfolio values and analytics will be displayed in this currency.</p>
-          </div>
+      <h2>Portfolio Currency Settings</h2>
+      <p>Set the base currency for each portfolio.</p>
 
-          {portfolios.length === 0 ? (
-            <div className="empty-state">
-              <p>No portfolios found. Create a portfolio first to configure currency settings.</p>
-            </div>
-          ) : (
-            <div className="portfolio-currency-list">
-              {portfolios.map((portfolio) => (
-                <div key={portfolio.id} className="portfolio-currency-item">
-                  <div className="portfolio-info">
-                    <h3>{portfolio.name}</h3>
-                    {portfolio.description && (
-                      <p className="portfolio-description">{portfolio.description}</p>
-                    )}
-                  </div>
-
+      {portfolios.length === 0 ? (
+        <p>No portfolios found. Create a portfolio first.</p>
+      ) : (
+        <table className="table" style={{ marginBottom: '2rem' }}>
+          <thead>
+            <tr>
+              <th>Portfolio</th>
+              <th>Currency</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {portfolios.map((portfolio) => (
+              <tr key={portfolio.id}>
+                <td>
+                  <strong>{portfolio.name}</strong>
+                  {portfolio.description && <br />}
+                  {portfolio.description && <small>{portfolio.description}</small>}
+                </td>
+                <td>
                   {editingPortfolio === portfolio.id ? (
-                    <div className="currency-edit-controls">
-                      <select
-                        value={selectedCurrency}
-                        onChange={(e) => setSelectedCurrency(e.target.value)}
-                        className="currency-select"
-                        disabled={saving}
-                      >
-                        {currencies.map((currency) => (
-                          <option key={currency} value={currency}>
-                            {currency}
-                          </option>
-                        ))}
-                      </select>
+                    <select
+                      value={selectedCurrency}
+                      onChange={(e) => setSelectedCurrency(e.target.value)}
+                      disabled={saving}
+                    >
+                      {currencies.map((currency) => (
+                        <option key={currency} value={currency}>
+                          {currency}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    portfolio.currency || 'USD'
+                  )}
+                </td>
+                <td>
+                  {editingPortfolio === portfolio.id ? (
+                    <>
                       <button
                         onClick={() => handleSaveCurrency(portfolio.id)}
-                        className="btn btn-primary btn-sm"
                         disabled={saving}
+                        style={{ marginRight: '0.5rem' }}
                       >
                         {saving ? 'Saving...' : 'Save'}
                       </button>
                       <button
                         onClick={handleCancelEdit}
-                        className="btn btn-secondary btn-sm"
                         disabled={saving}
                       >
                         Cancel
                       </button>
-                    </div>
+                    </>
                   ) : (
-                    <div className="currency-display-controls">
-                      <span className="current-currency">{portfolio.currency || 'USD'}</span>
-                      <button
-                        onClick={() => handleEditPortfolio(portfolio)}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Change Currency
-                      </button>
-                    </div>
+                    <button onClick={() => handleEditPortfolio(portfolio)}>
+                      Change Currency
+                    </button>
                   )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
-        <section className="settings-section glass">
-          <div className="settings-section-header">
-            <h2>Currency Information</h2>
-            <p>Multi-currency support allows you to track international stocks and automatically convert values to your portfolio's base currency.</p>
-          </div>
-          <div className="info-content">
-            <ul>
-              <li><strong>Exchange Rates:</strong> Historical exchange rates are fetched from Yahoo Finance</li>
-              <li><strong>Transaction Processing:</strong> Each transaction is converted using the rate from the transaction date</li>
-              <li><strong>Supported Currencies:</strong> {currencies.length} currencies available</li>
-              <li><strong>Automatic Conversion:</strong> Stock currencies are determined during stock verification</li>
-            </ul>
-          </div>
-        </section>
-      </div>
+      <h2>Currency Information</h2>
+      <ul>
+        <li>Exchange rates are fetched from Yahoo Finance</li>
+        <li>Transactions are converted using the rate from the transaction date</li>
+        <li>Supported currencies: {currencies.length} available</li>
+        <li>Stock currencies are determined during stock verification</li>
+      </ul>
     </div>
   );
 };

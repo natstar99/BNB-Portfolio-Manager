@@ -1,0 +1,195 @@
+/* Pipboy Theme - Retro Terminal Green */
+[data-theme="pipboy"] {
+  /* Pipboy Green */
+  --color-primary: #00ff00;
+  --color-primary-light: #33ff33;
+  --color-primary-dark: #00cc00;
+  --color-primary-rgb: 0, 255, 0;
+
+  /* Secondary Colors */
+  --color-secondary: #00aa00;
+  --color-secondary-light: #00ff00;
+  --color-secondary-dark: #008800;
+
+  /* Status Colors */
+  --color-success: #00ff00;
+  --color-success-light: #33ff33;
+  --color-success-dark: #00cc00;
+
+  --color-warning: #ffff00;
+  --color-warning-light: #ffff33;
+  --color-warning-dark: #cccc00;
+
+  --color-error: #ff0000;
+  --color-error-light: #ff3333;
+  --color-error-dark: #cc0000;
+
+  /* Terminal Black Background */
+  --color-background: #0a0a0a;
+  --color-surface: #0f0f0f;
+  --color-surface-secondary: #141414;
+  --color-surface-tertiary: #1a1a1a;
+  --color-surface-elevated: #121212;
+
+  /* Terminal Green Text */
+  --color-text-primary: #00ff00;
+  --color-text-secondary: #00cc00;
+  --color-text-tertiary: #009900;
+  --color-text-inverse: #000000;
+
+  /* Terminal Green Borders */
+  --color-border: #00ff00;
+  --color-border-light: #33ff33;
+  --color-border-dark: #00cc00;
+
+  /* CRT Screen Effect */
+  --glass-background: rgba(0, 0, 0, 0.9);
+  --glass-border: rgba(0, 255, 0, 0.3);
+  --glass-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+/* Pipboy theme styling */
+[data-theme="pipboy"] body {
+  background-color: var(--color-background) !important;
+  background-image: none;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+/* CRT scanline effect */
+[data-theme="pipboy"]::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Subtle terminal glow effect */
+[data-theme="pipboy"] * {
+  text-shadow: 0 0 3px rgba(0, 255, 0, 0.3);
+}
+
+/* Pipboy-specific overrides */
+[data-theme="pipboy"] .card {
+  border: 1px solid var(--color-primary);
+  background: var(--color-surface);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1rem;
+}
+
+/* Terminal-style table - outer border only */
+[data-theme="pipboy"] .table {
+  border: 1px solid var(--color-primary);
+  border-collapse: collapse;
+}
+
+[data-theme="pipboy"] .table th,
+[data-theme="pipboy"] .table td {
+  border: none;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+[data-theme="pipboy"] .table th {
+  background: transparent;
+  text-transform: uppercase;
+  font-weight: bold;
+  border-bottom: 1px solid var(--color-primary);
+}
+
+[data-theme="pipboy"] .table tbody tr {
+  border-bottom: 1px dotted rgba(0, 255, 0, 0.2);
+}
+
+[data-theme="pipboy"] .table tbody tr:last-child {
+  border-bottom: none;
+}
+
+[data-theme="pipboy"] button {
+  border: 1px solid var(--color-primary);
+  background: transparent;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 0;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+[data-theme="pipboy"] button:hover {
+  background: rgba(0, 255, 0, 0.1);
+  box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+}
+
+[data-theme="pipboy"] a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+[data-theme="pipboy"] a:hover {
+  text-decoration: underline;
+  background: rgba(0, 255, 0, 0.1);
+}
+
+[data-theme="pipboy"] h1,
+[data-theme="pipboy"] h2,
+[data-theme="pipboy"] h3 {
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  border-bottom: 1px solid var(--color-primary);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+[data-theme="pipboy"] h1 {
+  font-size: 1.2rem;
+}
+
+[data-theme="pipboy"] .positive {
+  color: var(--color-success);
+}
+
+[data-theme="pipboy"] .negative {
+  color: var(--color-error);
+}
+
+/* Modal overlay for pipboy */
+[data-theme="pipboy"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.9) !important;
+}
+
+[data-theme="pipboy"] input,
+[data-theme="pipboy"] textarea,
+[data-theme="pipboy"] select {
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  color: var(--color-text-primary);
+  font-family: 'Courier New', 'Consolas', monospace;
+  border-radius: 0;
+  font-size: 14px;
+}
+
+[data-theme="pipboy"] input:focus,
+[data-theme="pipboy"] textarea:focus,
+[data-theme="pipboy"] select:focus {
+  outline: none;
+  background: rgba(0, 255, 0, 0.05);
+  box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+}

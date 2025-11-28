@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark' | 'pipboy' | 'plain' | 'terminal';
 
 interface ThemeContextType {
   theme: Theme;
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   isDark: boolean;
 }
@@ -43,8 +44,14 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     document.documentElement.className = theme;
   }, [theme]);
 
+  const changeTheme = (newTheme: Theme) => {
+    setTheme(newTheme);
+    localStorage.setItem('bnb-theme', newTheme);
+  };
+
   const value = {
     theme,
+    setTheme: changeTheme,
     toggleTheme,
     isDark: theme === 'dark'
   };
