@@ -76,6 +76,7 @@ WHERE p.is_active = TRUE;
 
 -- Current stock positions for a portfolio using latest daily metrics
 -- This provides individual stock position data for the positions table
+
 CREATE VIEW V_CURRENT_POSITIONS AS
 WITH latest_metrics AS (
     -- Get the most recent date for each portfolio/stock combination
@@ -114,7 +115,7 @@ INNER JOIN latest_metrics lm ON dm.portfolio_key = lm.portfolio_key
                              AND dm.date_key = lm.latest_date_key
 INNER JOIN DIM_STOCK s ON dm.stock_key = s.stock_key
 LEFT JOIN DIM_DATE dd ON dm.date_key = dd.date_key
-WHERE dm.cumulative_shares > 0.000001  -- Only active positions
+WHERE dm.market_value > 0.01  -- Only active positions
 ORDER BY dm.market_value DESC;
 
 -- =============================================
