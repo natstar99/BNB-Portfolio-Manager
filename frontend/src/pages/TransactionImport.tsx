@@ -3,8 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FileUpload } from '../components/import/FileUpload';
 import { ColumnMapping } from '../components/import/ColumnMapping';
 import { DataPreview } from '../components/import/DataPreview';
-import { ImportSummary } from '../components/import/ImportSummary';
-import { StockVerification } from '../components/import/StockVerification';
 
 export interface ImportData {
   file: File | null;
@@ -70,21 +68,9 @@ export const TransactionImport: React.FC = () => {
     },
     {
       key: 'confirm',
-      title: '3. Confirm Transactions',
+      title: '3. Confirm & Stage',
       completed: Boolean(importData.validationResults?.confirmed),
       current: currentStep === 2,
-    },
-    {
-      key: 'verify',
-      title: '4. Verify Stocks',
-      completed: Boolean(importData.validationResults?.stocksVerified),
-      current: currentStep === 3,
-    },
-    {
-      key: 'import',
-      title: '5. Import',
-      completed: Boolean(importData.importResults?.success),
-      current: currentStep === 4,
     },
   ];
 
@@ -145,24 +131,17 @@ export const TransactionImport: React.FC = () => {
     setImportData(prev => ({ ...prev, validationResults }));
   };
 
-  const handleConfirmTransactions = () => {
+  const handleStageComplete = (stagingResults: any) => {
+    // Transactions are staged, redirect to Manage Stocks
     setImportData(prev => ({
       ...prev,
-      validationResults: { ...prev.validationResults, confirmed: true }
+      validationResults: { ...prev.validationResults, confirmed: true, stagingResults }
     }));
-    setCurrentStep(3);
-  };
 
-  const handleStockVerification = (verificationResults: any) => {
-    setImportData(prev => ({
-      ...prev,
-      validationResults: { ...prev.validationResults, stocksVerified: true }
-    }));
-    setCurrentStep(4);
-  };
-
-  const handleImport = (importResults: any) => {
-    setImportData(prev => ({ ...prev, importResults }));
+    // Show success message and redirect after a brief delay
+    setTimeout(() => {
+      navigate(`/portfolio/${portfolioId}/stocks`);
+    }, 2000);
   };
 
   const resetImport = () => {
@@ -185,8 +164,6 @@ export const TransactionImport: React.FC = () => {
     switch (stepIndex) {
       case 1: return Boolean(importData.file);
       case 2: return Object.keys(importData.columnMapping).length > 0;
-      case 3: return Boolean(importData.validationResults?.confirmed);
-      case 4: return Boolean(importData.validationResults?.stocksVerified);
       default: return true;
     }
   };
@@ -272,27 +249,7 @@ export const TransactionImport: React.FC = () => {
             dateFormat={importData.dateFormat}
             portfolioId={parseInt(portfolioId!)}
             onValidation={handleValidation}
-            onConfirm={handleConfirmTransactions}
-          />
-        )}
-
-        {currentStep === 3 && importData.validationResults && (
-          <StockVerification
-            validationResults={importData.validationResults}
-            portfolioId={parseInt(portfolioId!)}
-            onStockVerification={handleStockVerification}
-          />
-        )}
-
-        {currentStep === 4 && importData.validationResults && (
-          <ImportSummary
-            file={importData.file}
-            columnMapping={importData.columnMapping}
-            dateFormat={importData.dateFormat}
-            validationResults={importData.validationResults}
-            portfolioId={parseInt(portfolioId!)}
-            onImport={handleImport}
-            onComplete={() => navigate(`/portfolio/${portfolioId}/dashboard`)}
+            onStageComplete={handleStageComplete}
           />
         )}
       </div>

@@ -6,7 +6,7 @@ interface DataPreviewProps {
   dateFormat: string;
   portfolioId: number;
   onValidation: (validationResults: any) => void;
-  onConfirm: () => void;
+  onStageComplete: (stagingResults: any) => void;
 }
 
 interface ValidationError {
@@ -30,13 +30,14 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
   dateFormat,
   portfolioId,
   onValidation,
-  onConfirm,
+  onStageComplete,
 }) => {
   const [validating, setValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [staged, setStaged] = useState(false);
 
 
   useEffect(() => {
@@ -106,15 +107,22 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
       
       if (data.success) {
         // Update validation results with staging confirmation data
-        setValidationResults((prev: any) => ({
-          ...prev,
+        const stagingResults = {
           ...data.data,
           confirmed: true,
-          staged: true
+          staged: true,
+          message: data.message
+        };
+
+        setValidationResults((prev: any) => ({
+          ...prev,
+          ...stagingResults
         }));
-        
-        // Call the onConfirm callback to proceed to next step
-        onConfirm();
+
+        setStaged(true);
+
+        // Call the onStageComplete callback with results
+        onStageComplete(stagingResults);
       } else {
         throw new Error(data.error || 'Failed to stage transactions');
       }
@@ -173,6 +181,37 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
           </div>
           <h3>Confirming Data...</h3>
           <p>Checking data format and detecting duplicates</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (staged && validationResults) {
+    return (
+      <div className="data-preview-section">
+        <div className="validation-success glass">
+          <div className="success-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-success">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22,4 12,14.01 9,11.01"/>
+            </svg>
+          </div>
+          <h3>Transactions Staged Successfully!</h3>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <p><strong>{validationResults.saved_transactions}</strong> transactions staged</p>
+            <p><strong>{validationResults.stocks_created || 0}</strong> new stocks created with pending status</p>
+            {validationResults.duplicate_transactions > 0 && (
+              <p style={{ color: 'var(--color-text-secondary)' }}>
+                {validationResults.duplicate_transactions} duplicates skipped
+              </p>
+            )}
+          </div>
+          <p style={{ marginBottom: '1rem', color: 'var(--color-text-secondary)' }}>
+            {validationResults.message}
+          </p>
+          <p style={{ fontWeight: 600 }}>
+            Redirecting to Manage Stocks...
+          </p>
         </div>
       </div>
     );

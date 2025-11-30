@@ -9,7 +9,10 @@ from app import db
 import io
 import pandas as pd
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @bp.route('/import/template', methods=['GET'])
@@ -414,7 +417,7 @@ def stage_transactions():
 
         if new_transactions:
             from app.models.transaction import RawTransaction
-            
+
             try:
                 raw_transactions = RawTransaction.create_batch(portfolio_id, new_transactions)
                 saved_transactions = len(raw_transactions)
@@ -426,6 +429,42 @@ def stage_transactions():
                     'error': f'Failed to stage transactions: {str(e)}'
                 }), 500
 
+        # CRITICAL: Create new stocks in DIM_STOCK with status='pending'
+        # This ensures they appear in the Manage Stocks screen for verification
+        new_stock_symbols = validation_results.get('instrument_analysis', {}).get('new_stocks', [])
+        stocks_created = 0
+
+        if new_stock_symbols:
+            try:
+                for instrument_code in new_stock_symbols:
+                    # Check if stock already exists
+                    existing_stock = Stock.get_by_portfolio_and_instrument(portfolio_id, instrument_code)
+
+                    if not existing_stock:
+                        # Create stock with pending status
+                        Stock.create(
+                            portfolio_key=portfolio_id,
+                            instrument_code=instrument_code,
+                            yahoo_symbol=instrument_code,  # Default to instrument code
+                            name=instrument_code,  # Placeholder name
+                            verification_status='pending',
+                            market_key=None,  # User will assign in Manage Stocks
+                            drp_enabled=False
+                        )
+                        stocks_created += 1
+                        logger.info(f"Created pending stock: {instrument_code} for portfolio {portfolio_id}")
+
+                db.session.commit()
+                logger.info(f"Created {stocks_created} new pending stocks in DIM_STOCK")
+
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Failed to create pending stocks: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to create pending stocks: {str(e)}'
+                }), 500
+
         # Prepare response
         response_data = {
             'filename': file.filename,
@@ -434,6 +473,7 @@ def stage_transactions():
             'new_transactions': len(new_transactions),
             'duplicate_transactions': duplicate_count,
             'saved_transactions': saved_transactions,
+            'stocks_created': stocks_created,
             'confirmed': True,  # Mark as confirmed since we've staged the data
             'column_mapping': column_mapping,
             'date_format': date_format
@@ -454,7 +494,7 @@ def stage_transactions():
         return jsonify({
             'success': True,
             'data': response_data,
-            'message': f'Staged {saved_transactions} new transactions successfully. {duplicate_count} duplicates skipped.'
+            'message': f'Staged {saved_transactions} new transactions and created {stocks_created} pending stocks. {duplicate_count} duplicates skipped. Go to Manage Stocks to assign markets and verify.'
         })
 
     except Exception as e:
