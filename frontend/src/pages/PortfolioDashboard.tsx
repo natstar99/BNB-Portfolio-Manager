@@ -94,7 +94,7 @@ export const PortfolioDashboard: React.FC = () => {
     <div className="page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <h1>{portfolio.name}</h1>
-        <button onClick={updateMarketData} disabled={updatingMarketData}>
+        <button onClick={updateMarketData} disabled={updatingMarketData} className="btn btn-warning">
           {updatingMarketData ? 'Updating...' : 'Update Market Data'}
         </button>
       </div>
@@ -113,13 +113,13 @@ export const PortfolioDashboard: React.FC = () => {
           </tr>
           <tr>
             <td>Total Return</td>
-            <td className={(portfolio.total_pl || 0) >= 0 ? 'positive' : 'negative'}>
+            <td className={(portfolio.total_pl || 0) > 0 ? 'metric-positive' : (portfolio.total_pl || 0) < 0 ? 'metric-negative' : 'metric-zero'}>
               {formatCurrency(portfolio.total_pl || 0, portfolio?.currency)} ({formatPercent(portfolio.total_pl_percent || 0)})
             </td>
           </tr>
           <tr>
             <td>Day Change</td>
-            <td className={(portfolio.day_change || 0) >= 0 ? 'positive' : 'negative'}>
+            <td className={(portfolio.day_change || 0) > 0 ? 'metric-positive' : (portfolio.day_change || 0) < 0 ? 'metric-negative' : 'metric-zero'}>
               {formatCurrency(portfolio.day_change || 0, portfolio?.currency)} ({formatPercent(portfolio.day_change_percent || 0)})
             </td>
           </tr>
@@ -162,13 +162,13 @@ export const PortfolioDashboard: React.FC = () => {
                 <td>{formatCurrency(position.current_price, portfolio?.currency)}</td>
                 <td>{formatCurrency(position.market_value, portfolio?.currency)}</td>
                 <td>{formatCurrency(position.avg_cost * position.quantity, portfolio?.currency)}</td>
-                <td className={position.gain_loss >= 0 ? 'positive' : 'negative'}>
+                <td className={position.gain_loss > 0 ? 'metric-positive' : position.gain_loss < 0 ? 'metric-negative' : 'metric-zero'}>
                   {formatCurrency(position.gain_loss, portfolio?.currency)}
                 </td>
-                <td className={position.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
+                <td className={position.gain_loss_percent > 0 ? 'metric-positive' : position.gain_loss_percent < 0 ? 'metric-negative' : 'metric-zero'}>
                   {formatPercent(position.gain_loss_percent)}
                 </td>
-                <td className={position.day_change >= 0 ? 'positive' : 'negative'}>
+                <td className={position.day_change > 0 ? 'metric-positive' : position.day_change < 0 ? 'metric-negative' : 'metric-zero'}>
                   {formatCurrency(position.day_change, portfolio?.currency)}
                   <br />
                   <small>{formatPercent(position.day_change_percent)}</small>

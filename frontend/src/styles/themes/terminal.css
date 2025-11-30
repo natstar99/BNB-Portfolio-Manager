@@ -189,3 +189,87 @@
   border-style: solid;
   border-width: 1px;
 }
+
+/* ===== SEMANTIC STATUS COLORS ===== */
+/* Stock verification statuses */
+[data-theme="terminal"] .status-verified {
+  color: var(--color-success) !important;
+  font-weight: bold;
+}
+
+[data-theme="terminal"] .status-pending {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="terminal"] .status-inactive {
+  color: var(--color-warning) !important;
+}
+
+[data-theme="terminal"] .status-failed {
+  color: var(--color-error) !important;
+}
+
+/* ===== METRIC VALUE COLORS ===== */
+/* For portfolio metrics: P/L, day change, etc. */
+[data-theme="terminal"] .metric-positive {
+  color: var(--color-success) !important;
+}
+
+[data-theme="terminal"] .metric-negative {
+  color: var(--color-error) !important;
+}
+
+[data-theme="terminal"] .metric-zero {
+  color: var(--color-warning) !important;
+}
+
+[data-theme="terminal"] .metric-neutral {
+  color: var(--color-text-primary) !important;
+}
+
+/* ===== BUTTON VARIANTS ===== */
+/* Primary action button (green) */
+[data-theme="terminal"] .btn-primary {
+  background: var(--color-success);
+  color: var(--color-text-inverse);
+  border-color: var(--color-success);
+}
+
+[data-theme="terminal"] .btn-primary:hover {
+  background: var(--color-success-light);
+  border-color: var(--color-success-light);
+  box-shadow: none;
+}
+
+[data-theme="terminal"] .btn-primary:disabled {
+  background: var(--color-border-dark);
+  color: var(--color-text-tertiary);
+  border-color: var(--color-border-dark);
+  cursor: not-allowed;
+}
+
+/* Warning/action button (orange) */
+[data-theme="terminal"] .btn-warning {
+  background: var(--color-warning);
+  color: var(--color-text-inverse);
+  border-color: var(--color-warning);
+}
+
+[data-theme="terminal"] .btn-warning:hover {
+  background: var(--color-warning-light);
+  border-color: var(--color-warning-light);
+  box-shadow: none;
+}
+
+/* ===== REMOVE ANIMATIONS/TRANSITIONS ===== */
+[data-theme="terminal"] button {
+  transition: none !important;
+}
+
+[data-theme="terminal"] button:hover {
+  box-shadow: none;
+}
+
+[data-theme="terminal"] .table tbody tr:hover {
+  transition: none;
+}

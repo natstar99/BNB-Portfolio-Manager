@@ -248,6 +248,40 @@ body {
   color: var(--color-text-secondary);
 }
 
+/* Semantic Status Colors (fallback for all themes) */
+.status-verified {
+  color: var(--color-success);
+}
+
+.status-pending {
+  color: var(--color-text-primary);
+}
+
+.status-inactive {
+  color: var(--color-warning);
+}
+
+.status-failed {
+  color: var(--color-error);
+}
+
+/* Metric Value Colors (fallback for all themes) */
+.metric-positive {
+  color: var(--color-success);
+}
+
+.metric-negative {
+  color: var(--color-error);
+}
+
+.metric-zero {
+  color: var(--color-warning);
+}
+
+.metric-neutral {
+  color: var(--color-text-primary);
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 8px;

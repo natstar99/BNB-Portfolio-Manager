@@ -513,43 +513,6 @@ export const StockManagement: React.FC = () => {
     return stocks.filter(stock => stock.verification_status === filter);
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'verified':
-        return (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-success">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22,4 12,14.01 9,11.01"/>
-          </svg>
-        );
-      case 'pending':
-        return (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-warning">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 6v6l4 2"/>
-          </svg>
-        );
-      case 'inactive':
-        return (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-secondary">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 8v4"/>
-            <path d="M12 16h.01"/>
-          </svg>
-        );
-      case 'failed':
-        return (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-error">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="15" y1="9" x2="9" y2="15"/>
-            <line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
-        );
-      default:
-        return null;
-    }
-  };
-
   const filteredStocks = getFilteredStocks();
 
   if (!portfolioId) {
@@ -610,7 +573,7 @@ export const StockManagement: React.FC = () => {
         <div className="header-actions">
           <button
             onClick={() => setShowStagedTransactions(true)}
-            className="btn btn-outline"
+            className="btn btn-warning"
           >
             View Staged Transactions
           </button>
@@ -675,7 +638,7 @@ export const StockManagement: React.FC = () => {
             </button>
             <button
               onClick={bulkMarkInactive}
-              className="btn btn-secondary"
+              className="btn btn-warning"
             >
               Mark Selected as Inactive
             </button>
@@ -764,11 +727,8 @@ export const StockManagement: React.FC = () => {
                     onChange={(e) => handleDRPChange(stock, e.target.checked)}
                   />
                 </td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {getStatusIcon(stock.verification_status)}
-                    <span>{stock.verification_status.charAt(0).toUpperCase() + stock.verification_status.slice(1)}</span>
-                  </div>
+                <td className={`status-${stock.verification_status}`}>
+                  {stock.verification_status.charAt(0).toUpperCase() + stock.verification_status.slice(1)}
                 </td>
                 <td>
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
@@ -786,7 +746,7 @@ export const StockManagement: React.FC = () => {
                       <button
                         onClick={() => markStockInactive(stock)}
                         disabled={markingInactive === stock.stock_key}
-                        className="btn btn-sm btn-secondary"
+                        className="btn btn-warning"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem' }}
                         title="Mark as inactive (delisted/not traded)"
                       >
