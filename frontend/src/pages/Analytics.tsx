@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { PortfolioValueChart } from '../components/charts/PortfolioValueChart';
 import { PortfolioPLChart } from '../components/charts/PortfolioPLChart';
 import { AssetAllocationChart } from '../components/charts/AssetAllocationChart';
@@ -21,6 +21,15 @@ const STOCK_COLORS = [
   '#87ceeb', '#dda0dd', '#f0e68c', '#ff6347', '#40e0d0'
 ];
 
+const CHARTS = [
+  { id: 'portfolio-value', label: 'Portfolio Value' },
+  { id: 'portfolio-pl', label: 'Portfolio P/L' },
+  { id: 'stock-values', label: 'Stock Values' },
+  { id: 'stock-pl', label: 'Stock P/L' },
+  { id: 'allocation', label: 'Asset Allocation' },
+  { id: 'performance-ranking', label: 'Performance Ranking' }
+];
+
 export const Analytics: React.FC = () => {
   const { portfolioId } = useParams<{ portfolioId: string }>();
   const navigate = useNavigate();
@@ -29,8 +38,13 @@ export const Analytics: React.FC = () => {
   const [stocksData, setStocksData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timePeriod, setTimePeriod] = useState<'30D' | '1Y' | '1W' | '1D' | 'ALL'>('30D');
-  const [selectedChart, setSelectedChart] = useState<string | null>(null);
+  const [selectedChart, setSelectedChart] = useState<string>('portfolio-value');
+
+  // Date range state
+  const [useCustomRange, setUseCustomRange] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [quickPeriod, setQuickPeriod] = useState<'1D' | '1W' | '30D' | '1Y' | 'ALL'>('30D');
 
   useEffect(() => {
     if (!portfolioId) {
@@ -83,22 +97,32 @@ export const Analytics: React.FC = () => {
     }
   };
 
+  const filterDataByDate = (data: any[]) => {
+    if (!data || data.length === 0) return [];
+
+    if (useCustomRange && startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      return data.filter(item => {
+        const itemDate = new Date(item.date);
+        return itemDate >= start && itemDate <= end;
+      });
+    }
+
+    if (quickPeriod === 'ALL') return data;
+
+    const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
+    const days = daysMap[quickPeriod];
+    const now = new Date();
+    const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    return data.filter(item => new Date(item.date) >= cutoffDate);
+  };
+
   const prepareChartData = () => {
     if (!analyticsData) return null;
 
-    const dataToUse = performanceData || [];
-    let filteredData = Array.isArray(dataToUse) ? dataToUse : [];
-
-    if (timePeriod !== 'ALL' && filteredData.length > 0) {
-      const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
-      const days = daysMap[timePeriod];
-      const now = new Date();
-      const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-
-      filteredData = filteredData.filter(item =>
-        new Date(item.date) >= startDate
-      );
-    }
+    const filteredPortfolioData = filterDataByDate(performanceData || []);
 
     const allocationData = analyticsData.positions.map(position => ({
       symbol: position.symbol,
@@ -122,8 +146,8 @@ export const Analytics: React.FC = () => {
 
     const stockValueData: any[] = [];
 
-    if (stocksData.length > 0 && filteredData.length > 0) {
-      const dateSet = new Set(filteredData.map(item => item.date));
+    if (stocksData.length > 0 && filteredPortfolioData.length > 0) {
+      const dateSet = new Set(filteredPortfolioData.map(item => item.date));
       const stocksByDate: { [date: string]: any } = {};
 
       stocksData.forEach(stock => {
@@ -144,7 +168,7 @@ export const Analytics: React.FC = () => {
     }
 
     return {
-      portfolioData: filteredData,
+      portfolioData: filteredPortfolioData,
       allocationData,
       rankingData,
       stocksWithColors,
@@ -154,33 +178,84 @@ export const Analytics: React.FC = () => {
 
   const chartData = prepareChartData();
 
-  const renderEnlargedChart = () => {
-    if (!chartData || !selectedChart) return null;
+  const handleQuickPeriod = (period: typeof quickPeriod) => {
+    setQuickPeriod(period);
+    setUseCustomRange(false);
+  };
+
+  const handleCustomRange = () => {
+    if (startDate && endDate) {
+      setUseCustomRange(true);
+    }
+  };
+
+  const renderChart = () => {
+    if (!chartData) return <p>No data available</p>;
 
     switch (selectedChart) {
       case 'portfolio-value':
-        return <PortfolioValueChart data={chartData.portfolioData} currency={analyticsData!.portfolio.currency} isLarge={true} timePeriod={timePeriod} />;
+        return chartData.portfolioData.length > 0 ? (
+          <PortfolioValueChart
+            data={chartData.portfolioData}
+            currency={analyticsData!.portfolio.currency}
+            isLarge={true}
+            timePeriod={quickPeriod}
+          />
+        ) : <p>No data available</p>;
+
       case 'portfolio-pl':
-        return <PortfolioPLChart data={chartData.portfolioData} currency={analyticsData!.portfolio.currency} isLarge={true} timePeriod={timePeriod} />;
+        return chartData.portfolioData.length > 0 ? (
+          <PortfolioPLChart
+            data={chartData.portfolioData}
+            currency={analyticsData!.portfolio.currency}
+            isLarge={true}
+            timePeriod={quickPeriod}
+          />
+        ) : <p>No data available</p>;
+
       case 'stock-values':
-        return <StockValueChart data={chartData.filteredData} stocks={chartData.stocksWithColors} currency={analyticsData!.portfolio.currency} isLarge={true} timePeriod={timePeriod} />;
+        return chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
+          <StockValueChart
+            data={chartData.filteredData}
+            stocks={chartData.stocksWithColors}
+            currency={analyticsData!.portfolio.currency}
+            isLarge={true}
+            timePeriod={quickPeriod}
+          />
+        ) : <p>No data available</p>;
+
       case 'stock-pl':
-        return <StockPLChart data={chartData.filteredData} stocks={chartData.stocksWithColors} currency={analyticsData!.portfolio.currency} isLarge={true} timePeriod={timePeriod} />;
+        return chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
+          <StockPLChart
+            data={chartData.filteredData}
+            stocks={chartData.stocksWithColors}
+            currency={analyticsData!.portfolio.currency}
+            isLarge={true}
+            timePeriod={quickPeriod}
+          />
+        ) : <p>No data available</p>;
+
       case 'allocation':
-        return <AssetAllocationChart data={chartData.allocationData} currency={analyticsData!.portfolio.currency} isLarge={true} />;
+        return chartData.allocationData.length > 0 ? (
+          <AssetAllocationChart
+            data={chartData.allocationData}
+            currency={analyticsData!.portfolio.currency}
+            isLarge={true}
+          />
+        ) : <p>No data available</p>;
+
       case 'performance-ranking':
-        return <PerformanceRankingChart data={chartData.rankingData} isLarge={true} />;
+        return chartData.rankingData.length > 0 ? (
+          <PerformanceRankingChart data={chartData.rankingData} isLarge={true} />
+        ) : <p>No data available</p>;
+
       default:
         return <p>Chart not found</p>;
     }
   };
 
   if (loading) {
-    return (
-      <div className="page">
-        <p>Loading...</p>
-      </div>
-    );
+    return <div className="page"><p>Loading...</p></div>;
   }
 
   if (error || !analyticsData) {
@@ -195,108 +270,72 @@ export const Analytics: React.FC = () => {
   }
 
   return (
-    <div className="page analytics-page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1>{analyticsData.portfolio.name} Analytics</h1>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+    <div className="page">
+      <h1>{analyticsData.portfolio.name} Analytics</h1>
+
+      {/* Chart Selector */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+        {CHARTS.map(chart => (
+          <button
+            key={chart.id}
+            className={selectedChart === chart.id ? 'active' : ''}
+            onClick={() => setSelectedChart(chart.id)}
+          >
+            {chart.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Date Range Controls */}
+      <div style={{ marginBottom: '2rem', padding: '1rem', border: '1px solid var(--color-border)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Date Range</h3>
+
+        {/* Quick Period Buttons */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
           {(['1D', '1W', '30D', '1Y', 'ALL'] as const).map((period) => (
             <button
               key={period}
-              className={timePeriod === period ? 'active' : ''}
-              onClick={() => setTimePeriod(period)}
+              className={!useCustomRange && quickPeriod === period ? 'active' : ''}
+              onClick={() => handleQuickPeriod(period)}
             >
               {period === 'ALL' ? 'All Time' : period}
             </button>
           ))}
-          <Link to={`/portfolio/${portfolioId}/dashboard`}>Back to Dashboard</Link>
-        </div>
-      </div>
-
-      {/* Analytics Dashboard Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-        {/* Portfolio Value */}
-        <div onClick={() => setSelectedChart('portfolio-value')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Portfolio Value</h3>
-          <p style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-            {formatCurrency(analyticsData.portfolio.total_value || 0, analyticsData?.portfolio?.currency)}
-          </p>
-          {chartData && chartData.portfolioData && chartData.portfolioData.length > 0 ? (
-            <PortfolioValueChart data={chartData.portfolioData} currency={analyticsData.portfolio.currency} isLarge={false} timePeriod={timePeriod} />
-          ) : (
-            <p>No data available</p>
-          )}
         </div>
 
-        {/* Portfolio P&L */}
-        <div onClick={() => setSelectedChart('portfolio-pl')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Portfolio P&L</h3>
-          <p style={{ fontSize: '1.5rem', fontWeight: 'bold' }} className={(analyticsData.portfolio.total_pl || 0) >= 0 ? 'positive' : 'negative'}>
-            {formatCurrency(analyticsData.portfolio.total_pl || 0, analyticsData?.portfolio?.currency)}
-          </p>
-          {chartData && chartData.portfolioData && chartData.portfolioData.length > 0 ? (
-            <PortfolioPLChart data={chartData.portfolioData} currency={analyticsData.portfolio.currency} isLarge={false} timePeriod={timePeriod} />
-          ) : (
-            <p>No data available</p>
-          )}
-        </div>
-
-        {/* Stock Values */}
-        <div onClick={() => setSelectedChart('stock-values')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Stock Values</h3>
-          <p>{analyticsData.positions.length} Active Positions</p>
-          {chartData && chartData.filteredData && chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
-            <StockValueChart data={chartData.filteredData} stocks={chartData.stocksWithColors} currency={analyticsData.portfolio.currency} isLarge={false} timePeriod={timePeriod} />
-          ) : (
-            <p>No data available</p>
-          )}
-        </div>
-
-        {/* Stock P&L */}
-        <div onClick={() => setSelectedChart('stock-pl')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Stock P&L</h3>
-          <p>Performance by Stock</p>
-          {chartData && chartData.filteredData && chartData.filteredData.length > 0 && chartData.stocksWithColors.length > 0 ? (
-            <StockPLChart data={chartData.filteredData} stocks={chartData.stocksWithColors} currency={analyticsData.portfolio.currency} isLarge={false} timePeriod={timePeriod} />
-          ) : (
-            <p>No data available</p>
-          )}
-        </div>
-
-        {/* Asset Allocation */}
-        <div onClick={() => setSelectedChart('allocation')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Asset Allocation</h3>
-          <p>Distribution by Market Value</p>
-          {chartData && chartData.allocationData && chartData.allocationData.length > 0 ? (
-            <AssetAllocationChart data={chartData.allocationData} currency={analyticsData.portfolio.currency} isLarge={false} />
-          ) : (
-            <p>No data available</p>
-          )}
-        </div>
-
-        {/* Performance Ranking */}
-        <div onClick={() => setSelectedChart('performance-ranking')} style={{ cursor: 'pointer', border: '1px solid var(--color-border)', padding: '1rem' }}>
-          <h3>Performance Ranking</h3>
-          <p>Average Daily % Performance</p>
-          {chartData && chartData.rankingData && chartData.rankingData.length > 0 ? (
-            <PerformanceRankingChart data={chartData.rankingData} isLarge={false} />
-          ) : (
-            <p>No data available</p>
-          )}
-        </div>
-      </div>
-
-      {/* Modal for enlarged charts */}
-      {selectedChart && (
-        <div className="modal-overlay" onClick={() => setSelectedChart(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1200px', width: '90%' }}>
-            <h2>Chart Details</h2>
-            <button onClick={() => setSelectedChart(null)} style={{ position: 'absolute', right: '1rem', top: '1rem' }}>Close</button>
-            <div style={{ marginTop: '2rem' }}>
-              {chartData && renderEnlargedChart()}
-            </div>
+        {/* Custom Date Range */}
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <label htmlFor="start-date" style={{ marginRight: '0.5rem' }}>From:</label>
+            <input
+              type="date"
+              id="start-date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
           </div>
+          <div>
+            <label htmlFor="end-date" style={{ marginRight: '0.5rem' }}>To:</label>
+            <input
+              type="date"
+              id="end-date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={handleCustomRange}
+            disabled={!startDate || !endDate}
+          >
+            Apply Custom Range
+          </button>
         </div>
-      )}
+      </div>
+
+      {/* Chart Display */}
+      <div style={{ width: '100%', minHeight: '400px' }}>
+        {renderChart()}
+      </div>
     </div>
   );
 };

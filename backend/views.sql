@@ -191,7 +191,9 @@ WITH daily_totals AS (
         SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.unrealized_pl ELSE 0 END) as unrealized_pl,
         SUM(CASE WHEN dm.cumulative_shares > 0.000001 THEN dm.daily_pl ELSE 0 END) as daily_pl,
         SUM(dm.realized_pl) as realized_pl,
-        COUNT(CASE WHEN dm.cumulative_shares > 0.000001 THEN 1 END) as active_positions
+        COUNT(CASE WHEN dm.cumulative_shares > 0.000001 THEN 1 END) as active_positions,
+        -- Track if there's any realized P/L activity (position closures)
+        SUM(ABS(dm.realized_pl)) as has_realized_activity
     FROM FACT_DAILY_PORTFOLIO_METRICS dm
     INNER JOIN DIM_DATE dd ON dm.date_key = dd.date_key
     GROUP BY dm.portfolio_key, dm.date_key, dd.date_value
@@ -217,7 +219,8 @@ SELECT
         ELSE 0
     END as total_return_pct
 FROM daily_totals dt
-WHERE dt.active_positions > 0  -- Only include dates with active positions (allows weekend data)
+-- Include dates with active positions OR realized P/L events (position closures)
+WHERE dt.active_positions > 0 OR dt.has_realized_activity > 0
 ORDER BY dt.portfolio_key, dt.date_value;
 
 -- =============================================
