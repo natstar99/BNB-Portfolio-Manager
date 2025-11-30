@@ -52,7 +52,7 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
+    <ResponsiveContainer width="90%" aspect={isLarge ? 16/9 : 2/1}>
       <LineChart
         data={data}
         margin={{

@@ -20,6 +20,19 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
   isLarge = false,
   timePeriod
 }) => {
+  const [zeroAtStart, setZeroAtStart] = React.useState(false);
+
+  const chartData = React.useMemo(() => {
+    if (!zeroAtStart || !data || data.length === 0) return data;
+
+    const firstPoint = data[0];
+    return data.map(point => ({
+      ...point,
+      total_return: point.total_return - firstPoint.total_return,
+      unrealized_pl: point.unrealized_pl - firstPoint.unrealized_pl,
+      realized_pl: point.realized_pl - firstPoint.realized_pl
+    }));
+  }, [data, zeroAtStart]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -56,11 +69,23 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
-      <LineChart
-        data={data}
-        margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
-      >
+    <div>
+      <div style={{ marginBottom: '0.5rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={zeroAtStart}
+            onChange={(e) => setZeroAtStart(e.target.checked)}
+          />
+          <span style={{ fontSize: '0.875rem' }}>Zero at Start</span>
+        </label>
+      </div>
+
+      <ResponsiveContainer width="90%" aspect={isLarge ? 16/9 : 2/1}>
+        <LineChart
+          data={chartData}
+          margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
+        >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
           dataKey="date" 
@@ -104,5 +129,6 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
         <Brush dataKey="date" height={30} stroke="var(--color-primary)" />
       </LineChart>
     </ResponsiveContainer>
+    </div>
   );
 };

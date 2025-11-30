@@ -57,7 +57,7 @@ export const PerformanceRankingChart: React.FC<PerformanceRankingChartProps> = (
   }
 
   return (
-    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
+    <ResponsiveContainer width="90%" aspect={isLarge ? 16/9 : 2/1}>
       <BarChart
         data={sortedData}
         margin={{

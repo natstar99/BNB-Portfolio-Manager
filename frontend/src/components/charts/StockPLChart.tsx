@@ -28,6 +28,23 @@ export const StockPLChart: React.FC<StockPLChartProps> = ({
     new Set(stocks.map(s => s.symbol))
   );
   const [hoverData, setHoverData] = useState<any>(null);
+  const [zeroAtStart, setZeroAtStart] = useState(false);
+
+  const chartData = React.useMemo(() => {
+    if (!zeroAtStart || !data || data.length === 0) return data;
+
+    const firstPoint = data[0];
+    return data.map(point => {
+      const normalized: any = { date: point.date };
+      stocks.forEach(stock => {
+        const plKey = `${stock.symbol}_pl`;
+        if (firstPoint[plKey] !== undefined && point[plKey] !== undefined) {
+          normalized[plKey] = (point[plKey] as number) - (firstPoint[plKey] as number);
+        }
+      });
+      return normalized;
+    });
+  }, [data, zeroAtStart, stocks]);
 
   const toggleStock = (symbol: string) => {
     setVisibleStocks(prev => {
@@ -80,52 +97,65 @@ export const StockPLChart: React.FC<StockPLChartProps> = ({
         ))}
       </div>
 
-      <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
-        <LineChart
-          data={data}
-          margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-          <XAxis
-            dataKey="date"
-            tickFormatter={(value) => formatDateForChart(value, timePeriod)}
-            stroke="var(--color-text-secondary)"
-            fontSize={12}
+      <div style={{ marginBottom: '0.5rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={zeroAtStart}
+            onChange={(e) => setZeroAtStart(e.target.checked)}
           />
-          <YAxis
-            tickFormatter={(value) => formatCurrencyForChart(value, currency)}
-            stroke="var(--color-text-secondary)"
-            fontSize={12}
-          />
-          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }} />
-          <ReferenceLine y={0} stroke="var(--color-border)" strokeWidth={2} />
-          {visibleStocksList.map((stock) => (
-            <Line
-              key={`${stock.symbol}_pl`}
-              type="monotone"
-              dataKey={`${stock.symbol}_pl`}
-              stroke={stock.color}
-              strokeWidth={2}
-              dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          ))}
-          <Brush dataKey="date" height={30} stroke="var(--color-primary)" />
-        </LineChart>
-      </ResponsiveContainer>
+          <span style={{ fontSize: '0.875rem' }}>Zero at Start</span>
+        </label>
+      </div>
 
-      {/* Fixed tooltip display */}
-      {hoverData && (
-        <div style={{ marginTop: '0.5rem', padding: '0.5rem', border: '1px solid var(--color-border)', fontSize: '0.875rem' }}>
-          <strong>{formatDateForChart(hoverData.label, timePeriod)}</strong>
-          {hoverData.payload.map((entry: any, index: number) => (
-            <div key={index} style={{ color: entry.color }}>
-              {entry.dataKey} P&L: {formatCurrency(entry.value, currency)}
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        <ResponsiveContainer width="90%" aspect={isLarge ? 16/9 : 2/1}>
+          <LineChart
+            data={chartData}
+            margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+            <XAxis
+              dataKey="date"
+              tickFormatter={(value) => formatDateForChart(value, timePeriod)}
+              stroke="var(--color-text-secondary)"
+              fontSize={12}
+            />
+            <YAxis
+              tickFormatter={(value) => formatCurrencyForChart(value, currency)}
+              stroke="var(--color-text-secondary)"
+              fontSize={12}
+            />
+            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }} />
+            <ReferenceLine y={0} stroke="var(--color-border)" strokeWidth={2} />
+            {visibleStocksList.map((stock) => (
+              <Line
+                key={`${stock.symbol}_pl`}
+                type="monotone"
+                dataKey={`${stock.symbol}_pl`}
+                stroke={stock.color}
+                strokeWidth={2}
+                dot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+            ))}
+            <Brush dataKey="date" height={30} stroke="var(--color-primary)" />
+          </LineChart>
+        </ResponsiveContainer>
+
+        {/* Fixed tooltip display */}
+        {hoverData && (
+          <div style={{ flex: 1, padding: '0.5rem', border: '1px solid var(--color-border)', fontSize: '0.875rem', alignSelf: 'flex-start' }}>
+            <strong>{formatDateForChart(hoverData.label, timePeriod)}</strong>
+            {hoverData.payload.map((entry: any, index: number) => (
+              <div key={index} style={{ color: entry.color }}>
+                {entry.dataKey} P&L: {formatCurrency(entry.value, currency)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -93,7 +93,7 @@ export const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
+    <ResponsiveContainer width="90%" aspect={isLarge ? 16/9 : 2/1}>
       <PieChart>
         <Pie
           data={data}
