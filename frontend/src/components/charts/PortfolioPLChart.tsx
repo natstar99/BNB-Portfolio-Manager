@@ -1,5 +1,5 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Brush } from 'recharts';
 import { formatCurrency, formatCurrencyForChart, formatDateForChart } from '../../shared/formatters';
 
 interface PortfolioPLChartProps {
@@ -56,15 +56,10 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" height={isLarge ? 400 : 200}>
+    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
       <LineChart
         data={data}
-        margin={{
-          top: 5,
-          right: 30,
-          left: 20,
-          bottom: 5,
-        }}
+        margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
         <XAxis 
@@ -78,7 +73,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip />} wrapperStyle={{ bottom: -60, top: 'auto' }} cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }} />
         <ReferenceLine y={0} stroke="var(--color-border)" strokeWidth={2} />
         <Line
           type="monotone"
@@ -86,6 +81,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           stroke="var(--color-primary)"
           strokeWidth={3}
           dot={false}
+          isAnimationActive={false}
         />
         <Line
           type="monotone"
@@ -94,6 +90,7 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           strokeWidth={2}
           strokeDasharray="5 5"
           dot={false}
+          isAnimationActive={false}
         />
         <Line
           type="monotone"
@@ -102,7 +99,9 @@ export const PortfolioPLChart: React.FC<PortfolioPLChartProps> = ({
           strokeWidth={2}
           strokeDasharray="3 3"
           dot={false}
+          isAnimationActive={false}
         />
+        <Brush dataKey="date" height={30} stroke="var(--color-primary)" />
       </LineChart>
     </ResponsiveContainer>
   );

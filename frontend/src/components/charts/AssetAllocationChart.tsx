@@ -93,7 +93,7 @@ export const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" height={isLarge ? 400 : 200}>
+    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
       <PieChart>
         <Pie
           data={data}
@@ -104,12 +104,13 @@ export const AssetAllocationChart: React.FC<AssetAllocationChartProps> = ({
           outerRadius={isLarge ? 150 : 80}
           fill="#8884d8"
           dataKey="market_value"
+          isAnimationActive={false}
         >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip />} wrapperStyle={{ bottom: -60, top: 'auto' }} />
         {isLarge && (
           <Legend 
             verticalAlign="bottom" 

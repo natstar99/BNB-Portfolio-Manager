@@ -1,5 +1,5 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Brush } from 'recharts';
 import { formatCurrency, formatCurrencyForChart, formatDateForChart } from '../../shared/formatters';
 
 interface PortfolioValueChartProps {
@@ -52,12 +52,12 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
   }
 
   return (
-    <ResponsiveContainer width="100%" height={isLarge ? 400 : 200}>
+    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
       <LineChart
         data={data}
         margin={{
           top: 5,
-          right: 30,
+          right: 50,
           left: 20,
           bottom: 5,
         }}
@@ -74,13 +74,14 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
           stroke="var(--color-text-secondary)"
           fontSize={12}
         />
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip />} wrapperStyle={{ bottom: -60, top: 'auto' }} cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }} />
         <Line
           type="monotone"
           dataKey="total_value"
           stroke="var(--color-primary)"
           strokeWidth={2}
           dot={false}
+          isAnimationActive={false}
         />
         <Line
           type="monotone"
@@ -89,7 +90,9 @@ export const PortfolioValueChart: React.FC<PortfolioValueChartProps> = ({
           strokeWidth={2}
           strokeDasharray="5 5"
           dot={false}
+          isAnimationActive={false}
         />
+        <Brush dataKey="date" height={30} stroke="var(--color-primary)" />
       </LineChart>
     </ResponsiveContainer>
   );

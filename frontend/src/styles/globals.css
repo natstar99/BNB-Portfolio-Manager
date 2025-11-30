@@ -282,6 +282,22 @@ body {
   color: var(--color-text-primary);
 }
 
+/* Recharts Brush Styling */
+.recharts-brush {
+  fill: var(--color-surface-secondary);
+  stroke: var(--color-border);
+}
+
+.recharts-brush-traveller {
+  fill: var(--color-primary);
+  stroke: var(--color-primary);
+}
+
+.recharts-brush-slide {
+  fill: var(--color-surface-tertiary);
+  fill-opacity: 0.5;
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 8px;

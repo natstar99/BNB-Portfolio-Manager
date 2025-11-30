@@ -40,12 +40,6 @@ export const Analytics: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedChart, setSelectedChart] = useState<string>('portfolio-value');
 
-  // Date range state
-  const [useCustomRange, setUseCustomRange] = useState(false);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [quickPeriod, setQuickPeriod] = useState<'1D' | '1W' | '30D' | '1Y' | 'ALL'>('30D');
-
   useEffect(() => {
     if (!portfolioId) {
       navigate('/');
@@ -97,32 +91,11 @@ export const Analytics: React.FC = () => {
     }
   };
 
-  const filterDataByDate = (data: any[]) => {
-    if (!data || data.length === 0) return [];
-
-    if (useCustomRange && startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      return data.filter(item => {
-        const itemDate = new Date(item.date);
-        return itemDate >= start && itemDate <= end;
-      });
-    }
-
-    if (quickPeriod === 'ALL') return data;
-
-    const daysMap = { '1D': 1, '1W': 7, '30D': 30, '1Y': 365 };
-    const days = daysMap[quickPeriod];
-    const now = new Date();
-    const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-
-    return data.filter(item => new Date(item.date) >= cutoffDate);
-  };
 
   const prepareChartData = () => {
     if (!analyticsData) return null;
 
-    const filteredPortfolioData = filterDataByDate(performanceData || []);
+    const filteredPortfolioData = performanceData || [];
 
     const allocationData = analyticsData.positions.map(position => ({
       symbol: position.symbol,
@@ -178,17 +151,6 @@ export const Analytics: React.FC = () => {
 
   const chartData = prepareChartData();
 
-  const handleQuickPeriod = (period: typeof quickPeriod) => {
-    setQuickPeriod(period);
-    setUseCustomRange(false);
-  };
-
-  const handleCustomRange = () => {
-    if (startDate && endDate) {
-      setUseCustomRange(true);
-    }
-  };
-
   const renderChart = () => {
     if (!chartData) return <p>No data available</p>;
 
@@ -199,7 +161,6 @@ export const Analytics: React.FC = () => {
             data={chartData.portfolioData}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
-            timePeriod={quickPeriod}
           />
         ) : <p>No data available</p>;
 
@@ -209,7 +170,6 @@ export const Analytics: React.FC = () => {
             data={chartData.portfolioData}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
-            timePeriod={quickPeriod}
           />
         ) : <p>No data available</p>;
 
@@ -220,7 +180,6 @@ export const Analytics: React.FC = () => {
             stocks={chartData.stocksWithColors}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
-            timePeriod={quickPeriod}
           />
         ) : <p>No data available</p>;
 
@@ -231,7 +190,6 @@ export const Analytics: React.FC = () => {
             stocks={chartData.stocksWithColors}
             currency={analyticsData!.portfolio.currency}
             isLarge={true}
-            timePeriod={quickPeriod}
           />
         ) : <p>No data available</p>;
 
@@ -284,52 +242,6 @@ export const Analytics: React.FC = () => {
             {chart.label}
           </button>
         ))}
-      </div>
-
-      {/* Date Range Controls */}
-      <div style={{ marginBottom: '2rem', padding: '1rem', border: '1px solid var(--color-border)' }}>
-        <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Date Range</h3>
-
-        {/* Quick Period Buttons */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          {(['1D', '1W', '30D', '1Y', 'ALL'] as const).map((period) => (
-            <button
-              key={period}
-              className={!useCustomRange && quickPeriod === period ? 'active' : ''}
-              onClick={() => handleQuickPeriod(period)}
-            >
-              {period === 'ALL' ? 'All Time' : period}
-            </button>
-          ))}
-        </div>
-
-        {/* Custom Date Range */}
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div>
-            <label htmlFor="start-date" style={{ marginRight: '0.5rem' }}>From:</label>
-            <input
-              type="date"
-              id="start-date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="end-date" style={{ marginRight: '0.5rem' }}>To:</label>
-            <input
-              type="date"
-              id="end-date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-          <button
-            onClick={handleCustomRange}
-            disabled={!startDate || !endDate}
-          >
-            Apply Custom Range
-          </button>
-        </div>
       </div>
 
       {/* Chart Display */}

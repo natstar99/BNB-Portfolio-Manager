@@ -57,7 +57,7 @@ export const PerformanceRankingChart: React.FC<PerformanceRankingChartProps> = (
   }
 
   return (
-    <ResponsiveContainer width="100%" height={isLarge ? 400 : 200}>
+    <ResponsiveContainer width="100%" aspect={isLarge ? 16/9 : 2/1}>
       <BarChart
         data={sortedData}
         margin={{
@@ -82,9 +82,9 @@ export const PerformanceRankingChart: React.FC<PerformanceRankingChartProps> = (
           fontSize={12}
           label={{ value: 'Daily Return %', angle: -90, position: 'insideLeft' }}
         />
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip />} wrapperStyle={{ bottom: -60, top: 'auto' }} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
         <ReferenceLine y={0} stroke="var(--color-border)" strokeWidth={2} />
-        <Bar dataKey="avg_daily_return">
+        <Bar dataKey="avg_daily_return" isAnimationActive={false}>
           {sortedData.map((entry, index) => (
             <Cell
               key={`cell-${index}`}
